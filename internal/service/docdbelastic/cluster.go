@@ -58,10 +58,6 @@ const (
 	ResNameCluster = "Cluster"
 )
 
-func (r *resourceCluster) Metadata(_ context.Context, _ resource.MetadataRequest, response *resource.MetadataResponse) {
-	response.TypeName = "aws_docdbelastic_cluster"
-}
-
 func (r *resourceCluster) Schema(ctx context.Context, _ resource.SchemaRequest, response *resource.SchemaResponse) {
 	s := schema.Schema{
 		Attributes: map[string]schema.Attribute{
@@ -282,7 +278,7 @@ func (r *resourceCluster) Update(ctx context.Context, request resource.UpdateReq
 		return
 	}
 
-	diff, d := fwflex.Calculate(ctx, plan, state)
+	diff, d := fwflex.Diff(ctx, plan, state)
 	response.Diagnostics.Append(d...)
 	if response.Diagnostics.HasError() {
 		return

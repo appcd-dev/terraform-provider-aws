@@ -55,10 +55,6 @@ type serverlessCacheResource struct {
 	framework.WithTimeouts
 }
 
-func (*serverlessCacheResource) Metadata(_ context.Context, request resource.MetadataRequest, response *resource.MetadataResponse) {
-	response.TypeName = "aws_elasticache_serverless_cache"
-}
-
 func (r *serverlessCacheResource) Schema(ctx context.Context, request resource.SchemaRequest, response *resource.SchemaResponse) {
 	response.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
@@ -340,7 +336,7 @@ func (r *serverlessCacheResource) Update(ctx context.Context, request resource.U
 
 	conn := r.Meta().ElastiCacheClient(ctx)
 
-	diff, d := fwflex.Calculate(ctx, new, old)
+	diff, d := fwflex.Diff(ctx, new, old)
 	response.Diagnostics.Append(d...)
 	if response.Diagnostics.HasError() {
 		return

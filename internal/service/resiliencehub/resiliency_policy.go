@@ -59,10 +59,6 @@ type resourceResiliencyPolicy struct {
 	framework.WithTimeouts
 }
 
-func (r *resourceResiliencyPolicy) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
-	resp.TypeName = "aws_resiliencehub_resiliency_policy"
-}
-
 func (r *resourceResiliencyPolicy) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
 	requiredObjAttrs := map[string]schema.Attribute{
 		"rto": schema.StringAttribute{
@@ -321,7 +317,7 @@ func (r *resourceResiliencyPolicy) Update(ctx context.Context, req resource.Upda
 		return
 	}
 
-	diff, d := flex.Calculate(ctx, plan, state)
+	diff, d := flex.Diff(ctx, plan, state)
 	resp.Diagnostics.Append(d...)
 	if resp.Diagnostics.HasError() {
 		return

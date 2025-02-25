@@ -53,10 +53,6 @@ type slackChannelConfigurationResource struct {
 	framework.WithTimeouts
 }
 
-func (r *slackChannelConfigurationResource) Metadata(_ context.Context, request resource.MetadataRequest, response *resource.MetadataResponse) { // nosemgrep:ci.meta-in-func-name
-	response.TypeName = "aws_chatbot_slack_channel_configuration"
-}
-
 func (r *slackChannelConfigurationResource) Schema(ctx context.Context, request resource.SchemaRequest, response *resource.SchemaResponse) {
 	response.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
@@ -221,7 +217,7 @@ func (r *slackChannelConfigurationResource) Update(ctx context.Context, request 
 
 	conn := r.Meta().ChatbotClient(ctx)
 
-	diff, d := fwflex.Calculate(ctx, new, old)
+	diff, d := fwflex.Diff(ctx, new, old)
 	response.Diagnostics.Append(d...)
 	if response.Diagnostics.HasError() {
 		return

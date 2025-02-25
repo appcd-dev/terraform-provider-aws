@@ -54,10 +54,6 @@ type resourceScheduledQuery struct {
 	framework.WithTimeouts
 }
 
-func (r *resourceScheduledQuery) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
-	resp.TypeName = "aws_timestreamquery_scheduled_query"
-}
-
 func (r *resourceScheduledQuery) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
@@ -673,7 +669,7 @@ func (r *resourceScheduledQuery) Update(ctx context.Context, req resource.Update
 		return
 	}
 
-	diff, d := flex.Calculate(ctx, plan, state)
+	diff, d := flex.Diff(ctx, plan, state)
 	resp.Diagnostics.Append(d...)
 	if resp.Diagnostics.HasError() {
 		return
