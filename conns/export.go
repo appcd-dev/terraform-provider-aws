@@ -12,7 +12,7 @@ type Config conns.Config
 
 type AWSClient conns.AWSClient
 
-func (c *Config) ConfigureProvider(ctx context.Context, client *AWSClient) (*AWSClient, diag.Diagnostics) {
+func (c *Config) ConfigureProvider(ctx context.Context) (*AWSClient, diag.Diagnostics) {
 	return conns.Config(c).ConfigureProvider(ctx)
 }
 
