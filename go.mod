@@ -103,7 +103,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ecs v1.53.16
 	github.com/aws/aws-sdk-go-v2/service/efs v1.34.12
 	github.com/aws/aws-sdk-go-v2/service/eks v1.58.1
-	github.com/aws/aws-sdk-go-v2/service/elasticache v1.44.13
+	github.com/aws/aws-sdk-go-v2/service/elasticache v1.44.14
 	github.com/aws/aws-sdk-go-v2/service/elasticbeanstalk v1.28.17
 	github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing v1.28.18
 	github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2 v1.43.13
@@ -115,7 +115,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/eventbridge v1.36.12
 	github.com/aws/aws-sdk-go-v2/service/evidently v1.23.16
 	github.com/aws/aws-sdk-go-v2/service/finspace v1.28.16
-	github.com/aws/aws-sdk-go-v2/service/firehose v1.36.5
+	github.com/aws/aws-sdk-go-v2/service/firehose v1.36.6
 	github.com/aws/aws-sdk-go-v2/service/fis v1.32.1
 	github.com/aws/aws-sdk-go-v2/service/fms v1.39.7
 	github.com/aws/aws-sdk-go-v2/service/fsx v1.52.1
@@ -250,7 +250,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/timestreaminfluxdb v1.9.1
 	github.com/aws/aws-sdk-go-v2/service/timestreamquery v1.29.10
 	github.com/aws/aws-sdk-go-v2/service/timestreamwrite v1.29.17
-	github.com/aws/aws-sdk-go-v2/service/transcribe v1.43.2
+	github.com/aws/aws-sdk-go-v2/service/transcribe v1.43.3
 	github.com/aws/aws-sdk-go-v2/service/transfer v1.56.4
 	github.com/aws/aws-sdk-go-v2/service/verifiedpermissions v1.21.3
 	github.com/aws/aws-sdk-go-v2/service/vpclattice v1.13.11
@@ -300,7 +300,7 @@ require (
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/pquerna/otp v1.4.0
 	github.com/shopspring/decimal v1.4.0
-	golang.org/x/crypto v0.34.0
+	golang.org/x/crypto v0.35.0
 	golang.org/x/mod v0.23.0
 	golang.org/x/text v0.22.0
 	golang.org/x/tools v0.30.0
