@@ -17,6 +17,10 @@ func (c *Config) ConfigureProvider(ctx context.Context, client *AWSClient) (*AWS
 	return (*AWSClient)(val), diag
 }
 
-func (c *AWSClient) ServicePackages(context.Context) iter.Seq2[string, conns.ServicePackage] {
-	return (*conns.AWSClient)(c).ServicePackages(context.Background())
+func (c *AWSClient) SetServicePackages(ctx context.Context, packages map[string]conns.ServicePackage) {
+	(*conns.AWSClient)(c).SetServicePackages(ctx, packages)
+}
+
+func (c *AWSClient) ServicePackages(ctx context.Context) iter.Seq2[string, conns.ServicePackage] {
+	return (*conns.AWSClient)(c).ServicePackages(ctx)
 }
