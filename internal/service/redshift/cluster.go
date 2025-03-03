@@ -52,10 +52,6 @@ func resourceCluster() *schema.Resource {
 			Delete: schema.DefaultTimeout(40 * time.Minute),
 		},
 
-		ValidateRawResourceConfigFuncs: []schema.ValidateRawResourceConfigFunc{
-			validation.PreferWriteOnlyAttribute(cty.GetAttrPath("master_password"), cty.GetAttrPath("master_password_wo")),
-		},
-
 		Schema: map[string]*schema.Schema{
 			"allow_version_upgrade": {
 				Type:     schema.TypeBool,
@@ -72,7 +68,7 @@ func resourceCluster() *schema.Resource {
 				Optional:         true,
 				Computed:         true,
 				ValidateDiagFunc: enum.Validate[awstypes.AquaConfigurationStatus](),
-				Deprecated:       "This parameter is no longer supported by the AWS API. It will be removed in the next major version of the provider.",
+				Deprecated:       "aqua_configuration_status is deprecated. This parameter is no longer supported by the AWS API. It will be removed in the next major version of the provider.",
 				DiffSuppressFunc: func(k, oldValue, newValue string, d *schema.ResourceData) bool {
 					return true
 				},
@@ -229,7 +225,7 @@ func resourceCluster() *schema.Resource {
 			},
 			"logging": {
 				Type: schema.TypeList,
-				Deprecated: "Use the aws_redshift_logging resource instead. " +
+				Deprecated: "logging is deprecated. Use the aws_redshift_logging resource instead. " +
 					"This argument will be removed in a future major version.",
 				MaxItems:         1,
 				Optional:         true,
@@ -306,6 +302,7 @@ func resourceCluster() *schema.Resource {
 					validation.StringMatch(regexache.MustCompile(`^[^\@\/'" ]*$`), "cannot contain [/@\"' ]"),
 				),
 				ConflictsWith: []string{"manage_master_password", "master_password"},
+				RequiredWith:  []string{"master_password_wo_version"},
 			},
 			"master_password_wo_version": {
 				Type:         schema.TypeInt,
@@ -392,7 +389,7 @@ func resourceCluster() *schema.Resource {
 			},
 			"snapshot_copy": {
 				Type: schema.TypeList,
-				Deprecated: "Use the aws_redshift_snapshot_copy resource instead. " +
+				Deprecated: "snapshot_copy is deprecated. Use the aws_redshift_snapshot_copy resource instead. " +
 					"This argument will be removed in a future major version.",
 				MaxItems: 1,
 				Optional: true,
