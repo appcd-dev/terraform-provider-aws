@@ -2,8 +2,6 @@ package conns
 
 import (
 	"context"
-	"iter"
-	"maps"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-provider-aws/internal/conns"
@@ -28,12 +26,12 @@ func (c *AWSClient) SetServicePackages(ctx context.Context, input map[string]Ser
 	(*conns.AWSClient)(c).SetServicePackages(ctx, packages)
 }
 
-func (c *AWSClient) ServicePackages(ctx context.Context) iter.Seq2[string, ServicePackage] {
+func (c *AWSClient) ServicePackages(ctx context.Context) map[string]ServicePackage {
 	servicePackage := (*conns.AWSClient)(c).ServicePackages(ctx)
 	result := make(map[string]ServicePackage)
 	servicePackage(func(k string, v conns.ServicePackage) bool {
 		result[k] = v
 		return true
 	})
-	return maps.All(result)
+	return result
 }
