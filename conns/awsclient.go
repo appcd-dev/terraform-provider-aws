@@ -8,3 +8,5 @@ import (
 )
 
 type AWSClient = conns.AWSClient
+
+type Config = conns.Config
