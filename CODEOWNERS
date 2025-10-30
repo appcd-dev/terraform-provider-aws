@@ -1,2 +1,2 @@
-*                 @hashicorp/terraform-aws
-/.github/         @breathingdust @justinretzolk @hashicorp/terraform-aws
+# Global owners (fallback for unmatched files)
+* @sks @nasir-rabbani @Rchanger @vishwajeetk1160
