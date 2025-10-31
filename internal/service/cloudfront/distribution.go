@@ -1498,7 +1498,7 @@ func flattenCacheBehavior(apiObject *awstypes.CacheBehavior) map[string]interfac
 		tfMap["forwarded_values"] = []interface{}{flattenForwardedValues(apiObject.ForwardedValues)}
 	}
 
-	if len(apiObject.FunctionAssociations.Items) > 0 {
+	if apiObject.FunctionAssociations != nil && len(apiObject.FunctionAssociations.Items) > 0 {
 		tfMap["function_association"] = flattenFunctionAssociations(apiObject.FunctionAssociations)
 	}
 
@@ -1506,7 +1506,7 @@ func flattenCacheBehavior(apiObject *awstypes.CacheBehavior) map[string]interfac
 		tfMap["grpc_config"] = []interface{}{flattenGRPCConfig(apiObject.GrpcConfig)}
 	}
 
-	if len(apiObject.LambdaFunctionAssociations.Items) > 0 {
+	if apiObject.LambdaFunctionAssociations != nil && len(apiObject.LambdaFunctionAssociations.Items) > 0 {
 		tfMap["lambda_function_association"] = flattenLambdaFunctionAssociations(apiObject.LambdaFunctionAssociations)
 	}
 
@@ -1522,11 +1522,11 @@ func flattenCacheBehavior(apiObject *awstypes.CacheBehavior) map[string]interfac
 		tfMap["smooth_streaming"] = aws.ToBool(apiObject.SmoothStreaming)
 	}
 
-	if len(apiObject.TrustedKeyGroups.Items) > 0 {
+	if apiObject.TrustedKeyGroups != nil && len(apiObject.TrustedKeyGroups.Items) > 0 {
 		tfMap["trusted_key_groups"] = flattenTrustedKeyGroups(apiObject.TrustedKeyGroups)
 	}
 
-	if len(apiObject.TrustedSigners.Items) > 0 {
+	if apiObject.TrustedSigners != nil && len(apiObject.TrustedSigners.Items) > 0 {
 		tfMap["trusted_signers"] = flattenTrustedSigners(apiObject.TrustedSigners)
 	}
 
@@ -1648,7 +1648,7 @@ func flattenDefaultCacheBehavior(apiObject *awstypes.DefaultCacheBehavior) map[s
 		tfMap["forwarded_values"] = []interface{}{flattenForwardedValues(apiObject.ForwardedValues)}
 	}
 
-	if len(apiObject.FunctionAssociations.Items) > 0 {
+	if apiObject.FunctionAssociations != nil && len(apiObject.FunctionAssociations.Items) > 0 {
 		tfMap["function_association"] = flattenFunctionAssociations(apiObject.FunctionAssociations)
 	}
 
@@ -1656,7 +1656,7 @@ func flattenDefaultCacheBehavior(apiObject *awstypes.DefaultCacheBehavior) map[s
 		tfMap["grpc_config"] = []interface{}{flattenGRPCConfig(apiObject.GrpcConfig)}
 	}
 
-	if len(apiObject.LambdaFunctionAssociations.Items) > 0 {
+	if apiObject.LambdaFunctionAssociations != nil && len(apiObject.LambdaFunctionAssociations.Items) > 0 {
 		tfMap["lambda_function_association"] = flattenLambdaFunctionAssociations(apiObject.LambdaFunctionAssociations)
 	}
 
@@ -1668,11 +1668,11 @@ func flattenDefaultCacheBehavior(apiObject *awstypes.DefaultCacheBehavior) map[s
 		tfMap["smooth_streaming"] = aws.ToBool(apiObject.SmoothStreaming)
 	}
 
-	if len(apiObject.TrustedKeyGroups.Items) > 0 {
+	if apiObject.TrustedKeyGroups != nil && len(apiObject.TrustedKeyGroups.Items) > 0 {
 		tfMap["trusted_key_groups"] = flattenTrustedKeyGroups(apiObject.TrustedKeyGroups)
 	}
 
-	if len(apiObject.TrustedSigners.Items) > 0 {
+	if apiObject.TrustedSigners != nil && len(apiObject.TrustedSigners.Items) > 0 {
 		tfMap["trusted_signers"] = flattenTrustedSigners(apiObject.TrustedSigners)
 	}
 
