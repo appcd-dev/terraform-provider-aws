@@ -71,7 +71,7 @@ func tagsUpdateFunc(ctx context.Context, d schemaResourceData, sp conns.ServiceP
 	// Merge the resource's configured tags with any provider configured default_tags.
 	newTags := tagsInContext.DefaultConfig.MergeTags(tftags.New(ctx, configTags))
 	// Remove system tags.
-	newTags = newTags.IgnoreSystem(inContext.ServicePackageName)
+	newTags = newTags.IgnoreSystem(inContext.ServicePackageName())
 
 	// If the service package has a generic resource update tags methods, call it.
 	var err error
@@ -143,7 +143,7 @@ func tagsReadFunc(ctx context.Context, d schemaResourceData, sp conns.ServicePac
 			return ctx, diags
 		}
 
-		if inContext.ServicePackageName == names.DynamoDB && err != nil {
+		if inContext.ServicePackageName() == names.DynamoDB && err != nil {
 			// When a DynamoDB Table is `ARCHIVED`, ListTags returns `ResourceNotFoundException`.
 			if tfresource.NotFound(err) || tfawserr.ErrMessageContains(err, "UnknownOperationException", "Tagging is not currently supported in DynamoDB Local.") {
 				err = nil
@@ -156,7 +156,7 @@ func tagsReadFunc(ctx context.Context, d schemaResourceData, sp conns.ServicePac
 	}
 
 	// Remove any provider configured ignore_tags and system tags from those returned from the service API.
-	toAdd := tagsInContext.TagsOut.UnwrapOrDefault().IgnoreSystem(inContext.ServicePackageName).IgnoreConfig(tagsInContext.IgnoreConfig)
+	toAdd := tagsInContext.TagsOut.UnwrapOrDefault().IgnoreSystem(inContext.ServicePackageName()).IgnoreConfig(tagsInContext.IgnoreConfig)
 
 	// The resource's configured tags can now include duplicate tags that have been configured on the provider.
 	if err := d.Set(names.AttrTags, toAdd.ResolveDuplicates(ctx, tagsInContext.DefaultConfig, tagsInContext.IgnoreConfig, d, names.AttrTags, nil).Map()); err != nil {

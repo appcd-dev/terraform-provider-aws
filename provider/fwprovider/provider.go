@@ -24,6 +24,8 @@ import (
 	tffunction "github.com/hashicorp/terraform-provider-aws/internal/function"
 	"github.com/hashicorp/terraform-provider-aws/internal/logging"
 	tftags "github.com/hashicorp/terraform-provider-aws/internal/tags"
+	inttypes "github.com/hashicorp/terraform-provider-aws/internal/types"
+	tfunique "github.com/hashicorp/terraform-provider-aws/internal/unique"
 	"github.com/hashicorp/terraform-provider-aws/names"
 )
 
@@ -316,7 +318,7 @@ func (p *fwprovider) DataSources(ctx context.Context) []func() datasource.DataSo
 	var errs []error
 	var dataSources []func() datasource.DataSource
 
-	for n, sp := range p.Primary.Meta().(*conns.AWSClient).ServicePackages(ctx) {
+	for sp := range p.Primary.Meta().(*conns.AWSClient).ServicePackages(ctx) {
 		servicePackageName := sp.ServicePackageName()
 
 		for _, v := range sp.FrameworkDataSources(ctx) {
@@ -324,7 +326,7 @@ func (p *fwprovider) DataSources(ctx context.Context) []func() datasource.DataSo
 
 			if err != nil {
 				tflog.Warn(ctx, "creating data source", map[string]interface{}{
-					"service_package_name": n,
+					"service_package_name": servicePackageName,
 					"error":                err.Error(),
 				})
 
@@ -342,9 +344,9 @@ func (p *fwprovider) DataSources(ctx context.Context) []func() datasource.DataSo
 
 			// bootstrapContext is run on all wrapped methods before any interceptors.
 			bootstrapContext := func(ctx context.Context, meta *conns.AWSClient) context.Context {
-				ctx = conns.NewDataSourceContext(ctx, servicePackageName, v.Name)
+				ctx = conns.NewResourceContext(ctx, servicePackageName, v.Name, typeName, "")
 				if meta != nil {
-					ctx = tftags.NewContext(ctx, meta.DefaultTagsConfig(ctx), meta.IgnoreTagsConfig(ctx))
+					ctx = tftags.NewContext(ctx, meta.DefaultTagsConfig(ctx), meta.IgnoreTagsConfig(ctx), meta.TagPolicyConfig(ctx))
 					ctx = meta.RegisterLogger(ctx)
 					ctx = flex.RegisterLogger(ctx)
 				}
@@ -353,7 +355,7 @@ func (p *fwprovider) DataSources(ctx context.Context) []func() datasource.DataSo
 			}
 			interceptors := dataSourceInterceptors{}
 
-			if v.Tags != nil {
+			if !tfunique.IsHandleNil(v.Tags) {
 				// The data source has opted in to transparent tagging.
 				// Ensure that the schema look OK.
 				schemaResponse := datasource.SchemaResponse{}
@@ -369,7 +371,7 @@ func (p *fwprovider) DataSources(ctx context.Context) []func() datasource.DataSo
 					continue
 				}
 
-				interceptors = append(interceptors, tagsDataSourceInterceptor{tags: v.Tags})
+				interceptors = append(interceptors, tagsDataSourceInterceptor{tags: func() *inttypes.ServicePackageResourceTags { t := v.Tags.Value(); return &t }()})
 			}
 
 			dataSources = append(dataSources, func() datasource.DataSource {
@@ -396,7 +398,7 @@ func (p *fwprovider) Resources(ctx context.Context) []func() resource.Resource {
 	var errs []error
 	var resources []func() resource.Resource
 
-	for _, sp := range p.Primary.Meta().(*conns.AWSClient).ServicePackages(ctx) {
+	for sp := range p.Primary.Meta().(*conns.AWSClient).ServicePackages(ctx) {
 		servicePackageName := sp.ServicePackageName()
 
 		for _, v := range sp.FrameworkResources(ctx) {
@@ -418,9 +420,9 @@ func (p *fwprovider) Resources(ctx context.Context) []func() resource.Resource {
 
 			// bootstrapContext is run on all wrapped methods before any interceptors.
 			bootstrapContext := func(ctx context.Context, meta *conns.AWSClient) context.Context {
-				ctx = conns.NewResourceContext(ctx, servicePackageName, v.Name)
+				ctx = conns.NewResourceContext(ctx, servicePackageName, v.Name, typeName, "")
 				if meta != nil {
-					ctx = tftags.NewContext(ctx, meta.DefaultTagsConfig(ctx), meta.IgnoreTagsConfig(ctx))
+					ctx = tftags.NewContext(ctx, meta.DefaultTagsConfig(ctx), meta.IgnoreTagsConfig(ctx), meta.TagPolicyConfig(ctx))
 					ctx = meta.RegisterLogger(ctx)
 					ctx = flex.RegisterLogger(ctx)
 				}
@@ -429,7 +431,7 @@ func (p *fwprovider) Resources(ctx context.Context) []func() resource.Resource {
 			}
 			interceptors := resourceInterceptors{}
 
-			if v.Tags != nil {
+			if !tfunique.IsHandleNil(v.Tags) {
 				// The resource has opted in to transparent tagging.
 				// Ensure that the schema look OK.
 				schemaResponse := resource.SchemaResponse{}
@@ -454,7 +456,7 @@ func (p *fwprovider) Resources(ctx context.Context) []func() resource.Resource {
 					continue
 				}
 
-				interceptors = append(interceptors, tagsResourceInterceptor{tags: v.Tags})
+				interceptors = append(interceptors, tagsResourceInterceptor{tags: func() *inttypes.ServicePackageResourceTags { t := v.Tags.Value(); return &t }()})
 			}
 
 			resources = append(resources, func() resource.Resource {
@@ -481,7 +483,7 @@ func (p *fwprovider) EphemeralResources(ctx context.Context) []func() ephemeral.
 	var errs []error
 	var ephemeralResources []func() ephemeral.EphemeralResource
 
-	for n, sp := range p.Primary.Meta().(*conns.AWSClient).ServicePackages(ctx) {
+	for sp := range p.Primary.Meta().(*conns.AWSClient).ServicePackages(ctx) {
 		if data, ok := sp.(conns.ServicePackageWithEphemeralResources); ok {
 			servicePackageName := data.ServicePackageName()
 
@@ -490,7 +492,7 @@ func (p *fwprovider) EphemeralResources(ctx context.Context) []func() ephemeral.
 
 				if err != nil {
 					tflog.Warn(ctx, "creating ephemeral resource", map[string]interface{}{
-						"service_package_name": n,
+						"service_package_name": servicePackageName,
 						"error":                err.Error(),
 					})
 
@@ -508,7 +510,7 @@ func (p *fwprovider) EphemeralResources(ctx context.Context) []func() ephemeral.
 
 				// bootstrapContext is run on all wrapped methods before any interceptors.
 				bootstrapContext := func(ctx context.Context, meta *conns.AWSClient) context.Context {
-					ctx = conns.NewEphemeralResourceContext(ctx, servicePackageName, v.Name)
+					ctx = conns.NewResourceContext(ctx, servicePackageName, v.Name, v.TypeName, "")
 					if meta != nil {
 						ctx = meta.RegisterLogger(ctx)
 						ctx = flex.RegisterLogger(ctx)

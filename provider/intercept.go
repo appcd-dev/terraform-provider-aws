@@ -214,7 +214,7 @@ func (r tagsResourceInterceptor) run(ctx context.Context, d schemaResourceData, 
 		return ctx, diags
 	}
 
-	sp := meta.(*conns.AWSClient).ServicePackage(ctx, inContext.ServicePackageName)
+	sp := meta.(*conns.AWSClient).ServicePackage(ctx, inContext.ServicePackageName())
 	if sp == nil {
 		return ctx, diags
 	}
@@ -224,7 +224,7 @@ func (r tagsResourceInterceptor) run(ctx context.Context, d schemaResourceData, 
 		serviceName = "<service>"
 	}
 
-	resourceName := inContext.ResourceName
+	resourceName := inContext.ResourceName()
 	if resourceName == "" {
 		resourceName = "<thing>"
 	}
@@ -397,7 +397,7 @@ func (r tagsDataSourceInterceptor) run(ctx context.Context, d schemaResourceData
 		return ctx, diags
 	}
 
-	sp := meta.(*conns.AWSClient).ServicePackage(ctx, inContext.ServicePackageName)
+	sp := meta.(*conns.AWSClient).ServicePackage(ctx, inContext.ServicePackageName())
 	if sp == nil {
 		return ctx, diags
 	}
@@ -407,7 +407,7 @@ func (r tagsDataSourceInterceptor) run(ctx context.Context, d schemaResourceData
 		serviceName = "<service>"
 	}
 
-	resourceName := inContext.ResourceName
+	resourceName := inContext.ResourceName()
 	if resourceName == "" {
 		resourceName = "<thing>"
 	}

@@ -28,14 +28,14 @@ func (c *Config) ServicePackages(ctx context.Context, provider *schema.Provider)
 
 	it := meta.ServicePackages(ctx)
 	servicePackages := make(map[string]conns.ServicePackage)
-	next, stop := iter.Pull2(it)
+	next, stop := iter.Pull(it)
 	defer stop()
 	for {
-		key, value, valid := next()
+		value, valid := next()
 		if !valid {
 			break
 		}
-		servicePackages[key] = value
+		servicePackages[value.ServicePackageName()] = value
 	}
 	return servicePackages
 }

@@ -27,6 +27,8 @@ import (
 	"github.com/hashicorp/terraform-provider-aws/internal/flex"
 	"github.com/hashicorp/terraform-provider-aws/internal/sdkv2/types/nullable"
 	tftags "github.com/hashicorp/terraform-provider-aws/internal/tags"
+	"github.com/hashicorp/terraform-provider-aws/internal/types"
+	tfunique "github.com/hashicorp/terraform-provider-aws/internal/unique"
 	"github.com/hashicorp/terraform-provider-aws/internal/verify"
 	"github.com/hashicorp/terraform-provider-aws/names"
 )
@@ -293,9 +295,9 @@ func New(ctx context.Context) (*schema.Provider, error) {
 
 			// bootstrapContext is run on all wrapped methods before any interceptors.
 			bootstrapContext := func(ctx context.Context, meta any) context.Context {
-				ctx = conns.NewDataSourceContext(ctx, servicePackageName, v.Name)
+				ctx = conns.NewResourceContext(ctx, servicePackageName, v.Name, typeName, "")
 				if v, ok := meta.(*conns.AWSClient); ok {
-					ctx = tftags.NewContext(ctx, v.DefaultTagsConfig(ctx), v.IgnoreTagsConfig(ctx))
+					ctx = tftags.NewContext(ctx, v.DefaultTagsConfig(ctx), v.IgnoreTagsConfig(ctx), v.TagPolicyConfig(ctx))
 					ctx = v.RegisterLogger(ctx)
 				}
 
@@ -303,7 +305,7 @@ func New(ctx context.Context) (*schema.Provider, error) {
 			}
 			interceptors := interceptorItems{}
 
-			if v.Tags != nil {
+			if !tfunique.IsHandleNil(v.Tags) {
 				schema := r.SchemaMap()
 
 				// The data source has opted in to transparent tagging.
@@ -322,7 +324,7 @@ func New(ctx context.Context) (*schema.Provider, error) {
 					when: Before | After,
 					why:  Read,
 					interceptor: tagsDataSourceInterceptor{
-						tags: v.Tags,
+						tags: func() *types.ServicePackageResourceTags { t := v.Tags.Value(); return &t }(),
 					},
 				})
 			}
@@ -369,9 +371,9 @@ func New(ctx context.Context) (*schema.Provider, error) {
 
 			// bootstrapContext is run on all wrapped methods before any interceptors.
 			bootstrapContext := func(ctx context.Context, meta any) context.Context {
-				ctx = conns.NewResourceContext(ctx, servicePackageName, v.Name)
+				ctx = conns.NewResourceContext(ctx, servicePackageName, v.Name, typeName, "")
 				if v, ok := meta.(*conns.AWSClient); ok {
-					ctx = tftags.NewContext(ctx, v.DefaultTagsConfig(ctx), v.IgnoreTagsConfig(ctx))
+					ctx = tftags.NewContext(ctx, v.DefaultTagsConfig(ctx), v.IgnoreTagsConfig(ctx), v.TagPolicyConfig(ctx))
 					ctx = v.RegisterLogger(ctx)
 				}
 
@@ -379,7 +381,7 @@ func New(ctx context.Context) (*schema.Provider, error) {
 			}
 			interceptors := interceptorItems{}
 
-			if v.Tags != nil {
+			if !tfunique.IsHandleNil(v.Tags) {
 				schema := r.SchemaMap()
 
 				// The resource has opted in to transparent tagging.
@@ -407,7 +409,7 @@ func New(ctx context.Context) (*schema.Provider, error) {
 					when: Before | After | Finally,
 					why:  Create | Read | Update,
 					interceptor: tagsResourceInterceptor{
-						tags:       v.Tags,
+						tags:       func() *types.ServicePackageResourceTags { t := v.Tags.Value(); return &t }(),
 						updateFunc: tagsUpdateFunc,
 						readFunc:   tagsReadFunc,
 					},
