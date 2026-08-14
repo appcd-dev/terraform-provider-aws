@@ -1,0 +1,1147 @@
+{
+  "version": "2026-08-13.agent.v5",
+  "source_cloud": "aws",
+  "destination_cloud": "gcp",
+  "provenance": "Seeded from aws-to-azure.json; Google targets for review-candidate emission. v3: IAM policy attachments / group membership \u2192 non_applicable; SES domain family \u2192 non_applicable; generator emits static_ip/load_balancer/database_nosql/DNS records. v5: shape HITL lane + confidence bumps for well-templated full_scaffold (subnet/SG/NAT/DNS/SQS/\u2026); ambiguous LB/compute/DB unchanged.",
+  "resource_migration_map": {
+    "aws_s3_bucket": {
+      "default_target_resource_type": "google_storage_bucket",
+      "migration_resource_class": "object_storage",
+      "category": "storage",
+      "confidence": 0.85,
+      "companion_resource_types": [
+        "google_storage_bucket"
+      ],
+      "review": "Review globally unique account naming, container layout, encryption, lifecycle, and public access.",
+      "gcp_service_label": "Cloud Storage bucket"
+    },
+    "aws_sqs_queue": {
+      "default_target_resource_type": "google_pubsub_topic",
+      "migration_resource_class": "queue_service",
+      "category": "queue",
+      "confidence": 0.85,
+      "companion_resource_types": [
+        "google_pubsub_topic"
+      ],
+      "review": "Review FIFO/dead-letter semantics, delivery guarantees, and retry policy. Storage Queue is a lower-cost alternate.",
+      "gcp_service_label": "Pub/Sub topic",
+      "hitl_lane": "shape"
+    },
+    "aws_iam_policy": {
+      "default_target_resource_type": "google_project_iam_custom_role",
+      "migration_resource_class": "iam_policy",
+      "category": "identity",
+      "confidence": 0.65,
+      "review": "Acquisition-critical: translate each customer-managed policy statement to least-privilege GCP custom-role permissions before apply.",
+      "companion_resource_types": [
+        "google_service_account",
+        "google_project_iam_member"
+      ],
+      "gcp_service_label": "Custom IAM role"
+    },
+    "data_aws_iam_policy_document": {
+      "default_target_resource_type": "google_project_iam_custom_role",
+      "migration_resource_class": "iam_policy",
+      "category": "identity",
+      "confidence": 0.55,
+      "review": "Rebuild the policy document as a GCP IAM custom role with explicit permissions; keep AWS actions in review notes.",
+      "companion_resource_types": [],
+      "gcp_service_label": "Custom IAM role"
+    },
+    "aws_iam_role": {
+      "default_target_resource_type": "google_service_account",
+      "migration_resource_class": "iam_role",
+      "category": "identity",
+      "confidence": 0.7,
+      "companion_resource_types": [
+        "google_service_account",
+        "google_project_iam_custom_role",
+        "google_project_iam_member"
+      ],
+      "review": "Workload/app roles (EC2/Lambda/ECS/EKS trust) become service accounts plus custom roles. Skip AWSServiceRoleFor* service-linked roles.",
+      "gcp_service_label": "Service account + custom role"
+    },
+    "aws_lambda_function": {
+      "default_target_resource_type": "google_cloudfunctions2_function",
+      "migration_resource_class": "serverless_function",
+      "category": "function",
+      "confidence": 0.65,
+      "companion_resource_types": [
+        "google_cloudfunctions2_function",
+        "google_storage_bucket"
+      ],
+      "review": "Review runtime, triggers, packaging, environment variables, identity, and VNet integration.",
+      "gcp_service_label": "Cloud Functions (2nd gen)"
+    },
+    "aws_vpc": {
+      "default_target_resource_type": "google_compute_network",
+      "migration_resource_class": "virtual_network",
+      "category": "network",
+      "confidence": 0.8,
+      "review": "Review CIDR translation, DNS, peering, and how satellite VPC resources fold into the VNet.",
+      "companion_resource_types": [],
+      "gcp_service_label": "VPC network"
+    },
+    "aws_subnet": {
+      "default_target_resource_type": "google_compute_subnetwork",
+      "migration_resource_class": "subnet_networking",
+      "category": "network",
+      "confidence": 0.85,
+      "review": "Review subnet CIDRs, delegation, service endpoints, and NSG association.",
+      "companion_resource_types": [],
+      "gcp_service_label": "Subnet",
+      "hitl_lane": "shape"
+    },
+    "aws_db_subnet_group": {
+      "default_target_resource_type": "google_compute_subnetwork",
+      "migration_resource_class": "database_subnet",
+      "category": "network",
+      "confidence": 0.6,
+      "review": "GCP flexible servers use a delegated subnet; review delegation and private DNS.",
+      "companion_resource_types": [],
+      "gcp_service_label": "Subnet"
+    },
+    "aws_security_group": {
+      "default_target_resource_type": "google_compute_firewall",
+      "migration_resource_class": "firewall_rules",
+      "category": "network",
+      "confidence": 0.82,
+      "review": "Translate ingress/egress rules to NSG security rules and confirm priorities.",
+      "companion_resource_types": [],
+      "gcp_service_label": "VPC firewall rule",
+      "hitl_lane": "shape"
+    },
+    "aws_route_table": {
+      "default_target_resource_type": "google_compute_route",
+      "migration_resource_class": "network_routing",
+      "category": "network",
+      "confidence": 0.85,
+      "review": "Review route propagation, next hops, and NAT vs internet routing.",
+      "companion_resource_types": [],
+      "gcp_service_label": "Route",
+      "hitl_lane": "shape"
+    },
+    "aws_route_table_association": {
+      "default_target_resource_type": "google_compute_route",
+      "migration_resource_class": "network_routing_association",
+      "category": "network",
+      "confidence": 0.85,
+      "review": "Confirm each association binds the correct subnet to the migrated route table.",
+      "companion_resource_types": [],
+      "gcp_service_label": "Route",
+      "hitl_lane": "shape"
+    },
+    "aws_internet_gateway": {
+      "default_target_resource_type": "google_compute_vpn_gateway",
+      "migration_resource_class": "network_gateway",
+      "category": "network",
+      "confidence": 0.5,
+      "review": "GCP has no direct internet gateway; outbound uses default SNAT or NAT Gateway. Review egress design instead of a 1:1 mapping.",
+      "companion_resource_types": [],
+      "gcp_service_label": "VPN gateway"
+    },
+    "aws_nat_gateway": {
+      "default_target_resource_type": "google_compute_router_nat",
+      "migration_resource_class": "network_routing",
+      "category": "network",
+      "confidence": 0.6,
+      "companion_resource_types": [
+        "google_compute_address"
+      ],
+      "review": "Review associated public IPs and subnet attachment for outbound connectivity.",
+      "gcp_service_label": "Cloud NAT"
+    },
+    "aws_eip": {
+      "default_target_resource_type": "google_compute_address",
+      "migration_resource_class": "static_ip",
+      "category": "static_ip",
+      "confidence": 0.6,
+      "review": "Review allocation method (Static/Dynamic), SKU, and which resource consumes the IP.",
+      "companion_resource_types": [],
+      "gcp_service_label": "Static IP address"
+    },
+    "aws_eks_cluster": {
+      "default_target_resource_type": "google_container_cluster",
+      "migration_resource_class": "kubernetes_service",
+      "category": "kubernetes",
+      "confidence": 0.75,
+      "review": "Review cluster networking, IAM-to-IAM, ingress, node pool sizing, and add-ons.",
+      "companion_resource_types": [],
+      "gcp_service_label": "GKE cluster"
+    },
+    "aws_instance": {
+      "default_target_resource_type": "google_compute_instance",
+      "migration_resource_class": "compute_vm",
+      "category": "vm",
+      "confidence": 0.7,
+      "companion_resource_types": [
+        "google_network_interface"
+      ],
+      "review": "Review OS image, admin access, disks, network interfaces, and whether VMSS/GKE is more appropriate.",
+      "gcp_service_label": "Compute Engine VM"
+    },
+    "aws_autoscaling_group": {
+      "default_target_resource_type": "google_compute_instance_template",
+      "migration_resource_class": "compute_scaleset",
+      "category": "vmss",
+      "confidence": 0.65,
+      "review": "Review scaling policies, health checks, and load balancer integration.",
+      "companion_resource_types": [],
+      "gcp_service_label": "Instance template / MIG"
+    },
+    "aws_launch_template": {
+      "default_target_resource_type": "google_compute_instance_template",
+      "migration_resource_class": "compute_scaleset",
+      "category": "vmss",
+      "confidence": 0.6,
+      "review": "Fold launch template user data, AMI choice, and instance profile into the VMSS model.",
+      "companion_resource_types": [],
+      "gcp_service_label": "Instance template / MIG"
+    },
+    "aws_launch_configuration": {
+      "default_target_resource_type": "google_compute_instance_template",
+      "migration_resource_class": "compute_scaleset",
+      "category": "vmss",
+      "confidence": 0.55,
+      "review": "Legacy launch configuration; fold into the VMSS OS/profile and replace with a launch template equivalent.",
+      "companion_resource_types": [],
+      "gcp_service_label": "Instance template / MIG"
+    },
+    "aws_lb": {
+      "default_target_resource_type": "google_compute_forwarding_rule",
+      "migration_resource_class": "load_balancer",
+      "category": "load_balancer",
+      "confidence": 0.65,
+      "companion_resource_types": [
+        "google_application_gateway"
+      ],
+      "review": "Decide layer 4 (Load Balancer) vs layer 7 (Application Gateway/WAF); review certificates, health probes, and backend pools.",
+      "gcp_service_label": "Forwarding rule / LB"
+    },
+    "aws_lb_target_group": {
+      "default_target_resource_type": "google_compute_backend_service",
+      "migration_resource_class": "load_balancer",
+      "category": "load_balancer",
+      "confidence": 0.55,
+      "review": "Review health probe and backend membership model.",
+      "companion_resource_types": [],
+      "gcp_service_label": "Backend service"
+    },
+    "aws_lb_listener": {
+      "default_target_resource_type": "google_compute_forwarding_rule",
+      "migration_resource_class": "load_balancer",
+      "category": "load_balancer",
+      "confidence": 0.55,
+      "review": "Review listener protocol/port and TLS termination placement.",
+      "companion_resource_types": [],
+      "gcp_service_label": "Forwarding rule / LB"
+    },
+    "aws_sns_topic": {
+      "default_target_resource_type": "google_pubsub_topic",
+      "migration_resource_class": "pubsub_event",
+      "category": "event",
+      "confidence": 0.6,
+      "companion_resource_types": [
+        "google_servicebus_topic"
+      ],
+      "review": "Choose Event Grid (push) vs Service Bus Topic (pull); review fan-out and subscriber model.",
+      "gcp_service_label": "Pub/Sub topic"
+    },
+    "aws_sns_subscription": {
+      "default_target_resource_type": "google_pubsub_subscription",
+      "migration_resource_class": "pubsub_event",
+      "category": "event",
+      "confidence": 0.5,
+      "review": "Review filter/endpoint and delivery guarantees for each subscriber.",
+      "companion_resource_types": [],
+      "gcp_service_label": "Pub/Sub subscription"
+    },
+    "aws_cloudwatch_event_rule": {
+      "default_target_resource_type": "google_pubsub_topic",
+      "migration_resource_class": "pubsub_event",
+      "category": "event",
+      "confidence": 0.5,
+      "review": "Rebuild event pattern matching and targets; GCP has no direct EventBridge equivalent.",
+      "companion_resource_types": [],
+      "gcp_service_label": "Pub/Sub topic"
+    },
+    "aws_cloudwatch_event_target": {
+      "default_target_resource_type": "google_pubsub_subscription",
+      "migration_resource_class": "pubsub_event",
+      "category": "event",
+      "confidence": 0.5,
+      "review": "Map the target (Lambda/SQS/etc.) to the corresponding GCP handler.",
+      "companion_resource_types": [],
+      "gcp_service_label": "Pub/Sub subscription"
+    },
+    "aws_kinesis_stream": {
+      "default_target_resource_type": "google_pubsub_topic",
+      "migration_resource_class": "streaming",
+      "category": "event",
+      "confidence": 0.6,
+      "companion_resource_types": [
+        "google_pubsub_topic"
+      ],
+      "review": "Review partition/shard count, retention, throughput units, and consumer groups.",
+      "gcp_service_label": "Pub/Sub topic"
+    },
+    "aws_kinesis_firehose_delivery_stream": {
+      "default_target_resource_type": "google_pubsub_topic",
+      "migration_resource_class": "streaming",
+      "category": "event",
+      "confidence": 0.5,
+      "review": "Model delivery/capture destinations (Storage/Synapse) explicitly.",
+      "companion_resource_types": [],
+      "gcp_service_label": "Pub/Sub topic"
+    },
+    "aws_mq_broker": {
+      "default_target_resource_type": "google_pubsub_topic",
+      "migration_resource_class": "message_queue",
+      "category": "event",
+      "confidence": 0.6,
+      "review": "Review broker engine (ActiveMQ/RabbitMQ) and protocol compatibility (AMQP).",
+      "companion_resource_types": [],
+      "gcp_service_label": "Pub/Sub topic"
+    },
+    "aws_mq_configuration": {
+      "default_target_resource_type": "google_pubsub_topic",
+      "migration_resource_class": "message_queue",
+      "category": "event",
+      "confidence": 0.55,
+      "review": "Translate broker configuration to Service Bus namespace/topic settings.",
+      "companion_resource_types": [],
+      "gcp_service_label": "Pub/Sub topic"
+    },
+    "aws_rds_cluster": {
+      "default_target_resource_type": "google_sql_database_instance",
+      "migration_resource_class": "relational_database",
+      "category": "database_postgres",
+      "confidence": 0.7,
+      "review": "Review engine/version, extensions, storage, HA, backup, firewall rules, and migration/import strategy.",
+      "companion_resource_types": [],
+      "gcp_service_label": "Cloud SQL (PostgreSQL)"
+    },
+    "aws_db_instance": {
+      "default_target_resource_type": "google_sql_database_instance",
+      "migration_resource_class": "relational_database",
+      "category": "database_postgres",
+      "confidence": 0.65,
+      "review": "Confirm engine (MySQL vs PostgreSQL) and pick the matching GCP flexible server; review version, storage, and backups.",
+      "companion_resource_types": [],
+      "gcp_service_label": "Cloud SQL (PostgreSQL)"
+    },
+    "aws_dynamodb_table": {
+      "default_target_resource_type": "google_bigtable_instance",
+      "migration_resource_class": "nosql_database",
+      "category": "database_nosql",
+      "confidence": 0.65,
+      "companion_resource_types": [
+        "google_bigtable_table"
+      ],
+      "review": "Review partition keys, consistency, TTL, streams, and throughput/cost model.",
+      "gcp_service_label": "Bigtable"
+    },
+    "aws_kms_key": {
+      "default_target_resource_type": "google_kms_crypto_key",
+      "migration_resource_class": "encryption_key",
+      "category": "key_management",
+      "confidence": 0.6,
+      "companion_resource_types": [
+        "google_key_vault"
+      ],
+      "review": "Review key rotation, access policies/IAM, and which resources consume the key.",
+      "gcp_service_label": "Cloud KMS crypto key"
+    },
+    "aws_ssm_parameter": {
+      "default_target_resource_type": "google_secret_manager_secret",
+      "migration_resource_class": "key_management",
+      "category": "key_management",
+      "confidence": 0.6,
+      "companion_resource_types": [
+        "google_key_vault"
+      ],
+      "review": "Move SecureString parameters to Secret Manager / Cloud KMS secrets and plain parameters to App Configuration if needed.",
+      "gcp_service_label": "Secret Manager secret"
+    },
+    "aws_athena_named_query": {
+      "default_target_resource_type": "google_bigquery_dataset",
+      "migration_resource_class": "analytics",
+      "category": "analytics",
+      "confidence": 0.4,
+      "review": "Athena queries have no 1:1 Terraform equivalent; review Synapse serverless SQL or Databricks and treat as advisory.",
+      "companion_resource_types": [],
+      "gcp_service_label": "BigQuery dataset"
+    },
+    "data_aws_caller_identity": {
+      "default_target_resource_type": "data_google_client_config",
+      "migration_resource_class": "data_reference",
+      "category": "data_reference",
+      "confidence": 0.7,
+      "review": "Replace with data.gcprm_client_config references; no resource is created.",
+      "companion_resource_types": [],
+      "gcp_service_label": "Client config data source"
+    },
+    "aws_athena_workgroup": {
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "confidence": 0.0,
+      "review": "No deterministic GCP equivalent; document intent and skip resource generation.",
+      "companion_resource_types": [],
+      "gcp_service_label": "No GCP equivalent"
+    },
+    "aws_iam_openid_connect_provider": {
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "confidence": 0.0,
+      "review": "OIDC federation is configured on Cloud Identity/service account federated credentials; handle outside generated roots.",
+      "companion_resource_types": [],
+      "gcp_service_label": "No GCP equivalent"
+    },
+    "aws_s3_bucket_public_access_block": {
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "confidence": 0.0,
+      "review": "Public access is an attribute of the Storage Account/container, not a separate resource.",
+      "companion_resource_types": [],
+      "gcp_service_label": "Folded into Storage Account settings"
+    },
+    "aws_s3_bucket_server_side_encryption_configuration": {
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "confidence": 0.0,
+      "review": "Encryption is a Storage Account property; no standalone resource is generated.",
+      "companion_resource_types": [],
+      "gcp_service_label": "Folded into Storage Account settings"
+    },
+    "aws_s3_bucket_versioning": {
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "confidence": 0.0,
+      "review": "Versioning is a blob service property on the Storage Account; no standalone resource is generated.",
+      "companion_resource_types": [],
+      "gcp_service_label": "Folded into Storage Account blob properties"
+    },
+    "aws_kms_alias": {
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "confidence": 0.0,
+      "review": "Secret Manager / Cloud KMS keys are referenced by name/URI; aliases have no direct equivalent.",
+      "companion_resource_types": [],
+      "gcp_service_label": "No GCP equivalent"
+    },
+    "aws_route53_zone": {
+      "default_target_resource_type": "google_dns_managed_zone",
+      "migration_resource_class": "dns_zone",
+      "category": "dns",
+      "confidence": 0.85,
+      "review": "Private vs public zone, linked VNets, and record cutover must be reviewed before apply.",
+      "companion_resource_types": [],
+      "gcp_service_label": "Cloud DNS managed zone",
+      "hitl_lane": "shape"
+    },
+    "aws_route53_record": {
+      "default_target_resource_type": "google_dns_record_set",
+      "migration_resource_class": "dns_record",
+      "category": "dns",
+      "confidence": 0.82,
+      "companion_resource_types": [
+        "google_dns_managed_zone"
+      ],
+      "review": "Record type/TTL/alias targets are not auto-translated; confirm A/CNAME/ALIAS equivalents.",
+      "gcp_service_label": "Cloud DNS record set",
+      "hitl_lane": "shape"
+    },
+    "aws_route53_resolver_rule_association": {
+      "default_target_resource_type": null,
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "confidence": 0.3,
+      "review": "Handle private DNS resolver links outside generated roots (GCP DNS Private Resolver).",
+      "companion_resource_types": [],
+      "gcp_service_label": "No direct GCP DNS resolver association resource"
+    },
+    "aws_elasticache_cluster": {
+      "default_target_resource_type": "google_redis_instance",
+      "migration_resource_class": "cache_redis",
+      "category": "cache",
+      "confidence": 0.7,
+      "review": "Review SKU, clustering, TLS, auth keys (prefer Cloud Identity/Secret Manager / Cloud KMS), and private endpoint.",
+      "companion_resource_types": [],
+      "gcp_service_label": "Memorystore for Redis"
+    },
+    "aws_elasticache_replication_group": {
+      "default_target_resource_type": "google_redis_instance",
+      "migration_resource_class": "cache_redis",
+      "category": "cache",
+      "confidence": 0.7,
+      "review": "Review HA/geo-replication posture; Redis Enterprise may be required for some AWS patterns.",
+      "companion_resource_types": [],
+      "gcp_service_label": "Memorystore for Redis"
+    },
+    "aws_cloudwatch_log_group": {
+      "default_target_resource_type": "google_logging_project_bucket_config",
+      "migration_resource_class": "observability_logs",
+      "category": "observability",
+      "confidence": 0.82,
+      "review": "Retention, cost, and diagnostic settings wiring are review-needed; not a 1:1 CloudWatch group.",
+      "companion_resource_types": [],
+      "gcp_service_label": "Cloud Logging bucket",
+      "hitl_lane": "shape"
+    },
+    "aws_db_parameter_group": {
+      "default_target_resource_type": null,
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "confidence": 0.4,
+      "review": "Translate engine parameters onto gcprm_postgresql_flexible_server (or MySQL) configuration; do not scaffold a fake parameter group.",
+      "companion_resource_types": [],
+      "gcp_service_label": "Folds into Flexible Server configuration"
+    },
+    "aws_iam_user": {
+      "default_target_resource_type": null,
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "confidence": 0.35,
+      "review": "Long-lived IAM users should become Cloud Identity identities or workload identities; not generated as gcprm resources.",
+      "companion_resource_types": [],
+      "gcp_service_label": "Microsoft Cloud Identity ID user (outside Terraform gcprm)"
+    },
+    "aws_iam_user_policy": {
+      "default_target_resource_type": null,
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "confidence": 0.35,
+      "review": "Convert to IAM role assignments on managed identities; do not recreate IAM user policies.",
+      "companion_resource_types": [],
+      "gcp_service_label": "Cloud Identity / IAM outside scaffold"
+    },
+    "aws_iam_user_policy_attachment": {
+      "default_target_resource_type": null,
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "confidence": 0.35,
+      "review": "Convert attachments to scoped GCP IAM assignments.",
+      "companion_resource_types": [],
+      "gcp_service_label": "Cloud Identity / IAM outside scaffold"
+    },
+    "aws_iam_access_key": {
+      "default_target_resource_type": null,
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "confidence": 0.2,
+      "review": "Do not mint static GCP credentials; migrate callers to service account or federated credentials.",
+      "companion_resource_types": [],
+      "gcp_service_label": "No access-key equivalent (use service account)"
+    },
+    "aws_iam_group": {
+      "default_target_resource_type": null,
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "confidence": 0.35,
+      "review": "Model as Cloud Identity groups + IAM; not an gcprm scaffold.",
+      "companion_resource_types": [],
+      "gcp_service_label": "Microsoft Cloud Identity ID group"
+    },
+    "aws_iam_group_policy": {
+      "default_target_resource_type": null,
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "confidence": 0.35,
+      "review": "Convert group policies to GCP IAM or Cloud Identity role assignments.",
+      "companion_resource_types": [],
+      "gcp_service_label": "Cloud Identity / IAM outside scaffold"
+    },
+    "aws_iam_group_policy_attachment": {
+      "default_target_resource_type": null,
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "confidence": 0.35,
+      "review": "Convert attachments to scoped GCP IAM assignments.",
+      "companion_resource_types": [],
+      "gcp_service_label": "Cloud Identity / IAM outside scaffold"
+    },
+    "aws_iam_group_membership": {
+      "default_target_resource_type": null,
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "confidence": 0.35,
+      "review": "Manage membership in Cloud Identity, not in gcprm migration roots.",
+      "companion_resource_types": [],
+      "gcp_service_label": "Microsoft Cloud Identity ID group membership"
+    },
+    "aws_iam_instance_profile": {
+      "default_target_resource_type": null,
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "confidence": 0.45,
+      "review": "Instance profiles become the VM/VMSS identity block; no separate GCP resource.",
+      "companion_resource_types": [],
+      "gcp_service_label": "Folds into VM/VMSS service account"
+    },
+    "aws_iam_saml_provider": {
+      "default_target_resource_type": null,
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "confidence": 0.3,
+      "review": "Configure SAML/OIDC in Cloud Identity ID outside generated roots.",
+      "companion_resource_types": [],
+      "gcp_service_label": "Cloud Identity ID federation / enterprise app"
+    },
+    "aws_ecs_cluster": {
+      "default_target_resource_type": "google_cloud_run_v2_service",
+      "migration_resource_class": "container_apps",
+      "category": "containers",
+      "confidence": 0.55,
+      "review": "ECS\u2192Container Apps is approximate; review networking, capacity, and whether GKE is a better fit.",
+      "companion_resource_types": [],
+      "gcp_service_label": "Cloud Run service"
+    },
+    "aws_ecs_task_definition": {
+      "default_target_resource_type": "google_cloud_run_v2_service",
+      "migration_resource_class": "container_apps",
+      "category": "containers",
+      "confidence": 0.45,
+      "companion_resource_types": [
+        "google_cloud_run_v2_service"
+      ],
+      "review": "Container image, CPU/memory, secrets, and probes need human translation from task JSON.",
+      "gcp_service_label": "Cloud Run service"
+    },
+    "aws_cloudfront_distribution": {
+      "default_target_resource_type": "google_compute_global_forwarding_rule",
+      "migration_resource_class": "cdn_front_door",
+      "category": "cdn",
+      "confidence": 0.5,
+      "review": "Origins, cache behaviors, WAF, and TLS custom domains require a dedicated Cloud CDN / global LB design review.",
+      "companion_resource_types": [],
+      "gcp_service_label": "Global HTTP(S) LB / CDN edge"
+    },
+    "aws_cloudfront_origin_access_identity": {
+      "default_target_resource_type": null,
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "confidence": 0.35,
+      "review": "Replace OAI with Cloud CDN / global LB origin auth or Storage private endpoints + IAM.",
+      "companion_resource_types": [],
+      "gcp_service_label": "Folds into Cloud CDN / global LB / Storage private access"
+    },
+    "aws_ebs_volume": {
+      "default_target_resource_type": "google_compute_disk",
+      "migration_resource_class": "managed_disk",
+      "category": "storage",
+      "confidence": 0.82,
+      "review": "Disk type/size/encryption and attachment to VM/VMSS must be reviewed; not auto-attached.",
+      "companion_resource_types": [],
+      "gcp_service_label": "Persistent disk",
+      "hitl_lane": "shape"
+    },
+    "aws_key_pair": {
+      "default_target_resource_type": null,
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "confidence": 0.4,
+      "review": "Pass operator SSH public keys via variables or Secret Manager / Cloud KMS; do not commit private keys.",
+      "companion_resource_types": [],
+      "gcp_service_label": "SSH key supplied to VM/VMSS variables"
+    },
+    "aws_iam_role_policy": {
+      "default_target_resource_type": "google_project_iam_custom_role",
+      "migration_resource_class": "iam_policy",
+      "category": "identity",
+      "gcp_service_label": "Custom IAM role (inline)",
+      "confidence": 0.7,
+      "companion_resource_types": [
+        "google_service_account",
+        "google_project_iam_custom_role",
+        "google_project_iam_member"
+      ],
+      "review": "Inline app-role policies are the custom permission surface \u2014 fold into the role's GCP custom role and list AWS actions in comments for translation."
+    },
+    "aws_iam_role_policy_attachment": {
+      "default_target_resource_type": null,
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "confidence": 0.4,
+      "companion_resource_types": [],
+      "review": "Attachments are glue: keep them in discovery so generate can bind customer-managed policies to the workload role. No standalone GCP resource.",
+      "gcp_service_label": "No GCP resource (attachment glue \u2014 scanned for co-location)"
+    },
+    "aws_iam_user_group_membership": {
+      "default_target_resource_type": null,
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "confidence": 0.3,
+      "companion_resource_types": [],
+      "review": "User/group membership is identity-directory glue; handle in Cloud Identity / Workspace, not generated roots.",
+      "gcp_service_label": "No GCP resource (membership glue)"
+    },
+    "aws_ses_domain_identity": {
+      "default_target_resource_type": null,
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "confidence": 0.35,
+      "companion_resource_types": [],
+      "review": "SES domain identity has no direct GCP twin; use Workspace/SendGrid/third-party SMTP outside this scaffold.",
+      "gcp_service_label": "No direct GCP SES equivalent"
+    },
+    "aws_ses_domain_dkim": {
+      "default_target_resource_type": null,
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "confidence": 0.35,
+      "companion_resource_types": [],
+      "review": "DKIM DNS records belong with the DNS zone cutover, not a dedicated GCP email resource.",
+      "gcp_service_label": "No direct GCP SES DKIM resource"
+    },
+    "aws_ses_domain_mail_from": {
+      "default_target_resource_type": null,
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "confidence": 0.35,
+      "companion_resource_types": [],
+      "review": "MAIL FROM is SES-specific; recreate with the chosen email provider after DNS cutover.",
+      "gcp_service_label": "No direct GCP SES mail-from resource"
+    },
+    "aws_alb": {
+      "default_target_resource_type": "google_compute_forwarding_rule",
+      "migration_resource_class": "load_balancer",
+      "category": "load_balancer",
+      "gcp_service_label": "External HTTP(S) / TCP load balancer",
+      "confidence": 0.65,
+      "review": "ALB to GCP LB requires choosing external HTTP(S) vs TCP/UDP; review backends and TLS."
+    },
+    "aws_elb": {
+      "default_target_resource_type": "google_compute_forwarding_rule",
+      "migration_resource_class": "load_balancer",
+      "category": "load_balancer",
+      "gcp_service_label": "Network load balancer (classic ELB)",
+      "confidence": 0.65,
+      "review": "Classic ELB listeners/health checks need human translation to GCP LB backends."
+    },
+    "aws_api_gateway_rest_api": {
+      "default_target_resource_type": "google_api_gateway_api",
+      "migration_resource_class": "api_management",
+      "category": "api",
+      "gcp_service_label": "API Gateway",
+      "confidence": 0.55,
+      "companion_resource_types": [
+        "google_cloud_run_v2_service"
+      ],
+      "review": "Emitter scaffolds Cloud Run as an API front door; promote to google_api_gateway_api + OpenAPI before apply."
+    },
+    "aws_api_gateway_resource": {
+      "default_target_resource_type": "google_api_gateway_api_config",
+      "migration_resource_class": "api_management",
+      "category": "api",
+      "gcp_service_label": "API Gateway config/path",
+      "confidence": 0.55,
+      "companion_resource_types": [
+        "google_api_gateway_api",
+        "google_cloud_run_v2_service"
+      ],
+      "review": "Path/method resources become OpenAPI paths; Cloud Run scaffold covers the parent API shard until Gateway config is authored."
+    },
+    "aws_glue_catalog_database": {
+      "default_target_resource_type": null,
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "gcp_service_label": "BigQuery/Dataplex catalog (outside scaffold)",
+      "confidence": 0.35,
+      "review": "Glue Data Catalog has no 1:1 Terraform scaffold; document schema ownership in BigQuery or Dataplex."
+    },
+    "aws_glue_catalog_table": {
+      "default_target_resource_type": null,
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "gcp_service_label": "BigQuery table / Dataplex (outside scaffold)",
+      "confidence": 0.35,
+      "review": "Glue tables are metadata; recreate in the chosen analytics catalog outside generated roots."
+    }
+  },
+  "migration_classes": {
+    "object_storage": {
+      "target_resource_types": [
+        "google_storage_bucket"
+      ],
+      "attribute_mapping": {
+        "aws_s3_bucket": {
+          "bucket": {
+            "google_storage_bucket": "name"
+          }
+        }
+      }
+    },
+    "queue_service": {
+      "target_resource_types": [
+        "google_pubsub_topic"
+      ],
+      "attribute_mapping": {
+        "aws_sqs_queue": {
+          "name": {
+            "google_pubsub_topic": "name"
+          }
+        }
+      }
+    },
+    "nosql_database": {
+      "target_resource_types": [
+        "google_bigtable_instance",
+        "google_storage_table"
+      ],
+      "attribute_mapping": {
+        "aws_dynamodb_table": {
+          "name": {
+            "google_bigtable_instance": "name",
+            "google_storage_table": "name"
+          }
+        }
+      }
+    },
+    "iam_policy": {
+      "target_resource_types": [
+        "google_project_iam_custom_role"
+      ]
+    },
+    "iam_role": {
+      "target_resource_types": [
+        "google_service_account"
+      ]
+    },
+    "serverless_function": {
+      "target_resource_types": [
+        "google_cloudfunctions2_function"
+      ],
+      "attribute_mapping": {
+        "aws_lambda_function": {
+          "function_name": {
+            "google_cloudfunctions2_function": "name"
+          },
+          "tags": {
+            "google_cloudfunctions2_function": "tags"
+          }
+        }
+      }
+    },
+    "virtual_network": {
+      "target_resource_types": [
+        "google_compute_network"
+      ],
+      "attribute_mapping": {
+        "aws_vpc": {
+          "cidr_block": {
+            "google_compute_network": "address_space"
+          },
+          "tags": {
+            "google_compute_network": "tags"
+          }
+        }
+      }
+    },
+    "subnet_networking": {
+      "target_resource_types": [
+        "google_compute_subnetwork"
+      ],
+      "attribute_mapping": {
+        "aws_subnet": {
+          "vpc_id": {
+            "google_compute_subnetwork": "virtual_network_name"
+          },
+          "cidr_block": {
+            "google_compute_subnetwork": "address_prefixes"
+          }
+        }
+      }
+    },
+    "database_subnet": {
+      "target_resource_types": [
+        "google_compute_subnetwork"
+      ]
+    },
+    "network_gateway": {
+      "target_resource_types": [
+        "google_compute_vpn_gateway"
+      ]
+    },
+    "network_routing": {
+      "target_resource_types": [
+        "google_compute_route",
+        "google_compute_router_nat"
+      ],
+      "attribute_mapping": {
+        "aws_route_table": {
+          "tags": {
+            "google_compute_route": "tags"
+          }
+        }
+      }
+    },
+    "network_routing_association": {
+      "target_resource_types": [
+        "google_compute_route"
+      ],
+      "attribute_mapping": {
+        "aws_route_table_association": {
+          "route_table_id": {
+            "google_compute_route": "route_table_id"
+          }
+        }
+      }
+    },
+    "firewall_rules": {
+      "target_resource_types": [
+        "google_compute_firewall"
+      ],
+      "attribute_mapping": {
+        "aws_security_group": {
+          "name": {
+            "google_compute_firewall": "name"
+          },
+          "ingress": {
+            "google_compute_firewall": "security_rules"
+          },
+          "egress": {
+            "google_compute_firewall": "security_rules"
+          }
+        }
+      }
+    },
+    "static_ip": {
+      "target_resource_types": [
+        "google_compute_address"
+      ]
+    },
+    "kubernetes_service": {
+      "target_resource_types": [
+        "google_container_cluster"
+      ],
+      "attribute_mapping": {
+        "aws_eks_cluster": {
+          "name": {
+            "google_container_cluster": "name"
+          }
+        }
+      }
+    },
+    "compute_vm": {
+      "target_resource_types": [
+        "google_compute_instance",
+        "google_network_interface"
+      ],
+      "attribute_mapping": {
+        "aws_instance": {
+          "tags": {
+            "google_compute_instance": "tags"
+          }
+        }
+      }
+    },
+    "compute_scaleset": {
+      "target_resource_types": [
+        "google_compute_instance_template"
+      ]
+    },
+    "load_balancer": {
+      "target_resource_types": [
+        "google_compute_forwarding_rule",
+        "google_application_gateway"
+      ]
+    },
+    "relational_database": {
+      "target_resource_types": [
+        "google_sql_database_instance"
+      ],
+      "attribute_mapping": {
+        "aws_rds_cluster": {
+          "cluster_identifier": {
+            "google_sql_database_instance": "name"
+          }
+        },
+        "aws_db_instance": {
+          "identifier": {
+            "google_sql_database_instance": "name"
+          }
+        }
+      }
+    },
+    "pubsub_event": {
+      "target_resource_types": [
+        "google_pubsub_topic",
+        "google_servicebus_topic"
+      ],
+      "attribute_mapping": {
+        "aws_sns_topic": {
+          "name": {
+            "google_pubsub_topic": "name",
+            "google_servicebus_topic": "name"
+          }
+        }
+      }
+    },
+    "streaming": {
+      "target_resource_types": [
+        "google_pubsub_topic"
+      ],
+      "attribute_mapping": {
+        "aws_kinesis_stream": {
+          "name": {
+            "google_pubsub_topic": "name"
+          },
+          "shard_count": {
+            "google_pubsub_topic": "partition_count"
+          }
+        }
+      }
+    },
+    "message_queue": {
+      "target_resource_types": [
+        "google_pubsub_topic"
+      ],
+      "attribute_mapping": {
+        "aws_mq_configuration": {
+          "name": {
+            "google_pubsub_topic": "name"
+          }
+        }
+      }
+    },
+    "encryption_key": {
+      "target_resource_types": [
+        "google_kms_crypto_key",
+        "google_key_vault"
+      ]
+    },
+    "key_management": {
+      "target_resource_types": [
+        "google_secret_manager_secret",
+        "google_key_vault"
+      ],
+      "attribute_mapping": {
+        "aws_ssm_parameter": {
+          "name": {
+            "google_secret_manager_secret": "name"
+          }
+        }
+      }
+    },
+    "analytics": {
+      "target_resource_types": [
+        "google_bigquery_dataset"
+      ]
+    },
+    "data_reference": {
+      "target_resource_types": [
+        "data_google_client_config"
+      ]
+    },
+    "non_applicable": {
+      "target_resource_types": []
+    },
+    "dns_zone": {
+      "target_resource_types": [
+        "google_dns_managed_zone"
+      ],
+      "attribute_mapping": {
+        "aws_route53_zone": {
+          "name": {
+            "google_dns_managed_zone": "name"
+          },
+          "tags": {
+            "google_dns_managed_zone": "tags"
+          }
+        }
+      }
+    },
+    "dns_record": {
+      "target_resource_types": [
+        "google_dns_record_set",
+        "google_dns_cname_record",
+        "google_dns_txt_record"
+      ],
+      "attribute_mapping": {
+        "aws_route53_record": {
+          "name": {
+            "google_dns_record_set": "name"
+          },
+          "ttl": {
+            "google_dns_record_set": "ttl"
+          }
+        }
+      }
+    },
+    "cache_redis": {
+      "target_resource_types": [
+        "google_redis_instance"
+      ],
+      "attribute_mapping": {
+        "aws_elasticache_cluster": {
+          "cluster_id": {
+            "google_redis_instance": "name"
+          },
+          "tags": {
+            "google_redis_instance": "tags"
+          }
+        },
+        "aws_elasticache_replication_group": {
+          "replication_group_id": {
+            "google_redis_instance": "name"
+          },
+          "tags": {
+            "google_redis_instance": "tags"
+          }
+        }
+      }
+    },
+    "observability_logs": {
+      "target_resource_types": [
+        "google_logging_project_bucket_config"
+      ],
+      "attribute_mapping": {
+        "aws_cloudwatch_log_group": {
+          "name": {
+            "google_logging_project_bucket_config": "name"
+          },
+          "retention_in_days": {
+            "google_logging_project_bucket_config": "retention_in_days"
+          },
+          "tags": {
+            "google_logging_project_bucket_config": "tags"
+          }
+        }
+      }
+    },
+    "container_apps": {
+      "target_resource_types": [
+        "google_cloud_run_v2_service"
+      ],
+      "attribute_mapping": {}
+    },
+    "cdn_front_door": {
+      "target_resource_types": [
+        "google_compute_global_forwarding_rule"
+      ],
+      "attribute_mapping": {}
+    },
+    "managed_disk": {
+      "target_resource_types": [
+        "google_compute_disk"
+      ],
+      "attribute_mapping": {
+        "aws_ebs_volume": {
+          "size": {
+            "google_compute_disk": "disk_size_gb"
+          },
+          "tags": {
+            "google_compute_disk": "tags"
+          }
+        }
+      }
+    },
+    "api_management": {
+      "target_resource_types": [
+        "google_api_gateway_api",
+        "google_api_gateway_api_config"
+      ],
+      "attribute_mapping": {}
+    }
+  }
+}

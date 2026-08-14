@@ -1,0 +1,195 @@
+# AWS Cloud2Code to Terraform reverse-IaC orchestration
+
+Scan one AWS region, capture a Terraform state, decompose it into logical
+Terraform roots, reverse-engineer HCL, and validate until every selected AWS
+root passes Terraform checks with a zero-change plan. Then generate and validate
+best-effort Azure Terraform equivalents and open an Azure pull request.
+
+## Phases
+
+0. **Runner preflight** — verify remote-runner tools (`jq`, `aws`, `python3`, `git`, `tofu`/`terraform`, `cloud2code`) and script-pack preload before any scan or ingest work. Terminal blockers jump to the final gate via `conditional_skip`.
+1. **AWS scan** — capture one region as a monolithic Terraform state.
+2. **Decomposition** — split the monolith into logical, layered Terraform roots.
+3. **Reverse-IaC scaffold** — write HCL-only roots with import blocks and open the AWS IaC pull request.
+4. **Terraform validation** — hydrate, format, validate, optionally test and lint, and reach a zero-change plan per root, looping until every selected root converges or a real blocker is recorded.
+5. **Azure generation** — build a migration blueprint, generate Azure Terraform roots, validate them, loop until they pass, and open the Azure pull request.
+6. **Orphan handoff** — hand any resources that cannot be hydrated safely to the secondary orphan-module procedure; skip cleanly when there are none.
+7. **Final gate** — confirm every phase produced its evidence before reporting complete (or emit a single blocked rollup when an upstream gate short-circuited).
+
+## Execution host
+
+A single execution host owns all shell work: `cloud2code`, `aws`, `jq`, `git`,
+`tofu`/`terraform`, optional `tflint`, and state file operations. Batch
+multi-step shell work into one sequence rather than many rapid one-off commands,
+and keep independent work in bounded parallel batches. All heavy parsing and
+Terraform runs happen on the host, never inline.
+
+## Handoff record
+
+Carry these facts forward between phases (paths, counts, statuses, and redacted
+summaries only — never secrets or raw state attribute payloads):
+
+| Key | Meaning |
+| --- | --- |
+| `cloud2code_scan_ok` | Scan completed and produced a valid tfstate |
+| `cloud2code_tfstate_path` / `monolith_state_uri` | State file path on the host |
+| `monolith_resource_count` | Managed resource instance count in the monolith |
+| `logical_group_manifest` | Decomposition manifest path |
+| `group_state_paths` | Per-group state paths |
+| `count_reconciliation_ok` | Aggregate group count matches monolith count |
+| `split_quality_pass` | Decomposition selected an acceptable candidate (clean ≥80 or soft ≥70 after tuning) |
+| `registry_mapping_report` | Reverse-IaC registry/scaffold report |
+| `orphans_bundle` | Addresses that cannot be hydrated into normal HCL roots |
+| `hcl_hydration_status:<group_id>` | Per-group validation status JSON |
+| `multi_plan_zero_diff_ok` | True only when all selected roots pass validation and a zero-change plan |
+| `azure_migration_blueprint_path` | Azure migration blueprint JSON path |
+| `azure_review_needed_path` | Azure review-needed markdown path |
+| `azure_iac_generated` | True when `azure/groups/<group_id>/` roots were written |
+| `azure_iac_validation_ok` | True when Azure static validation passed and the live plan passed or was skipped for missing credentials |
+| `azure_plan_status` | `success`, `success:sample:N/M`, `skipped:missing_credentials` (only when require_azure_live_plan is off), or `failed` |
+| `azure_pr_url` / `pr_url` | Destination Azure PR URL |
+
+## AWS scan
+
+The scan requires `aws_region`. Optional inputs include `cloud2code_include`,
+`cloud2code_exclude`, `cloud2code_tags`, `cloud2code_output_dir`,
+`cloud2code_discovery_name`, `iac_repository_url`, `default_branch`, grouping
+controls, and `tfstate_decomposer_*` tuning controls. Always force
+`--auto-import=false`. Record the scan result and the monolith state URI.
+
+## Decomposition
+
+Consume `monolith_state_uri`; never ask the operator for state paths. Using the
+decomposition script pack:
+
+1. Download or copy the monolith state onto the host under the run working directory.
+2. Run the state decomposer.
+3. Score count reconciliation, orphan count, cap violations, review queue, and fragmentation.
+4. Rerun with tuned `tfstate_decomposer_*` controls when the quality report recommends it.
+5. Select the best bounded candidate and record the manifest, per-group states, split quality report, tuning history, and orphan bundle.
+
+### Split quality floors
+
+- **Clean pass:** `quality_score >= 80`, count reconciliation true, and no hard issues
+  (reconcile fail, duplicates, unallocated addresses, no groups, cap violations).
+- **Soft pass after bounded tuning:** when no clean pass exists, the runner may accept the
+  best candidate at `quality_score >= 70` with no hard issues and set
+  `selection_reason=best_candidate_after_bounded_tuning`. Soft-pass is operationally
+  acceptable, not excellent — prefer improving grouping when practical.
+- `script_pack_drift_possible` is a non-blocking warning (for example a suspiciously
+  single `ungrouped` giant state); it must not terminate the ingest loop by itself.
+
+Large states may validate against a sampled subset of groups for wall-time; when
+sampling is used, mark the final evidence as partial.
+
+## Reverse-IaC scaffold
+
+Scaffold HCL-only Terraform roots under `aws/groups/<group_id>/`, write import
+blocks, sync artifacts to the target IaC repository, and open or prepare a pull
+request. All committed Terraform configuration must be HCL `.tf`; state JSON,
+plan JSON, and parser scratch files stay under the run working directory.
+
+## Terraform validation loop
+
+For each selected group root, run:
+
+1. `tofu init -backend=false -input=false -no-color`
+2. `tofu plan -generate-config-out=generated.tf -input=false -lock=false -no-color`
+3. `tofu fmt -recursive -check -no-color`
+4. `tofu validate -no-color`
+5. `tofu test -no-color` when `*.tftest.hcl` or `*.tftest.json` files exist
+6. `tflint` when installed on the host
+7. `tofu plan -refresh=false -input=false -lock=false -no-color -out=verify.tfplan`
+
+Provider install failures and host disk exhaustion are repairable init failures.
+Move `TF_PLUGIN_CACHE_DIR` and `TF_DATA_DIR` to a scratch volume when available,
+remove only Terraform runtime/cache artifacts (never `terraform.tfstate` or
+source artifacts), retry init, and record `hcl_init_status:<group_id>` with the
+init log path and classified reason.
+
+Record `hcl_hydration_status:<group_id>` with:
+
+```json
+{
+  "generated_tf_path": ".../generated.tf",
+  "plan_no_changes": true,
+  "remaining_actions": { "add": 0, "change": 0, "destroy": 0 },
+  "validation": {
+    "fmt": "true",
+    "validate": "true",
+    "test": "skipped:no_tests",
+    "lint": "skipped:tflint_missing"
+  },
+  "attempt": 1
+}
+```
+
+Loop the validation phase until `multi_plan_zero_diff_ok` is `"true"` or a
+terminal blocker is recorded, capped by `${max_iterations}` iterations.
+
+## Azure generation
+
+Azure generation starts only after AWS convergence, uses the default Azure
+migration profile, and never asks for human approval of service choices.
+
+The blueprint step writes:
+
+- `azure/artifacts/migration-profile.json`
+- `azure/artifacts/migration-blueprint.json`
+- `azure/artifacts/review-needed.md`
+
+Generation writes HCL-only Terraform roots under `azure/groups/<group_id>/`.
+Preferred demo mappings are EKS to AKS, Auto Scaling Group or launch template to
+VMSS, EC2 singleton to VM, Lambda to Azure Functions, S3 to Storage Account,
+RDS/PostgreSQL to Azure Database for PostgreSQL Flexible Server, SQS to Service
+Bus Queue, and SNS/EventBridge/Kinesis to Event Grid or Event Hubs. Ambiguous,
+low-confidence, identity, security, or placeholder mappings are recorded in the
+review-needed artifacts and the pull request body.
+
+Validation runs `tofu fmt`, `tofu validate`, optional `tofu test`, optional
+`tflint`, and a live `tofu plan` only when Azure credentials are configured on
+the host. If credentials are absent and live plan is not required, set `azure_plan_status=skipped:missing_credentials`; when required, fail validate.
+that is acceptable when static validation passes. If a live plan runs, success
+requires expected creates and no deletes or replacements. Post-apply zero-diff
+is out of scope for this demo. Loop Azure/GCP generation until
+`*_iac_validation_ok` is conclusive (`"true"` or `"false"`) or a terminal
+blocker is recorded — destination generate is deterministic, so a false
+validate must exit the loop and open the PR rather than thrash to the visit
+cap. Cap is `${max_iterations}` iterations.
+
+The Azure pull request syncs the generated `azure/` tree into the target repo
+under `azure/`, allocates a fresh branch starting with `azure/<run id>`, and
+opens a new pull request. If that branch already exists or has any PR history,
+append a timestamp/PID suffix instead of reusing or updating the old PR. The PR
+body must include a summary, generated group count, validation status, plan
+status, mapping decisions, unsupported/placeholder resources, and review-needed
+items.
+
+## Orphans
+
+Addresses that cannot be read, imported, or represented safely in generated HCL
+move to `orphans_bundle` with a reason and source group. The orphan handoff
+skips cleanly when the bundle is empty; otherwise it hands the bundle to the
+secondary orphan-module procedure.
+
+## Final gate
+
+Report complete only when:
+
+- Scan evidence exists.
+- Monolith and aggregate group counts match.
+- Split quality passed.
+- Required HCL hydration records exist.
+- `multi_plan_zero_diff_ok` is `"true"`.
+- `azure_migration_blueprint_path` and `azure_review_needed_path` exist.
+- `azure_iac_generated` is `"true"`.
+- `azure_iac_validation_ok` is `"true"`.
+- `azure_pr_url` or `pr_url` exists.
+- The orphan handoff is skipped-empty or recorded.
+
+## Blockers
+
+Stop with a compact blocked reason on missing AWS region, missing host tools,
+missing monolith state URI, invalid tfstate, script-pack verification failure,
+unreconciled counts, missing Terraform binary, or a persistent non-zero
+Terraform plan after the bounded loop.

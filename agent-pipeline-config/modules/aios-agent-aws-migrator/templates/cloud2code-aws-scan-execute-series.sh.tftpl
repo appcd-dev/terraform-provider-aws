@@ -1,0 +1,222 @@
+/bin/bash <<'CLOUD2CODE_AWS_SCAN_EXECUTE'
+set -euo pipefail
+
+export HOME=${runner_work_home}
+ABS_WORK_ROOT="${runner_work_home}/.{{workflow_run_id}}"
+WORK_ROOT="$ABS_WORK_ROOT"
+INPUT_JSON="$WORK_ROOT/.work/cloud2code-inputs.json"
+NOTES_JSON="$WORK_ROOT/notes.json"
+
+mkdir -p "$WORK_ROOT/.work" "$WORK_ROOT/cloud2code" "$WORK_ROOT/state"
+chmod 700 "$WORK_ROOT" 2>/dev/null || true
+[ -f "$NOTES_JSON" ] || echo '{}' >"$NOTES_JSON"
+
+mirror_note() {
+  local key="$${1:?KEY}"
+  local value="$${2:-}"
+  local tmp
+  tmp="$(mktemp "$${NOTES_JSON}.XXXXXX")"
+  jq --arg k "$key" --arg v "$value" '. + {($k): $v}' "$NOTES_JSON" >"$tmp" \
+    && mv "$tmp" "$NOTES_JSON"
+}
+
+read_input() {
+  local key="$${1:?KEY}"
+  [ -f "$INPUT_JSON" ] || return 0
+  jq -r --arg k "$key" '.[$k] // empty' "$INPUT_JSON" 2>/dev/null || true
+}
+
+read_note() {
+  local key="$${1:?KEY}"
+  jq -r --arg k "$key" '.[$k] // empty' "$NOTES_JSON" 2>/dev/null || true
+}
+
+coalesce_value() {
+  local key="$${1:?KEY}"
+  local env_key="$${2:-}"
+  local value=""
+  value="$(read_input "$key")"
+  if [ -z "$value" ]; then
+    value="$(read_note "$key")"
+  fi
+  if [ -z "$value" ] && [ -n "$env_key" ]; then
+    value="$(printenv "$env_key" 2>/dev/null || true)"
+  fi
+  printf '%s' "$value"
+}
+
+AWS_REGION="$(coalesce_value aws_region AWS_REGION)"
+CLOUD2CODE_INCLUDE="$(coalesce_value cloud2code_include CLOUD2CODE_INCLUDE)"
+CLOUD2CODE_EXCLUDE="$(coalesce_value cloud2code_exclude CLOUD2CODE_EXCLUDE)"
+# Default exclude: catalog non_applicable types that never map to Azure/GCP as
+# standalone resources (identity humans, Athena, EC2 key pairs, folded attrs).
+# Operators may override via cloud2code_exclude / CLOUD2CODE_EXCLUDE.
+if [ -z "$CLOUD2CODE_EXCLUDE" ]; then
+  CLOUD2CODE_EXCLUDE="${default_cloud2code_exclude}"
+fi
+# Drop exclude types cloud2code does not recognize — unsupported --exclude values
+# abort the entire import (cloud2code 0.5.x: "type X on Exclude filter: not supported").
+if [ -n "$CLOUD2CODE_EXCLUDE" ] && command -v cloud2code >/dev/null 2>&1; then
+  _sup_file="$(mktemp)"
+  if cloud2code get-supported-resources -c aws >"$${_sup_file}" 2>/dev/null; then
+    CLOUD2CODE_EXCLUDE="$(
+      printf '%s' "$CLOUD2CODE_EXCLUDE" | tr ',' '\n' | while IFS= read -r _t; do
+        _t="$(printf '%s' "$${_t}" | tr -d '[:space:]')"
+        [ -z "$${_t}" ] && continue
+        if grep -Eq "^ - $${_t}\$" "$${_sup_file}"; then
+          printf '%s\n' "$${_t}"
+        else
+          echo "cloud2code_exclude_skipped_unsupported=$${_t}" >&2
+        fi
+      done | paste -sd, -
+    )"
+  fi
+  rm -f "$${_sup_file}"
+fi
+CLOUD2CODE_TAGS="$(coalesce_value cloud2code_tags CLOUD2CODE_TAGS)"
+CLOUD2CODE_OUTPUT_DIR="$(coalesce_value cloud2code_output_dir CLOUD2CODE_OUTPUT_DIR)"
+CLOUD2CODE_DISCOVERY_NAME="$(coalesce_value cloud2code_discovery_name CLOUD2CODE_DISCOVERY_NAME)"
+IAC_REPOSITORY_URL="$(coalesce_value iac_repository_url IAC_REPOSITORY_URL)"
+if [ -z "$IAC_REPOSITORY_URL" ]; then
+  IAC_REPOSITORY_URL="$(coalesce_value iac_repo_url IAC_REPO_URL)"
+fi
+if [ -z "$IAC_REPOSITORY_URL" ] && [ -n "${default_iac_repository_url}" ]; then
+  IAC_REPOSITORY_URL="${default_iac_repository_url}"
+fi
+DEFAULT_BRANCH="$(coalesce_value default_branch DEFAULT_BRANCH)"
+if [ -z "$DEFAULT_BRANCH" ] && [ -n "${default_branch}" ]; then
+  DEFAULT_BRANCH="${default_branch}"
+fi
+GROUPING_STRATEGY="$(coalesce_value grouping_strategy GROUPING_STRATEGY)"
+MAX_RESOURCES_PER_APPSTACK="$(coalesce_value max_resources_per_appstack MAX_RESOURCES_PER_APPSTACK)"
+TFSTATE_DECOMPOSER_ENV_SCOPE="$(coalesce_value tfstate_decomposer_env_scope TFSTATE_DECOMPOSER_ENV_SCOPE)"
+TFSTATE_DECOMPOSER_ENV_TAG_KEYS="$(coalesce_value tfstate_decomposer_env_tag_keys TFSTATE_DECOMPOSER_ENV_TAG_KEYS)"
+TFSTATE_DECOMPOSER_LAYER3_TAG_KEYS="$(coalesce_value tfstate_decomposer_layer3_tag_keys TFSTATE_DECOMPOSER_LAYER3_TAG_KEYS)"
+TFSTATE_DECOMPOSER_SKIP_UNKNOWN_TYPE_REVIEW="$(coalesce_value tfstate_decomposer_skip_unknown_type_review TFSTATE_DECOMPOSER_SKIP_UNKNOWN_TYPE_REVIEW)"
+TFSTATE_DECOMPOSER_OVERRIDES_JSON="$(coalesce_value tfstate_decomposer_overrides_json TFSTATE_DECOMPOSER_OVERRIDES_JSON)"
+TFSTATE_DECOMPOSER_OVERRIDES_PATH="$(coalesce_value tfstate_decomposer_overrides_path TFSTATE_DECOMPOSER_OVERRIDES_PATH)"
+TFSTATE_DECOMPOSER_LAYER_TAXONOMY_JSON="$(coalesce_value tfstate_decomposer_layer_taxonomy_json TFSTATE_DECOMPOSER_LAYER_TAXONOMY_JSON)"
+TFSTATE_DECOMPOSER_MAX_TUNING_ITERATIONS="$(coalesce_value tfstate_decomposer_max_tuning_iterations TFSTATE_DECOMPOSER_MAX_TUNING_ITERATIONS)"
+
+CLOUD2CODE_AUTO_IMPORT="false"
+
+if [ -z "$AWS_REGION" ]; then
+  mirror_note "blocked:missing_aws_region" "true"
+  mirror_note "stage_summary:cloud2code-scan-aws" "blocked:missing_aws_region"
+  echo 'blocked:missing_aws_region: "true"'
+  exit 1
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+  mirror_note "blocked:remote_runner_jq_missing" "true"
+  mirror_note "stage_summary:cloud2code-scan-aws" "blocked:jq_missing"
+  echo 'blocked:remote_runner_jq_missing: "true"'
+  exit 1
+fi
+
+${ensure_cloud2code_script}
+
+if ! ensure_cloud2code; then
+  mirror_note "blocked:remote_runner_cloud2code_missing" "true"
+  mirror_note "stage_summary:cloud2code-scan-aws" "blocked:cloud2code_install_failed"
+  echo 'blocked:remote_runner_cloud2code_missing: "true"'
+  exit 1
+fi
+
+if ! command -v aws >/dev/null 2>&1; then
+  mirror_note "blocked:remote_runner_awscli_missing" "true"
+  mirror_note "stage_summary:cloud2code-scan-aws" "blocked:awscli_missing"
+  echo 'blocked:remote_runner_awscli_missing: "true"'
+  exit 1
+fi
+
+if [ -z "$CLOUD2CODE_OUTPUT_DIR" ]; then
+  CLOUD2CODE_OUTPUT_DIR="$WORK_ROOT/cloud2code/aws-$AWS_REGION"
+fi
+mkdir -p "$CLOUD2CODE_OUTPUT_DIR"
+
+aws sts get-caller-identity >"$WORK_ROOT/.work/aws-caller-identity.json" 2>"$WORK_ROOT/.work/aws-sts.err" \
+  && mirror_note "aws_caller_identity_path" "$WORK_ROOT/.work/aws-caller-identity.json" \
+  || mirror_note "aws_caller_identity_probe" "skipped_or_denied"
+
+CMD=(cloud2code import aws --region "$AWS_REGION" --output-dir "$CLOUD2CODE_OUTPUT_DIR" "--auto-import=$CLOUD2CODE_AUTO_IMPORT")
+if [ -n "$CLOUD2CODE_DISCOVERY_NAME" ]; then
+  CMD+=(--name "$CLOUD2CODE_DISCOVERY_NAME")
+fi
+if [ -n "$CLOUD2CODE_TAGS" ]; then
+  CMD+=(--tags "$CLOUD2CODE_TAGS")
+fi
+if [ -n "$CLOUD2CODE_INCLUDE" ]; then
+  CMD+=(--include "$CLOUD2CODE_INCLUDE")
+fi
+if [ -n "$CLOUD2CODE_EXCLUDE" ]; then
+  CMD+=(--exclude "$CLOUD2CODE_EXCLUDE")
+fi
+
+printf '%q ' "$${CMD[@]}" >"$WORK_ROOT/.work/cloud2code-command.txt"
+echo >>"$WORK_ROOT/.work/cloud2code-command.txt"
+mirror_note "cloud2code_command_path" "$WORK_ROOT/.work/cloud2code-command.txt"
+mirror_note "aws_region" "$AWS_REGION"
+mirror_note "cloud2code_auto_import" "$CLOUD2CODE_AUTO_IMPORT"
+mirror_note "cloud2code_output_dir" "$CLOUD2CODE_OUTPUT_DIR"
+if [ -n "$CLOUD2CODE_INCLUDE" ]; then mirror_note "cloud2code_include" "$CLOUD2CODE_INCLUDE"; fi
+if [ -n "$CLOUD2CODE_EXCLUDE" ]; then mirror_note "cloud2code_exclude" "$CLOUD2CODE_EXCLUDE"; fi
+if [ -n "$CLOUD2CODE_TAGS" ]; then mirror_note "cloud2code_tags" "$CLOUD2CODE_TAGS"; fi
+if [ -n "$IAC_REPOSITORY_URL" ]; then mirror_note "iac_repository_url" "$IAC_REPOSITORY_URL"; fi
+if [ -n "$DEFAULT_BRANCH" ]; then mirror_note "default_branch" "$DEFAULT_BRANCH"; fi
+if [ -n "$GROUPING_STRATEGY" ]; then mirror_note "grouping_strategy" "$GROUPING_STRATEGY"; fi
+if [ -n "$MAX_RESOURCES_PER_APPSTACK" ]; then mirror_note "max_resources_per_appstack" "$MAX_RESOURCES_PER_APPSTACK"; fi
+if [ -n "$TFSTATE_DECOMPOSER_ENV_SCOPE" ]; then mirror_note "tfstate_decomposer_env_scope" "$TFSTATE_DECOMPOSER_ENV_SCOPE"; fi
+if [ -n "$TFSTATE_DECOMPOSER_ENV_TAG_KEYS" ]; then mirror_note "tfstate_decomposer_env_tag_keys" "$TFSTATE_DECOMPOSER_ENV_TAG_KEYS"; fi
+if [ -n "$TFSTATE_DECOMPOSER_LAYER3_TAG_KEYS" ]; then mirror_note "tfstate_decomposer_layer3_tag_keys" "$TFSTATE_DECOMPOSER_LAYER3_TAG_KEYS"; fi
+if [ -n "$TFSTATE_DECOMPOSER_SKIP_UNKNOWN_TYPE_REVIEW" ]; then mirror_note "tfstate_decomposer_skip_unknown_type_review" "$TFSTATE_DECOMPOSER_SKIP_UNKNOWN_TYPE_REVIEW"; fi
+if [ -n "$TFSTATE_DECOMPOSER_OVERRIDES_JSON" ]; then mirror_note "tfstate_decomposer_overrides_json" "$TFSTATE_DECOMPOSER_OVERRIDES_JSON"; fi
+if [ -n "$TFSTATE_DECOMPOSER_OVERRIDES_PATH" ]; then mirror_note "tfstate_decomposer_overrides_path" "$TFSTATE_DECOMPOSER_OVERRIDES_PATH"; fi
+if [ -n "$TFSTATE_DECOMPOSER_LAYER_TAXONOMY_JSON" ]; then mirror_note "tfstate_decomposer_layer_taxonomy_json" "$TFSTATE_DECOMPOSER_LAYER_TAXONOMY_JSON"; fi
+if [ -n "$TFSTATE_DECOMPOSER_MAX_TUNING_ITERATIONS" ]; then mirror_note "tfstate_decomposer_max_tuning_iterations" "$TFSTATE_DECOMPOSER_MAX_TUNING_ITERATIONS"; fi
+
+if ! "$${CMD[@]}" >"$WORK_ROOT/.work/cloud2code.log" 2>&1; then
+  mirror_note "blocked:cloud2code_scan_failed" "true"
+  mirror_note "cloud2code_log_path" "$WORK_ROOT/.work/cloud2code.log"
+  mirror_note "stage_summary:cloud2code-scan-aws" "blocked:cloud2code_import_failed"
+  echo 'blocked:cloud2code_scan_failed: "true"'
+  echo "cloud2code_log_path=$WORK_ROOT/.work/cloud2code.log"
+  exit 1
+fi
+
+STATE_PATH="$(find "$CLOUD2CODE_OUTPUT_DIR" -maxdepth 5 -type f \( -name 'terraform.tfstate' -o -name '*.tfstate' \) | sort | head -1)"
+if [ -z "$STATE_PATH" ] || [ ! -s "$STATE_PATH" ]; then
+  mirror_note "blocked:cloud2code_tfstate_missing" "true"
+  mirror_note "cloud2code_log_path" "$WORK_ROOT/.work/cloud2code.log"
+  mirror_note "stage_summary:cloud2code-scan-aws" "blocked:tfstate_missing"
+  echo 'blocked:cloud2code_tfstate_missing: "true"'
+  exit 1
+fi
+
+if ! jq -e '.resources' "$STATE_PATH" >/dev/null 2>&1; then
+  mirror_note "blocked:cloud2code_tfstate_invalid" "true"
+  mirror_note "cloud2code_tfstate_path" "$STATE_PATH"
+  mirror_note "stage_summary:cloud2code-scan-aws" "blocked:tfstate_invalid"
+  echo 'blocked:cloud2code_tfstate_invalid: "true"'
+  exit 1
+fi
+
+MANAGED_COUNT="$(jq '[.resources[]? | select(.mode=="managed") | .instances[]?] | length' "$STATE_PATH" 2>/dev/null || echo 0)"
+RESOURCE_TYPE_COUNT="$(jq '[.resources[]? | select(.mode=="managed") | .type] | unique | length' "$STATE_PATH" 2>/dev/null || echo 0)"
+
+mirror_note "cloud2code_scan_ok" "true"
+mirror_note "cloud2code_tfstate_path" "$STATE_PATH"
+mirror_note "cloud2code_log_path" "$WORK_ROOT/.work/cloud2code.log"
+mirror_note "monolith_state_uri" "$STATE_PATH"
+mirror_note "tfstate_file" "$STATE_PATH"
+mirror_note "monolith_resource_count" "$MANAGED_COUNT"
+mirror_note "cloud2code_resource_type_count" "$RESOURCE_TYPE_COUNT"
+mirror_note "stage_summary:cloud2code-scan-aws" "ok"
+
+echo 'cloud2code_scan_ok: "true"'
+echo "aws_region=$AWS_REGION"
+echo "cloud2code_tfstate_path=$STATE_PATH"
+echo "monolith_state_uri=$STATE_PATH"
+echo "monolith_resource_count=$MANAGED_COUNT"
+echo "cloud2code_resource_type_count=$RESOURCE_TYPE_COUNT"
+CLOUD2CODE_AWS_SCAN_EXECUTE

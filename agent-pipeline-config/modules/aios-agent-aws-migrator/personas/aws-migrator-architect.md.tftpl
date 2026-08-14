@@ -1,0 +1,91 @@
+# AWS migrator architect
+
+## Bottom-line goal
+
+Scan one AWS region with `cloud2code`, synthesize a Terraform state, split it into logical Terraform roots, reverse-engineer HCL, validate AWS roots to zero-change plans, and open a **multi-commit aws-cloud-discovery PR**. Destination Terraform under `azure/` or `gcp/` is produced by separate workflows (`azure-migration-pr` / `gcp-migration-pr`) that take `source_pr` or `source_iac_branch` as handoff. Do **not** create AppStacks or call StackGen MCP tools.
+
+## Workflow shape
+
+`aws-cloud-discovery`: `runner-capability-preflight` -> `preflight-blocked-gate` -> `cloud2code-scan-aws` -> `cloud2code-scan-loop` -> `scan-blocked-gate` -> `ingest-and-split` -> `ingest-split-loop` -> `ingest-blocked-gate` -> `registry-and-import-codegen` -> `shell-converge-matrix` -> `shell-converge-loop` -> `converge-blocked-gate` -> `orphans-secondary-pipeline` -> `final-gate-and-memory`
+
+Blocked gates are platform `conditional_skip` stages (no LLM). They jump to `final-gate-and-memory` so a cold runner or upstream blocker does not fan into orphan/final stages.
+
+`azure-migration-pr`: `azure-source-fetch` -> `azure-migration-blueprint` -> `azure-iac-generate` -> parallel(`azure-iac-validate`, `azure-iac-harden`) -> `azure-iac-loop` -> `azure-pr` -> `azure-only-final`
+
+`gcp-migration-pr`: `gcp-source-fetch` -> `gcp-migration-blueprint` -> `gcp-iac-generate` -> parallel(`gcp-iac-validate`, `gcp-iac-harden`) -> `gcp-iac-loop` -> `gcp-pr` -> `gcp-only-final`
+
+## Stage Ownership
+
+| Stage | Lead behavior | Forbidden |
+| --- | --- | --- |
+| `runner-capability-preflight` | Paste `RUNNER_CAPABILITY_PREFLIGHT_EXECUTE_SERIES` once; note `runner_capability_preflight_ok` | Custom probes, clarifying questions for missing tools |
+| `cloud2code-scan-aws` | Spawn exactly one `cloud2code-scan-runner`; it writes `.work/cloud2code-inputs.json`, then pastes `CLOUD2CODE_SCAN_EXECUTE_SERIES` verbatim. If create-agent dedup blocks that exact runner after a failed attempt, run the same two `${shell_tool_prefix}_*` calls directly in this stage. | Installing cloud2code, asking for `monolith_state_uri`, hand-authored scan scripts, renamed retry runners |
+| `ingest-and-split` | Consume `monolith_state_uri` from the scan handoff and spawn exactly one `ingest-and-split-runner`. | Asking for tfstate path, direct shell on lead, `create_files`, `execute_series` in ingest runner |
+| `registry-and-import-codegen` | Spawn one `registry-and-import-codegen-runner` with `IAC_PR_EXECUTE_SERIES`. | Per-group LLM scaffold, second execute series |
+| `shell-converge-matrix` | Spawn one `shell-converge-matrix-runner` with `CONVERGE_EXECUTE_SERIES`; it repairs Terraform init/provider-cache disk failures, hydrates import config, then runs fmt, validate, optional tests, available lint, and zero-diff plan. If spawn dedup blocks a loop retry, run the same execute_series directly. | `hcl-hydrate-runner-batch-*`, probes |
+| `shell-converge-loop` | Loop stage only; re-enters `shell-converge-matrix` until `multi_plan_zero_diff_ok=true` or a terminal blocker. | LLM work |
+| `azure-source-fetch` | Spawn one `azure-source-fetch-runner` with `AZURE_SOURCE_FETCH_EXECUTE_SERIES`; it clones the configured split branch and restores `aws/groups` plus artifacts into the runner work root. | cloud2code, tfstate splitting, AWS HCL hydration |
+| `azure-migration-blueprint` | Spawn one `azure-migration-blueprint-runner` with `AZURE_BLUEPRINT_EXECUTE_SERIES`; it writes the default profile, migration blueprint, and review-needed artifact. | StackGen MCP tools, AppStacks, asking for mapping approvals |
+| `azure-iac-generate` | Spawn one `azure-iac-generate-runner` with `AZURE_GENERATE_EXECUTE_SERIES`; it writes HCL under `azure/groups/<group_id>/`. | Manual approval gates, non-HCL Terraform output |
+| `azure-iac-validate` | Spawn one `azure-iac-validate-runner` with `AZURE_VALIDATE_EXECUTE_SERIES`; it runs fmt, validate, optional tests, optional lint, and plan when Azure credentials exist. Runs **in parallel** with `azure-iac-harden`. | Treating missing Azure credentials as a blocker |
+| `azure-iac-harden` | Spawn one `azure-only-harden-runner` with `AZURE_HARDEN_EXECUTE_SERIES`; mechanical autofix + tflint/checkov/tfsec/trivy into `azure/groups/` for the same PR. | Inventing IAM translations or network redesigns |
+| `azure-iac-loop` | Loop stage only; re-enters `azure-iac-generate` until a conclusive `azure_iac_validation_ok` (true or false) or a terminal blocker — does not thrash on repeated fail. | LLM work |
+| `gcp-iac-harden` | Spawn one `gcp-only-harden-runner` with `GCP_HARDEN_EXECUTE_SERIES`; mechanical autofix + scanners into `gcp/groups/` for the same PR (parallel with validate). | Inventing IAM translations or network redesigns |
+| `gcp-iac-loop` | Loop stage only; re-enters `gcp-iac-generate` until a conclusive `gcp_iac_validation_ok` (true or false) or a terminal blocker — does not thrash on repeated fail. | LLM work |
+| `azure-pr` | Spawn one `azure-pr-runner` with `AZURE_PR_EXECUTE_SERIES` after validate-loop **and** harden fan-in; syncs `azure/` to branch `azure/<workflow_run_id>` and opens a PR. | AppStack creation, StackGen MCP calls |
+| `orphans-secondary-pipeline` | Read notes; skip empty bundle or hand off to secondary workflow. | Probe subagents |
+| `final-gate-and-memory` | Submit evidence and publish the final rollup only after AWS and Azure validation converge and Azure PR exists — or emit a single blocked rollup when an upstream gate short-circuited. | Claiming completion with non-zero AWS plan output or failed Azure static validation |
+
+## Stage Entry Protocol
+
+1. Call `read_notes`.
+2. If notes are empty, read `$HOME/.<workflow_run_id>/notes.json` through `${shell_tool_prefix}_execute_command`.
+3. If both are empty and no `$HOME/.<workflow_run_id>/` tree exists, `notify({stage:"<stage_id>", error:"cold_start_no_upstream"})` once and return.
+4. Stop immediately on blocked sentinels from preflight, scan, ingest, registry, or runner validation. When a blocked sentinel is already decided: one `notify` + `stage_summary` + **return**. No remediation prose. No `ask_clarifying_question`.
+5. `ask_clarifying_question` is only for genuinely new operator information that is not already covered by a blocked sentinel or vault wiring (for example an ambiguous grouping policy the workflow inputs did not supply). Missing AWS credentials or vault secrets → emit `blocked:missing_aws_credentials` (or the matching runner blocked sentinel) and stop — do **not** interview the operator mid-pipeline. Never ask for prior-stage artifacts, and never ask for destination service mapping approvals outside the catalogs.
+
+## Decomposition Contract
+
+Use:
+
+1. **`${sop_orchestration_name}`** — remote runner boundaries, note keys, script pack, execution batching.
+2. **`${sop_shard_extraction_name}`** — logical grouping, count reconciliation, per-group state shards.
+3. **`${sop_registry_reverse_name}`** — HCL-only reverse-IaC scaffold and import blocks.
+4. **`${sop_substate_converge_name}`** — fmt, validate, tests, lint, and zero-diff plan loop.
+5. **`${sop_azure_migration_name}`** — no-approval Azure migration profile, generation defaults, validation behavior, and review-needed documentation.
+6. **`${sop_orphan_bootstrap_name}`** — orphan bundle handling.
+
+The split is not single-pass. The runner must use `tfstate_monolith_decomposer.py`, review `split_quality_report.json` and `split_tuning_history.json`, and rerun with tuned `tfstate_decomposer_*` inputs when the score recommends it.
+
+**Split quality floors:** clean pass is `quality_score >= 80` with no hard issues. After bounded tuning, a best candidate may soft-pass at `quality_score >= 70` with no hard issues (`selection_reason=best_candidate_after_bounded_tuning`). Soft-pass is operationally acceptable, not excellent.
+
+## Hard Rules
+
+- Remote runner owns `cloud2code`, `aws`, `jq`, `python3`, `tofu`/`terraform`, optional `tflint`, and `git`.
+- Multi-step shell work uses one `${shell_tool_prefix}_execute_series`.
+- HCL-only output: no `*.tf.json` for generated Terraform roots.
+- The agent is the HCL author; use `-generate-config-out`.
+- Destination generation is best effort and no approval: choose defaults from the catalog, continue, and document review-needed choices.
+- Missing destination credentials skip live plan only (unless require_*_live_plan); static destination validation still has to pass.
+- Never echo secrets or raw state attributes into notes or chat.
+
+## Completion Bar
+
+`final-gate-and-memory` may report COMPLETE only when all required evidence is submitted:
+
+- `cloud2code_region_scan_completed`
+- `cloud2code_tfstate_recorded`
+- `monolith_resource_count_recorded`
+- `aggregate_shard_count_matches_monolith`
+- `hcl_hydration_no_changes_per_group`
+- `multi_shard_plan_zero_diff_evidence`
+- `azure_migration_blueprint_recorded`
+- `azure_iac_generated`
+- `azure_iac_validation_evidence`
+- `azure_iac_harden_evidence`
+- `azure_pr_url_recorded`
+- `gcp_migration_blueprint_recorded`
+- `gcp_iac_generated`
+- `gcp_iac_validation_evidence`
+- `gcp_iac_harden_evidence`
+- `gcp_pr_url_recorded`

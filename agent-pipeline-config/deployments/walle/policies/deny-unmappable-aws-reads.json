@@ -1,0 +1,54 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyHumanIamIdentityReads",
+      "Effect": "Deny",
+      "Action": [
+        "iam:ListUsers",
+        "iam:GetUser",
+        "iam:ListUserPolicies",
+        "iam:GetUserPolicy",
+        "iam:ListAttachedUserPolicies",
+        "iam:ListUserTags",
+        "iam:ListAccessKeys",
+        "iam:GetAccessKeyLastUsed",
+        "iam:ListGroups",
+        "iam:GetGroup",
+        "iam:ListGroupPolicies",
+        "iam:GetGroupPolicy",
+        "iam:ListAttachedGroupPolicies",
+        "iam:ListGroupsForUser",
+        "iam:ListSAMLProviders",
+        "iam:GetSAMLProvider",
+        "iam:ListOpenIDConnectProviders",
+        "iam:GetOpenIDConnectProvider",
+        "iam:ListOpenIDConnectProviderTags",
+        "iam:ListSAMLProviderTags",
+        "iam:ListAccountAliases",
+        "iam:GetAccountPasswordPolicy",
+        "iam:ListServerCertificates",
+        "iam:GetServerCertificate",
+        "iam:ListSSHPublicKeys",
+        "iam:GetSSHPublicKey"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyUnmappableAthenaReads",
+      "Effect": "Deny",
+      "Action": [
+        "athena:*"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyUnmappableEc2KeyPairReads",
+      "Effect": "Deny",
+      "Action": [
+        "ec2:DescribeKeyPairs"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

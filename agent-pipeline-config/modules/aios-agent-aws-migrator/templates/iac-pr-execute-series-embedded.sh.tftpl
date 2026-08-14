@@ -1,0 +1,25 @@
+/bin/bash <<'DBSPLIT_IAC_PR_EXECUTE'
+set -euo pipefail
+export HOME=${runner_work_home}
+ABS_WORK_ROOT="${runner_work_home}/.{{workflow_run_id}}"
+WORK_ROOT="$ABS_WORK_ROOT"
+export DBSPLIT_EMBEDDED=1
+export DBSPLIT_ALLOCATE_SHA256="${script_pack_allocate_sha256}"
+export DBSPLIT_DECOMPOSER_SHA256="${script_pack_decomposer_sha256}"
+export IAC_REPOSITORY_URL="${default_iac_repository_url}"
+export DEFAULT_BRANCH="${default_branch}"
+export WORKFLOW_RUN_ID="{{workflow_run_id}}"
+
+${dbsplit_script_pack_preload_helpers}
+
+if ! dbsplit_ensure_script_pack "$WORK_ROOT"; then
+  exit 1
+fi
+if [ -n "$${IAC_REPOSITORY_URL:-}" ] && [ -f "$WORK_ROOT/notes.json" ]; then
+  jq --arg u "$${IAC_REPOSITORY_URL}" --arg b "$${DEFAULT_BRANCH}" \
+    '. + {iac_repository_url: $u, default_branch: $b}' "$WORK_ROOT/notes.json" > "$WORK_ROOT/notes.json.tmp" \
+    && mv "$WORK_ROOT/notes.json.tmp" "$WORK_ROOT/notes.json"
+fi
+bash -s iac-pr-pipeline "$WORK_ROOT" "$${IAC_REPOSITORY_URL}" "$${DEFAULT_BRANCH}" "$${WORKFLOW_RUN_ID}" \
+  < "$WORK_ROOT/scripts/stage-runner.sh"
+DBSPLIT_IAC_PR_EXECUTE

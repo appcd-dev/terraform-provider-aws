@@ -1,0 +1,40 @@
+# Orphans to reusable Terraform module
+
+Turn **`orphans_bundle`** — addresses that could not be hydrated into normal HCL
+roots — into a **new reusable Terraform module** (or thin wrapper), validate it,
+and hand the results back to the primary split workflow.
+
+Keywords: orphan resources, new module, terraform test, scaffold, pull request, modularization memory.
+
+## Intake
+
+1. Read `secondary_workflow_payload` / `orphans_bundle` (required inputs).
+2. Classify orphans: `network_shared`, `iam_shared`, `unmapped_vendor_resource`, `legacy_json`, `data_only`, etc.
+
+## Scaffold
+
+1. Create `modules/<proposed_name>/` with `main.tf`, `variables.tf`, `outputs.tf`, and a minimal `README.md` under a **writable** working directory (prefer the run working directory when the primary workdir is read-only); record the real path you used.
+2. Prefer **import blocks** pulling orphan addresses into clean resource names.
+3. Add `tests/` with `command = plan` hermetic tests.
+
+### HCL-only output (never `.tf.json`)
+
+The module scaffold MUST be **HCL** end to end:
+
+- `main.tf` / `variables.tf` / `outputs.tf` / `versions.tf` — `.tf` only, never `*.tf.json`. `tofu fmt` is the parity check.
+- Import blocks and generator output (`tofu plan -generate-config-out=generated.tf`) — HCL.
+- `terraform show -json` snapshots are *inputs* to taxonomy decisions, never committed config.
+- If a single attribute genuinely can't be expressed in HCL, do **not** fall back to `*.tf.json` — split the address out, document it under `requires_dynamic_codegen`, and let a follow-up iteration extend the module with `dynamic { ... }` blocks or a `templatefile()` indirection (still HCL).
+
+## Validate
+
+1. `tofu fmt`, `init`, `validate`, `plan` — **one command group per step** with a conservative timeout (avoid chaining all groups through a single long-running shell line). Optional `tfsec`/`checkov` soft-fail.
+
+## Memory
+
+1. Append to a modularization memory record: the taxonomy decision tree used, naming convention, why resources were grouped together, and what still requires human ownership.
+
+## Handoff
+
+1. Open a pull request or report the module path plus test evidence. The PR path uses **`git push`** + **`gh pr create`** on the execution host, which requires a **write-scoped** git token in the environment (`GIT_TOKEN` with `repo:write` for GitHub, or the equivalent for GitLab/Bitbucket). If the read-side token lacks write scope, soft-fail the PR step and report `{stage:'memory-and-handoff', error:'git_credentials_readonly', host:...}`; do **not** ask the operator for a new token.
+2. If module registration is required, follow the org’s Terraform module registration procedure.

@@ -1,0 +1,50 @@
+# Terraform validation and zero-diff plan convergence
+
+Keywords: tofu fmt, tofu validate, tofu test, tflint, tofu plan, drift, loop.
+
+## Count check
+
+Before validation, confirm `aggregate_group_resource_count == monolith_resource_count`
+using the same managed-resource counting rules as decomposition. If not equal,
+set `count_reconciliation_ok=false` and stop before claiming any plan evidence.
+
+## Per-group validation
+
+For every selected Terraform root:
+
+```bash
+tofu init -backend=false -input=false -no-color
+tofu plan -generate-config-out=generated.tf -input=false -lock=false -no-color -out=hydrate.tfplan
+tofu fmt -recursive -no-color
+tofu fmt -recursive -check -no-color
+tofu validate -no-color
+if find . -name '*.tftest.hcl' -o -name '*.tftest.json' | grep -q .; then tofu test -no-color; fi
+if command -v tflint >/dev/null 2>&1; then tflint --init >/dev/null 2>&1 || true; tflint --format compact; fi
+tofu plan -refresh=false -input=false -lock=false -no-color -out=verify.tfplan
+tofu show -json verify.tfplan
+```
+
+Parse the plan JSON and require zero create, update, and delete actions. A
+plain-text `No changes` plan is also acceptable when JSON parsing is unavailable.
+
+Treat provider install failures and host disk exhaustion as repairable init
+failures. Move `TF_PLUGIN_CACHE_DIR` and `TF_DATA_DIR` to a scratch volume when
+available, delete only Terraform runtime/cache artifacts, retry init, and record
+`hcl_init_status:<group_id>` with the classified reason and log path.
+
+## Looping
+
+- If the count fails, return to decomposition.
+- If validation or plan fails, return to registry/import/hydration alignment.
+- Retry validation until `multi_plan_zero_diff_ok` is `"true"` or the maximum iteration cap is reached.
+
+Never assign a human "HCL author" task for empty stubs. The workflow owns
+generated HCL and must keep trying until validation passes or a real blocker is
+recorded.
+
+## Evidence
+
+Set `hcl_hydration_status:<group_id>` with the generated path, remaining actions,
+validation status, and attempt. Set `multi_plan_zero_diff_ok=true` only when all
+selected roots pass fmt, validate, required tests, available lint, and a
+zero-change plan.

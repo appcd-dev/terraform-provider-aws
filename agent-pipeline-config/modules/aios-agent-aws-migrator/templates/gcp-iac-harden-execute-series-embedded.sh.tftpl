@@ -1,0 +1,22 @@
+/bin/bash <<'DBSPLIT_GCP_HARDEN_EXECUTE'
+set -euo pipefail
+export HOME=${runner_work_home}
+ABS_WORK_ROOT="${runner_work_home}/.{{workflow_run_id}}"
+WORK_ROOT="$ABS_WORK_ROOT"
+export DBSPLIT_EMBEDDED=1
+export DBSPLIT_ALLOCATE_SHA256="${script_pack_allocate_sha256}"
+export DBSPLIT_DECOMPOSER_SHA256="${script_pack_decomposer_sha256}"
+export DEST_HARDEN_PARALLELISM="${dest_harden_parallelism}"
+
+${dbsplit_script_pack_preload_helpers}
+
+if ! dbsplit_ensure_script_pack "$WORK_ROOT"; then
+  exit 1
+fi
+# Prefer one-liner entrypoint (dash-safe) when pack includes run-destination-stage.sh.
+if [ -f "$WORK_ROOT/scripts/run-destination-stage.sh" ]; then
+  bash "$WORK_ROOT/scripts/run-destination-stage.sh" gcp-iac-harden "{{workflow_run_id}}"
+else
+  bash -s gcp-iac-harden "$WORK_ROOT" < "$WORK_ROOT/scripts/stage-runner.sh"
+fi
+DBSPLIT_GCP_HARDEN_EXECUTE

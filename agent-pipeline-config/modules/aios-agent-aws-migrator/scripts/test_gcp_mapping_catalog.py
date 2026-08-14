@@ -1,0 +1,301 @@
+#!/usr/bin/env python3
+"""Offline checks for AWS -> GCP catalog + generate scaffolds.
+
+Run: ``python3 scripts/test_gcp_mapping_catalog.py``
+     ``python3 scripts/test_gcp_iac_generate.py``
+"""
+
+from __future__ import annotations
+
+import json
+import shutil
+import sys
+import tempfile
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import gcp_iac_generate as gig  # noqa: E402
+import gcp_mapping_catalog as gmc  # noqa: E402
+
+
+def _write_fixture(work: Path) -> None:
+    groups = work / "groups"
+    artifacts = work / "gcp" / "artifacts"
+    scripts = work / "scripts" / "mappings"
+    scripts.mkdir(parents=True)
+    catalog_src = Path(__file__).resolve().parent.parent / "mappings" / gmc.DEFAULT_CATALOG_NAME
+    shutil.copy(catalog_src, scripts / gmc.DEFAULT_CATALOG_NAME)
+
+    # EIP-only group (was empty stub before static_ip emit)
+    eip_dir = groups / "aws-eip-only"
+    eip_dir.mkdir(parents=True)
+    (eip_dir / "terraform.tfstate").write_text(
+        json.dumps(
+            {
+                "version": 4,
+                "resources": [
+                    {
+                        "mode": "managed",
+                        "type": "aws_eip",
+                        "name": "this",
+                        "instances": [{"attributes": {"id": "eip-1"}}],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    # ALB + network
+    alb_dir = groups / "aws-alb-group"
+    alb_dir.mkdir(parents=True)
+    (alb_dir / "terraform.tfstate").write_text(
+        json.dumps(
+            {
+                "version": 4,
+                "resources": [
+                    {
+                        "mode": "managed",
+                        "type": "aws_alb",
+                        "name": "this",
+                        "instances": [{"attributes": {"id": "alb-1"}}],
+                    },
+                    {
+                        "mode": "managed",
+                        "type": "aws_vpc",
+                        "name": "this",
+                        "instances": [{"attributes": {"id": "vpc-1"}}],
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    # DNS records
+    dns_dir = groups / "aws-dns-group"
+    dns_dir.mkdir(parents=True)
+    (dns_dir / "terraform.tfstate").write_text(
+        json.dumps(
+            {
+                "version": 4,
+                "resources": [
+                    {
+                        "mode": "managed",
+                        "type": "aws_route53_zone",
+                        "name": "this",
+                        "instances": [{"attributes": {"id": "Z1"}}],
+                    },
+                    {
+                        "mode": "managed",
+                        "type": "aws_route53_record",
+                        "name": "app",
+                        "instances": [
+                            {"attributes": {"id": "r1"}},
+                            {"attributes": {"id": "r2"}},
+                        ],
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    catalog = gmc.load_catalog(catalog_src)
+
+    def decisions_for(*types):
+        return [gmc.resolve(catalog, t) for t in types]
+
+    eip_dec = decisions_for("aws_eip")
+    alb_dec = decisions_for("aws_alb", "aws_vpc")
+    dns_dec = decisions_for("aws_route53_zone", "aws_route53_record")
+
+    conf_eip, _ = gmc.group_confidence(eip_dec)
+    conf_alb, _ = gmc.group_confidence(alb_dec)
+    conf_dns, _ = gmc.group_confidence(dns_dec)
+
+    blueprint = {
+        "profile": {
+            "mode": "review_candidate",
+            "defaults": {
+                "project_id": "test-project",
+                "region": "us-central1",
+                "networking": {"subnet_cidr": "10.0.1.0/24"},
+                "sku": {},
+                "labels": {"env": "test"},
+            },
+            "mapping_catalog": {"version": catalog.get("version"), "path": "scripts/mappings/aws-to-gcp.json"},
+        },
+        "groups": [
+            {
+                "group_id": "aws-eip-only",
+                "stable_hash": "eiphash01",
+                "target_categories": sorted({d["category"] for d in eip_dec}),
+                "mapping_decisions": eip_dec,
+                "confidence": conf_eip or 0.0,
+                "review_needed": True,
+                "review_needed_reasons": ["fixture"],
+            },
+            {
+                "group_id": "aws-alb-group",
+                "stable_hash": "albhash01",
+                "target_categories": sorted({d["category"] for d in alb_dec}),
+                "mapping_decisions": alb_dec,
+                "confidence": conf_alb or 0.0,
+                "review_needed": True,
+                "review_needed_reasons": ["fixture"],
+            },
+            {
+                "group_id": "aws-dns-group",
+                "stable_hash": "dnshash01",
+                "target_categories": sorted({d["category"] for d in dns_dec}),
+                "mapping_decisions": dns_dec,
+                "confidence": conf_dns or 0.0,
+                "review_needed": True,
+                "review_needed_reasons": ["fixture"],
+            },
+        ],
+    }
+    artifacts.mkdir(parents=True)
+    (artifacts / "migration-blueprint.json").write_text(json.dumps(blueprint, indent=2) + "\n", encoding="utf-8")
+
+
+def main() -> int:
+    failures = []
+
+    def check(name, condition):
+        if not condition:
+            failures.append(name)
+
+    catalog_path = Path(__file__).resolve().parent.parent / "mappings" / gmc.DEFAULT_CATALOG_NAME
+    catalog = gmc.load_catalog(catalog_path)
+
+    # Existing catalog anchors
+    vpc = gmc.resolve(catalog, "aws_vpc")
+    check("aws_vpc->compute_network", vpc["default_target"] == "google_compute_network" and vpc["status"] == "mapped")
+    check("aws_vpc category network", vpc["category"] == "network")
+
+    lam = gmc.resolve(catalog, "aws_lambda_function")
+    check("aws_lambda_function->cloudfunctions2", lam["default_target"] == "google_cloudfunctions2_function")
+
+    s3 = gmc.resolve(catalog, "aws_s3_bucket")
+    check("aws_s3_bucket->storage_bucket", s3["default_target"] == "google_storage_bucket")
+
+    sqs = gmc.resolve(catalog, "aws_sqs_queue")
+    check("aws_sqs_queue->pubsub", sqs["default_target"] == "google_pubsub_topic")
+
+    versioning = gmc.resolve(catalog, "aws_s3_bucket_versioning")
+    check("aws_s3_bucket_versioning non_applicable", versioning["status"] == "non_applicable")
+
+    unknown = gmc.resolve(catalog, "aws_totally_made_up_resource")
+    check("unknown->unsupported", unknown["status"] == "unsupported" and unknown["category"] == "placeholder")
+
+    lam_variant = gmc.resolve(catalog, "aws_lambda_function_url")
+    check("aws_lambda_function_url prefix", lam_variant["status"] == "mapped" and lam_variant["match_kind"] == "prefix")
+
+    role = gmc.resolve(catalog, "aws_iam_role")
+    check("aws_iam_role mapped", role["status"] == "mapped")
+    check("aws_iam_role emission rbac scaffold", role["emission"] == "managed_identity_rbac_scaffold")
+
+    role_pol = gmc.resolve(catalog, "aws_iam_role_policy")
+    check("aws_iam_role_policy exact", role_pol["match_kind"] == "exact")
+    check("aws_iam_role_policy emission rbac", role_pol["emission"] == "managed_identity_rbac_scaffold")
+
+    attach = gmc.resolve(catalog, "aws_iam_role_policy_attachment")
+    check("aws_iam_role_policy_attachment non_applicable", attach["status"] == "non_applicable" and attach["emission"] == "none")
+
+    membership = gmc.resolve(catalog, "aws_iam_user_group_membership")
+    check("aws_iam_user_group_membership non_applicable", membership["status"] == "non_applicable")
+
+    ses = gmc.resolve(catalog, "aws_ses_domain_identity")
+    check("aws_ses_domain_identity non_applicable", ses["status"] == "non_applicable")
+
+    dns = gmc.resolve(catalog, "aws_route53_zone")
+    check("aws_route53_zone->dns_zone", dns["default_target"] == "google_dns_managed_zone" and dns["emission"] == "full_scaffold")
+    redis = gmc.resolve(catalog, "aws_elasticache_cluster")
+    check("aws_elasticache_cluster->redis", redis["default_target"] == "google_redis_instance")
+    iam_user = gmc.resolve(catalog, "aws_iam_user")
+    check("aws_iam_user non_applicable", iam_user["status"] == "non_applicable" and iam_user["emission"] == "none")
+
+    conf, reason = gmc.group_confidence([role, iam_user])
+    check("group_confidence ignores non_applicable", conf == round(role["confidence"], 2) and reason == "")
+    conf_na, reason_na = gmc.group_confidence([iam_user])
+    check("group_confidence non_applicable_only", conf_na is None and reason_na == "non_applicable_only")
+
+    eip = gmc.resolve(catalog, "aws_eip")
+    check("aws_eip static_ip full_scaffold", eip["category"] == "static_ip" and eip["emission"] == "full_scaffold")
+    eip_low = dict(eip, confidence=0.72, hitl_lane="shape")
+    needed, reasons = gmc.explain_review_needed(
+        [eip_low], 0.72, "", 0.8, {"placeholder", "api", "cdn"}
+    )
+    check("explain_review_needed low confidence", needed is True)
+    check(
+        "explain_review_needed includes threshold reason",
+        any(r == "group confidence 0.72 below threshold 0.8" for r in reasons),
+    )
+    check(
+        "explain_review_needed includes per-type note",
+        any(r.startswith("aws_eip: confidence 0.72 below threshold 0.8") for r in reasons),
+    )
+    needed_ok, reasons_ok = gmc.explain_review_needed(
+        [dict(eip, confidence=0.9, hitl_lane="shape")], 0.9, "", 0.8, {"placeholder"}
+    )
+    check("explain_review_needed clear when above threshold", needed_ok is False and reasons_ok == [])
+
+    subnet = gmc.resolve(catalog, "aws_subnet")
+    check("aws_subnet shape bump", subnet.get("hitl_lane") == "shape" and subnet["confidence"] >= 0.85)
+
+    alb = gmc.resolve(catalog, "aws_alb")
+    check("aws_alb mapped", alb["status"] == "mapped" and alb["category"] == "load_balancer")
+    check("aws_alb ambiguous lane", alb.get("hitl_lane") == "ambiguous")
+    needed_alb, _ = gmc.explain_review_needed([alb], max(alb["confidence"], 0.9), "", 0.8, {"placeholder"})
+    check("explain_review_needed alb always HITL", needed_alb is True)
+
+    check("aws_iam_role permissions lane", role.get("hitl_lane") == "permissions")
+    glue = gmc.resolve(catalog, "aws_glue_catalog_database")
+    check("aws_glue_catalog_database non_applicable", glue["status"] == "non_applicable")
+    check("aws_glue defer lane", glue.get("hitl_lane") == "defer")
+
+    # Emission honesty: every full_scaffold category must be handled by generate.
+    for category, emission in gmc.EMISSION_BY_CATEGORY.items():
+        if emission != "full_scaffold":
+            continue
+        check(
+            f"full_scaffold category {category} in generate FULL set",
+            category in gig.FULL_SCAFFOLD_CATEGORIES,
+        )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        work = Path(tmp)
+        _write_fixture(work)
+        result = gig.generate(work)
+
+        eip_main = (work / "gcp/groups/aws-eip-only/main.tf").read_text(encoding="utf-8")
+        check("eip emits google_compute_address", 'resource "google_compute_address" "this"' in eip_main)
+        check("eip not empty stub only", "No full GCP resource scaffold" not in eip_main)
+
+        alb_main = (work / "gcp/groups/aws-alb-group/main.tf").read_text(encoding="utf-8")
+        check("alb emits forwarding_rule", 'resource "google_compute_forwarding_rule" "this"' in alb_main)
+        check("alb emits backend_service", "google_compute_region_backend_service" in alb_main)
+
+        dns_main = (work / "gcp/groups/aws-dns-group/main.tf").read_text(encoding="utf-8")
+        check("dns emits managed_zone", 'resource "google_dns_managed_zone" "this"' in dns_main)
+        check("dns emits record_set", 'resource "google_dns_record_set" "primary"' in dns_main)
+
+        summary = json.loads((work / "gcp/artifacts/generation-summary.json").read_text(encoding="utf-8"))
+        check("conversion rate present", "infra_conversion_rate" in summary)
+        check("conversion ok true on fixture", summary.get("infra_conversion_ok") is True)
+        check("conversion rate >= 0.80", float(summary.get("infra_conversion_rate") or 0) >= 0.80)
+        check("eligible infra > 0", int(summary.get("infra_eligible_count") or 0) > 0)
+        check("result mirrors summary rate", result.get("infra_conversion_ok") is True)
+
+    if failures:
+        print("FAIL: " + ", ".join(failures))
+        return 1
+    print(f"OK: catalog {catalog.get('version')} + generate scaffolds / conversion gate")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

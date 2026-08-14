@@ -1,0 +1,126 @@
+# Use pack_dest (not work_root): models paste this heredoc and have rewritten
+# `$work_root` → `$work_ROOT` / `$WORK_ROOT` under set -u (session 318b1f36),
+# which aborts gcp-source-fetch before any clone evidence is written.
+dbsplit_copy_preloaded_script_pack() {
+  local pack_dest="$${1:?PACK_DEST}"
+  local preload_dir="${script_pack_preload_dir}"
+  if [ ! -d "$preload_dir" ]; then
+    echo "script_pack_error=preload_missing path=$preload_dir" >&2
+    return 1
+  fi
+  if [ ! -f "$preload_dir/allocate_manifest.py" ] || [ ! -f "$preload_dir/tfstate_monolith_decomposer.py" ] || [ ! -f "$preload_dir/stage-runner.sh" ]; then
+    echo "script_pack_error=preload_incomplete path=$preload_dir" >&2
+    return 1
+  fi
+  local preload_catalog=""
+  if [ -f "$preload_dir/mappings/aws-to-azure.json" ]; then
+    preload_catalog="$preload_dir/mappings/aws-to-azure.json"
+  elif [ -f "$preload_dir/aws-to-azure.json" ]; then
+    preload_catalog="$preload_dir/aws-to-azure.json"
+  fi
+  local preload_gcp_catalog=""
+  if [ -f "$preload_dir/mappings/aws-to-gcp.json" ]; then
+    preload_gcp_catalog="$preload_dir/mappings/aws-to-gcp.json"
+  elif [ -f "$preload_dir/aws-to-gcp.json" ]; then
+    preload_gcp_catalog="$preload_dir/aws-to-gcp.json"
+  fi
+  local missing=""
+  [ -f "$preload_dir/azure_mapping_catalog.py" ] || missing="$missing azure_mapping_catalog.py"
+  [ -f "$preload_dir/azure_iac_generate.py" ] || missing="$missing azure_iac_generate.py"
+  [ -n "$preload_catalog" ] || missing="$missing mappings/aws-to-azure.json"
+  if [ -n "$missing" ]; then
+    echo "script_pack_error=preload_catalog_missing path=$preload_dir missing=$(echo $missing | tr ' ' ',')" >&2
+    return 1
+  fi
+  missing=""
+  [ -f "$preload_dir/gcp_mapping_catalog.py" ] || missing="$missing gcp_mapping_catalog.py"
+  [ -f "$preload_dir/gcp_iac_generate.py" ] || missing="$missing gcp_iac_generate.py"
+  [ -f "$preload_dir/app_iam.py" ] || missing="$missing app_iam.py"
+  [ -f "$preload_dir/hcl_sanity.py" ] || missing="$missing hcl_sanity.py"
+  [ -f "$preload_dir/destination_iac_harden.py" ] || missing="$missing destination_iac_harden.py"
+  [ -n "$preload_gcp_catalog" ] || missing="$missing mappings/aws-to-gcp.json"
+  if [ -n "$missing" ]; then
+    echo "script_pack_error=preload_gcp_catalog_missing path=$preload_dir missing=$(echo $missing | tr ' ' ',')" >&2
+    return 1
+  fi
+  mkdir -p "$pack_dest/scripts" "$pack_dest/scripts/mappings"
+  cp "$preload_dir/allocate_manifest.py" "$pack_dest/scripts/allocate_manifest.py"
+  cp "$preload_dir/tfstate_monolith_decomposer.py" "$pack_dest/scripts/tfstate_monolith_decomposer.py"
+  cp "$preload_dir/stage-runner.sh" "$pack_dest/scripts/stage-runner.sh"
+  cp "$preload_dir/azure_mapping_catalog.py" "$pack_dest/scripts/azure_mapping_catalog.py"
+  cp "$preload_dir/azure_iac_generate.py" "$pack_dest/scripts/azure_iac_generate.py"
+  cp "$preload_dir/gcp_mapping_catalog.py" "$pack_dest/scripts/gcp_mapping_catalog.py"
+  cp "$preload_dir/gcp_iac_generate.py" "$pack_dest/scripts/gcp_iac_generate.py"
+  cp "$preload_dir/app_iam.py" "$pack_dest/scripts/app_iam.py"
+  cp "$preload_dir/hcl_sanity.py" "$pack_dest/scripts/hcl_sanity.py"
+  cp "$preload_dir/destination_iac_harden.py" "$pack_dest/scripts/destination_iac_harden.py"
+  if [ -f "$preload_dir/run-destination-stage.sh" ]; then
+    cp "$preload_dir/run-destination-stage.sh" "$pack_dest/scripts/run-destination-stage.sh"
+    chmod +x "$pack_dest/scripts/run-destination-stage.sh"
+  fi
+  cp "$preload_catalog" "$pack_dest/scripts/mappings/aws-to-azure.json"
+  cp "$preload_gcp_catalog" "$pack_dest/scripts/mappings/aws-to-gcp.json"
+  chmod +x "$pack_dest/scripts/stage-runner.sh"
+
+  local actual decomposer_actual runner_actual catalog_py_actual catalog_json_actual gcp_catalog_py_actual gcp_catalog_json_actual
+  actual="$(sha256sum "$pack_dest/scripts/allocate_manifest.py" | awk '{print $1}')"
+  decomposer_actual="$(sha256sum "$pack_dest/scripts/tfstate_monolith_decomposer.py" | awk '{print $1}')"
+  runner_actual="$(sha256sum "$pack_dest/scripts/stage-runner.sh" | awk '{print $1}')"
+  catalog_py_actual="$(sha256sum "$pack_dest/scripts/azure_mapping_catalog.py" | awk '{print $1}')"
+  catalog_json_actual="$(sha256sum "$pack_dest/scripts/mappings/aws-to-azure.json" | awk '{print $1}')"
+  gcp_catalog_py_actual="$(sha256sum "$pack_dest/scripts/gcp_mapping_catalog.py" | awk '{print $1}')"
+  gcp_catalog_json_actual="$(sha256sum "$pack_dest/scripts/mappings/aws-to-gcp.json" | awk '{print $1}')"
+  if [ "$actual" != "${script_pack_allocate_sha256}" ] || [ "$decomposer_actual" != "${script_pack_decomposer_sha256}" ] || [ "$runner_actual" != "${script_pack_runner_sha256}" ] || [ "$catalog_py_actual" != "${script_pack_catalog_py_sha256}" ] || [ "$catalog_json_actual" != "${script_pack_catalog_json_sha256}" ] || [ "$gcp_catalog_py_actual" != "${script_pack_gcp_catalog_py_sha256}" ] || [ "$gcp_catalog_json_actual" != "${script_pack_gcp_catalog_json_sha256}" ]; then
+    echo "script_pack_error=preload_sha256_mismatch path=$preload_dir allocate=$actual decomposer=$decomposer_actual runner=$runner_actual catalog_py=$catalog_py_actual catalog_json=$catalog_json_actual gcp_catalog_py=$gcp_catalog_py_actual gcp_catalog_json=$gcp_catalog_json_actual" >&2
+    return 1
+  fi
+  echo "script_pack_source=preloaded path=$preload_dir version=${script_pack_version}"
+}
+
+# Runs one stage-runner command with a bounded transcript. Long stages (clone,
+# hydrate, plan, multi-group git commit) emit tens of thousands of lines, and
+# the tool response is truncated before the model reads it. Emit the
+# notes-derived evidence block FIRST so truncation cannot drop gcp_pr_url /
+# stage_summary lines that the hard evidence gate requires (session a0d35994
+# opened PR #39 successfully but the model only saw create-mode noise and
+# emitted missing_runner_evidence).
+dbsplit_run_stage() {
+  local stage="$${1:?STAGE}"
+  local pack_dest="$${2:?PACK_DEST}"
+  shift 2
+  local log_dir="$pack_dest/.work/logs"
+  local log="$log_dir/$stage.log"
+  local rc=0
+  mkdir -p "$log_dir"
+  bash -s "$stage" "$pack_dest" "$@" <"$pack_dest/scripts/stage-runner.sh" >"$log" 2>&1 || rc=$?
+  echo "stage_transcript=$log lines=$(wc -l <"$log" | tr -d ' ')"
+  echo "--- stage_evidence ---"
+  if [ -f "$pack_dest/notes.json" ]; then
+    jq -r 'to_entries[]
+      | select(.key | test("^(stage_summary:|pr_url$|iac_pr_url$|azure_pr_url$|gcp_pr_url$|working_branch$|azure_working_branch$|gcp_working_branch$|pr_blocker$|iac_push_status$|azure_iac_|azure_source_|azure_migration_|azure_plan_|gcp_iac_|gcp_source_|gcp_migration_|gcp_plan_)"))
+      | "\(.key)=\(.value)"' "$pack_dest/notes.json" 2>/dev/null || true
+  fi
+  echo "stage_exit_code=$rc"
+  echo "--- stage_transcript_tail ---"
+  # Drop git "create mode" spam so the short tail stays useful.
+  grep -Ev '^ create mode |^ delete mode |^ rewrite ' "$log" 2>/dev/null | tail -n 40 | cut -c1-500 || tail -n 40 "$log" | cut -c1-500
+  return "$rc"
+}
+
+dbsplit_ensure_script_pack() {
+  local pack_dest="$${1:?PACK_DEST}"
+  if [ -f "$pack_dest/scripts/allocate_manifest.py" ] && [ -f "$pack_dest/scripts/tfstate_monolith_decomposer.py" ] && [ -f "$pack_dest/scripts/stage-runner.sh" ] && [ -f "$pack_dest/scripts/azure_mapping_catalog.py" ] && [ -f "$pack_dest/scripts/mappings/aws-to-azure.json" ] && [ -f "$pack_dest/scripts/gcp_mapping_catalog.py" ] && [ -f "$pack_dest/scripts/mappings/aws-to-gcp.json" ] && [ -f "$pack_dest/scripts/gcp_iac_generate.py" ] && [ -f "$pack_dest/scripts/app_iam.py" ] && [ -f "$pack_dest/scripts/hcl_sanity.py" ] && [ -f "$pack_dest/scripts/destination_iac_harden.py" ]; then
+    local actual decomposer_actual runner_actual catalog_py_actual catalog_json_actual gcp_catalog_py_actual gcp_catalog_json_actual
+    actual="$(sha256sum "$pack_dest/scripts/allocate_manifest.py" | awk '{print $1}')"
+    decomposer_actual="$(sha256sum "$pack_dest/scripts/tfstate_monolith_decomposer.py" | awk '{print $1}')"
+    runner_actual="$(sha256sum "$pack_dest/scripts/stage-runner.sh" | awk '{print $1}')"
+    catalog_py_actual="$(sha256sum "$pack_dest/scripts/azure_mapping_catalog.py" | awk '{print $1}')"
+    catalog_json_actual="$(sha256sum "$pack_dest/scripts/mappings/aws-to-azure.json" | awk '{print $1}')"
+    gcp_catalog_py_actual="$(sha256sum "$pack_dest/scripts/gcp_mapping_catalog.py" | awk '{print $1}')"
+    gcp_catalog_json_actual="$(sha256sum "$pack_dest/scripts/mappings/aws-to-gcp.json" | awk '{print $1}')"
+    if [ "$actual" = "${script_pack_allocate_sha256}" ] && [ "$decomposer_actual" = "${script_pack_decomposer_sha256}" ] && [ "$runner_actual" = "${script_pack_runner_sha256}" ] && [ "$catalog_py_actual" = "${script_pack_catalog_py_sha256}" ] && [ "$catalog_json_actual" = "${script_pack_catalog_json_sha256}" ] && [ "$gcp_catalog_py_actual" = "${script_pack_gcp_catalog_py_sha256}" ] && [ "$gcp_catalog_json_actual" = "${script_pack_gcp_catalog_json_sha256}" ]; then
+      return 0
+    fi
+  fi
+  dbsplit_copy_preloaded_script_pack "$pack_dest"
+}

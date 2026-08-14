@@ -1,0 +1,11 @@
+# Local-only OpenTofu backend config (gitignored as backend.hcl).
+# Copy: cp backend.hcl.example backend.hcl
+#
+# CI supplies the same keys via `tofu init -backend-config=...` from the
+# GitHub Environment `guild` (TF_STATE_BUCKET, TF_STATE_KEY, AWS_REGION).
+# Do not set `profile` in CI — Actions uses OIDC (default credential chain).
+
+bucket  = "cloud-migrator-tfstate-<AWS_ACCOUNT_ID>"
+key     = "tramlaw/aws-migrator.tfstate"
+region  = "us-east-1"
+profile = "<AWS_PROFILE>"

@@ -1,0 +1,11 @@
+# CCE IaC ↔ application alignment (optional)
+
+When `application_repo_url` is provided as an input, clone it on the execution
+host and run CCE with `CCE_USE_CASE=iac-alignment` (or the built-in cloud scan)
+before final Terraform validation.
+
+1. Clone the app repo to `$WORK_ROOT/app-repo`.
+2. Run `cce-scan.sh` per the `CCE_PACK_*` environment.
+3. Compare entitlement `provider`/`resource` signals to the Terraform resource types in the state groups — record mismatches as `cce_iac_alignment_summary`.
+
+Skip when `application_repo_url` is empty or `SKIP_CCE=1`.

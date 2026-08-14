@@ -1,0 +1,1070 @@
+{
+  "version": "2026-08-13.agent.v5",
+  "source_cloud": "aws",
+  "destination_cloud": "azure",
+  "provenance": "Seeded from appcd-dev/iac-gen internal/testdata/templates/migration_mappings/aws-to-azure.json (git b48cbd00, removed in CLOUD-1212) and normalized for the cloud-migrator demo profile. Extended 2026-08-12 for review-candidate emission honesty and high-frequency AWS gaps (DNS, Redis, Log Analytics, Container Apps, CDN review, Entra non_applicable IAM users). Extended 2026-08-12.v3: managed_identity_rbac_scaffold, LB/Cosmos/APIM emission, group-confidence excludes non_applicable, alb/elb/api_gateway/glue catalog rows. Extended 2026-08-12.v4: acquisition app-IAM \u2014 per-role UAI+custom role emission; attachments are non_applicable glue. v5: shape HITL lane + confidence bumps for well-templated full_scaffold (subnet/SG/NAT/DNS/SQS/\u2026); ambiguous LB/compute/DB unchanged.",
+  "resource_migration_map": {
+    "aws_s3_bucket": {
+      "default_target_resource_type": "azurerm_storage_account",
+      "migration_resource_class": "object_storage",
+      "category": "storage",
+      "azure_service_label": "Storage Account",
+      "confidence": 0.85,
+      "companion_resource_types": [
+        "azurerm_storage_container"
+      ],
+      "review": "Review globally unique account naming, container layout, encryption, lifecycle, and public access."
+    },
+    "aws_sqs_queue": {
+      "default_target_resource_type": "azurerm_servicebus_queue",
+      "migration_resource_class": "queue_service",
+      "category": "queue",
+      "azure_service_label": "Service Bus Queue",
+      "confidence": 0.85,
+      "companion_resource_types": [
+        "azurerm_servicebus_namespace"
+      ],
+      "review": "Review FIFO/dead-letter semantics, delivery guarantees, and retry policy. Storage Queue is a lower-cost alternate.",
+      "hitl_lane": "shape"
+    },
+    "aws_iam_policy": {
+      "default_target_resource_type": "azurerm_role_definition",
+      "migration_resource_class": "iam_policy",
+      "category": "identity",
+      "azure_service_label": "Azure RBAC role definition",
+      "confidence": 0.72,
+      "review": "Convert each IAM action/resource/condition to least-privilege Azure RBAC or Entra permissions."
+    },
+    "data_aws_iam_policy_document": {
+      "default_target_resource_type": "azurerm_role_definition",
+      "migration_resource_class": "iam_policy",
+      "category": "identity",
+      "azure_service_label": "Azure RBAC role definition",
+      "confidence": 0.7,
+      "review": "Rebuild the policy document as an Azure RBAC role definition with explicit actions/notActions."
+    },
+    "aws_iam_role": {
+      "default_target_resource_type": "azurerm_role_assignment",
+      "migration_resource_class": "iam_role",
+      "category": "identity",
+      "azure_service_label": "Managed identity + role assignment",
+      "confidence": 0.75,
+      "companion_resource_types": [
+        "azurerm_user_assigned_identity",
+        "azurerm_role_definition"
+      ],
+      "review": "Workload/app roles (EC2/Lambda/ECS/EKS trust) become user-assigned identities plus custom role definitions. Skip AWSServiceRoleFor* service-linked roles. Preserve AWS actions as comments for specialist RBAC translation."
+    },
+    "aws_lambda_function": {
+      "default_target_resource_type": "azurerm_linux_function_app",
+      "migration_resource_class": "serverless_function",
+      "category": "function",
+      "azure_service_label": "Azure Functions (Linux)",
+      "confidence": 0.72,
+      "companion_resource_types": [
+        "azurerm_service_plan",
+        "azurerm_storage_account"
+      ],
+      "review": "Review runtime, triggers, packaging, environment variables, identity, and VNet integration."
+    },
+    "aws_vpc": {
+      "default_target_resource_type": "azurerm_virtual_network",
+      "migration_resource_class": "virtual_network",
+      "category": "network",
+      "azure_service_label": "Virtual Network",
+      "confidence": 0.8,
+      "review": "Review CIDR translation, DNS, peering, and how satellite VPC resources fold into the VNet."
+    },
+    "aws_subnet": {
+      "default_target_resource_type": "azurerm_subnet",
+      "migration_resource_class": "subnet_networking",
+      "category": "network",
+      "azure_service_label": "Subnet",
+      "confidence": 0.85,
+      "review": "Review subnet CIDRs, delegation, service endpoints, and NSG association.",
+      "hitl_lane": "shape"
+    },
+    "aws_db_subnet_group": {
+      "default_target_resource_type": "azurerm_subnet",
+      "migration_resource_class": "database_subnet",
+      "category": "network",
+      "azure_service_label": "Delegated database subnet",
+      "confidence": 0.85,
+      "review": "Azure flexible servers use a delegated subnet; review delegation and private DNS.",
+      "hitl_lane": "shape"
+    },
+    "aws_security_group": {
+      "default_target_resource_type": "azurerm_network_security_group",
+      "migration_resource_class": "firewall_rules",
+      "category": "network",
+      "azure_service_label": "Network Security Group",
+      "confidence": 0.82,
+      "review": "Translate ingress/egress rules to NSG security rules and confirm priorities.",
+      "hitl_lane": "shape"
+    },
+    "aws_route_table": {
+      "default_target_resource_type": "azurerm_route_table",
+      "migration_resource_class": "network_routing",
+      "category": "network",
+      "azure_service_label": "Route Table",
+      "confidence": 0.85,
+      "review": "Review route propagation, next hops, and NAT vs internet routing.",
+      "hitl_lane": "shape"
+    },
+    "aws_route_table_association": {
+      "default_target_resource_type": "azurerm_subnet_route_table_association",
+      "migration_resource_class": "network_routing_association",
+      "category": "network",
+      "azure_service_label": "Subnet route table association",
+      "confidence": 0.85,
+      "review": "Confirm each association binds the correct subnet to the migrated route table.",
+      "hitl_lane": "shape"
+    },
+    "aws_internet_gateway": {
+      "default_target_resource_type": "azurerm_virtual_network_gateway",
+      "migration_resource_class": "network_gateway",
+      "category": "network",
+      "azure_service_label": "Virtual Network Gateway (review egress model)",
+      "confidence": 0.7,
+      "review": "Azure has no direct internet gateway; outbound uses default SNAT or NAT Gateway. Review egress design instead of a 1:1 mapping."
+    },
+    "aws_nat_gateway": {
+      "default_target_resource_type": "azurerm_nat_gateway",
+      "migration_resource_class": "network_routing",
+      "category": "network",
+      "azure_service_label": "NAT Gateway",
+      "confidence": 0.85,
+      "companion_resource_types": [
+        "azurerm_public_ip"
+      ],
+      "review": "Review associated public IPs and subnet attachment for outbound connectivity.",
+      "hitl_lane": "shape"
+    },
+    "aws_eip": {
+      "default_target_resource_type": "azurerm_public_ip",
+      "migration_resource_class": "static_ip",
+      "category": "static_ip",
+      "azure_service_label": "Public IP",
+      "confidence": 0.85,
+      "review": "Review allocation method (Static/Dynamic), SKU, and which resource consumes the IP.",
+      "hitl_lane": "shape"
+    },
+    "aws_eks_cluster": {
+      "default_target_resource_type": "azurerm_kubernetes_cluster",
+      "migration_resource_class": "kubernetes_service",
+      "category": "kubernetes",
+      "azure_service_label": "AKS",
+      "confidence": 0.75,
+      "review": "Review cluster networking, IAM-to-RBAC, ingress, node pool sizing, and add-ons."
+    },
+    "aws_instance": {
+      "default_target_resource_type": "azurerm_linux_virtual_machine",
+      "migration_resource_class": "compute_vm",
+      "category": "vm",
+      "azure_service_label": "Linux Virtual Machine",
+      "confidence": 0.7,
+      "companion_resource_types": [
+        "azurerm_network_interface"
+      ],
+      "review": "Review OS image, admin access, disks, network interfaces, and whether VMSS/AKS is more appropriate."
+    },
+    "aws_autoscaling_group": {
+      "default_target_resource_type": "azurerm_linux_virtual_machine_scale_set",
+      "migration_resource_class": "compute_scaleset",
+      "category": "vmss",
+      "azure_service_label": "Virtual Machine Scale Set",
+      "confidence": 0.7,
+      "review": "Review scaling policies, health checks, and load balancer integration."
+    },
+    "aws_launch_template": {
+      "default_target_resource_type": "azurerm_linux_virtual_machine_scale_set",
+      "migration_resource_class": "compute_scaleset",
+      "category": "vmss",
+      "azure_service_label": "Virtual Machine Scale Set profile",
+      "confidence": 0.7,
+      "review": "Fold launch template user data, AMI choice, and instance profile into the VMSS model."
+    },
+    "aws_launch_configuration": {
+      "default_target_resource_type": "azurerm_linux_virtual_machine_scale_set",
+      "migration_resource_class": "compute_scaleset",
+      "category": "vmss",
+      "azure_service_label": "Virtual Machine Scale Set profile",
+      "confidence": 0.55,
+      "review": "Legacy launch configuration; fold into the VMSS OS/profile and replace with a launch template equivalent."
+    },
+    "aws_lb": {
+      "default_target_resource_type": "azurerm_lb",
+      "migration_resource_class": "load_balancer",
+      "category": "load_balancer",
+      "azure_service_label": "Azure Load Balancer / Application Gateway",
+      "confidence": 0.72,
+      "companion_resource_types": [
+        "azurerm_application_gateway"
+      ],
+      "review": "Decide layer 4 (Load Balancer) vs layer 7 (Application Gateway/WAF); review certificates, health probes, and backend pools."
+    },
+    "aws_lb_target_group": {
+      "default_target_resource_type": "azurerm_lb_backend_address_pool",
+      "migration_resource_class": "load_balancer",
+      "category": "load_balancer",
+      "azure_service_label": "Backend address pool",
+      "confidence": 0.7,
+      "review": "Review health probe and backend membership model."
+    },
+    "aws_lb_listener": {
+      "default_target_resource_type": "azurerm_lb_rule",
+      "migration_resource_class": "load_balancer",
+      "category": "load_balancer",
+      "azure_service_label": "Load balancing rule",
+      "confidence": 0.7,
+      "review": "Review listener protocol/port and TLS termination placement."
+    },
+    "aws_sns_topic": {
+      "default_target_resource_type": "azurerm_eventgrid_topic",
+      "migration_resource_class": "pubsub_event",
+      "category": "event",
+      "azure_service_label": "Event Grid Topic / Service Bus Topic",
+      "confidence": 0.6,
+      "companion_resource_types": [
+        "azurerm_servicebus_topic"
+      ],
+      "review": "Choose Event Grid (push) vs Service Bus Topic (pull); review fan-out and subscriber model."
+    },
+    "aws_sns_subscription": {
+      "default_target_resource_type": "azurerm_eventgrid_event_subscription",
+      "migration_resource_class": "pubsub_event",
+      "category": "event",
+      "azure_service_label": "Event Grid subscription",
+      "confidence": 0.5,
+      "review": "Review filter/endpoint and delivery guarantees for each subscriber."
+    },
+    "aws_cloudwatch_event_rule": {
+      "default_target_resource_type": "azurerm_eventgrid_topic",
+      "migration_resource_class": "pubsub_event",
+      "category": "event",
+      "azure_service_label": "Event Grid (EventBridge equivalent)",
+      "confidence": 0.5,
+      "review": "Rebuild event pattern matching and targets; Azure has no direct EventBridge equivalent."
+    },
+    "aws_cloudwatch_event_target": {
+      "default_target_resource_type": "azurerm_eventgrid_event_subscription",
+      "migration_resource_class": "pubsub_event",
+      "category": "event",
+      "azure_service_label": "Event Grid subscription target",
+      "confidence": 0.5,
+      "review": "Map the target (Lambda/SQS/etc.) to the corresponding Azure handler."
+    },
+    "aws_kinesis_stream": {
+      "default_target_resource_type": "azurerm_eventhub",
+      "migration_resource_class": "streaming",
+      "category": "event",
+      "azure_service_label": "Event Hubs",
+      "confidence": 0.6,
+      "companion_resource_types": [
+        "azurerm_eventhub_namespace"
+      ],
+      "review": "Review partition/shard count, retention, throughput units, and consumer groups."
+    },
+    "aws_kinesis_firehose_delivery_stream": {
+      "default_target_resource_type": "azurerm_eventhub",
+      "migration_resource_class": "streaming",
+      "category": "event",
+      "azure_service_label": "Event Hubs + capture",
+      "confidence": 0.5,
+      "review": "Model delivery/capture destinations (Storage/Synapse) explicitly."
+    },
+    "aws_mq_broker": {
+      "default_target_resource_type": "azurerm_servicebus_namespace",
+      "migration_resource_class": "message_queue",
+      "category": "event",
+      "azure_service_label": "Service Bus namespace",
+      "confidence": 0.6,
+      "review": "Review broker engine (ActiveMQ/RabbitMQ) and protocol compatibility (AMQP)."
+    },
+    "aws_mq_configuration": {
+      "default_target_resource_type": "azurerm_servicebus_namespace",
+      "migration_resource_class": "message_queue",
+      "category": "event",
+      "azure_service_label": "Service Bus namespace configuration",
+      "confidence": 0.55,
+      "review": "Translate broker configuration to Service Bus namespace/topic settings."
+    },
+    "aws_rds_cluster": {
+      "default_target_resource_type": "azurerm_postgresql_flexible_server",
+      "migration_resource_class": "relational_database",
+      "category": "database_postgres",
+      "azure_service_label": "Azure Database for PostgreSQL Flexible Server",
+      "confidence": 0.7,
+      "review": "Review engine/version, extensions, storage, HA, backup, firewall rules, and migration/import strategy."
+    },
+    "aws_db_instance": {
+      "default_target_resource_type": "azurerm_postgresql_flexible_server",
+      "migration_resource_class": "relational_database",
+      "category": "database_postgres",
+      "azure_service_label": "Azure Database for PostgreSQL/MySQL Flexible Server",
+      "confidence": 0.7,
+      "review": "Confirm engine (MySQL vs PostgreSQL) and pick the matching Azure flexible server; review version, storage, and backups."
+    },
+    "aws_dynamodb_table": {
+      "default_target_resource_type": "azurerm_cosmosdb_table",
+      "migration_resource_class": "nosql_database",
+      "category": "database_nosql",
+      "azure_service_label": "Cosmos DB (Table API)",
+      "confidence": 0.72,
+      "companion_resource_types": [
+        "azurerm_cosmosdb_account"
+      ],
+      "review": "Review partition keys, consistency, TTL, streams, and throughput/cost model."
+    },
+    "aws_kms_key": {
+      "default_target_resource_type": "azurerm_key_vault_key",
+      "migration_resource_class": "encryption_key",
+      "category": "key_management",
+      "azure_service_label": "Key Vault key",
+      "confidence": 0.6,
+      "companion_resource_types": [
+        "azurerm_key_vault"
+      ],
+      "review": "Review key rotation, access policies/RBAC, and which resources consume the key."
+    },
+    "aws_ssm_parameter": {
+      "default_target_resource_type": "azurerm_key_vault_secret",
+      "migration_resource_class": "key_management",
+      "category": "key_management",
+      "azure_service_label": "Key Vault secret",
+      "confidence": 0.6,
+      "companion_resource_types": [
+        "azurerm_key_vault"
+      ],
+      "review": "Move SecureString parameters to Key Vault secrets and plain parameters to App Configuration if needed."
+    },
+    "aws_athena_named_query": {
+      "default_target_resource_type": "azurerm_synapse_workspace",
+      "migration_resource_class": "analytics",
+      "category": "analytics",
+      "azure_service_label": "Synapse Analytics (review)",
+      "confidence": 0.4,
+      "review": "Athena queries have no 1:1 Terraform equivalent; review Synapse serverless SQL or Databricks and treat as advisory."
+    },
+    "data_aws_caller_identity": {
+      "default_target_resource_type": "data_azurerm_client_config",
+      "migration_resource_class": "data_reference",
+      "category": "data_reference",
+      "azure_service_label": "azurerm_client_config data source",
+      "confidence": 0.7,
+      "review": "Replace with data.azurerm_client_config references; no resource is created."
+    },
+    "aws_athena_workgroup": {
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "azure_service_label": "No Azure equivalent",
+      "confidence": 0.0,
+      "review": "No deterministic Azure equivalent; document intent and skip resource generation."
+    },
+    "aws_iam_openid_connect_provider": {
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "azure_service_label": "No Azure equivalent",
+      "confidence": 0.0,
+      "review": "OIDC federation is configured on Entra/managed identity federated credentials; handle outside generated roots."
+    },
+    "aws_s3_bucket_public_access_block": {
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "azure_service_label": "Folded into Storage Account settings",
+      "confidence": 0.0,
+      "review": "Public access is an attribute of the Storage Account/container, not a separate resource."
+    },
+    "aws_s3_bucket_server_side_encryption_configuration": {
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "azure_service_label": "Folded into Storage Account settings",
+      "confidence": 0.0,
+      "review": "Encryption is a Storage Account property; no standalone resource is generated."
+    },
+    "aws_s3_bucket_versioning": {
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "azure_service_label": "Folded into Storage Account blob properties",
+      "confidence": 0.0,
+      "review": "Versioning is a blob service property on the Storage Account; no standalone resource is generated."
+    },
+    "aws_kms_alias": {
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "azure_service_label": "No Azure equivalent",
+      "confidence": 0.0,
+      "review": "Key Vault keys are referenced by name/URI; aliases have no direct equivalent."
+    },
+    "aws_route53_zone": {
+      "default_target_resource_type": "azurerm_dns_zone",
+      "migration_resource_class": "dns_zone",
+      "category": "dns",
+      "azure_service_label": "Azure DNS zone",
+      "confidence": 0.85,
+      "review": "Private vs public zone, linked VNets, and record cutover must be reviewed before apply.",
+      "hitl_lane": "shape"
+    },
+    "aws_route53_record": {
+      "default_target_resource_type": "azurerm_dns_a_record",
+      "migration_resource_class": "dns_record",
+      "category": "dns",
+      "azure_service_label": "Azure DNS record",
+      "confidence": 0.82,
+      "companion_resource_types": [
+        "azurerm_dns_zone"
+      ],
+      "review": "Record type/TTL/alias targets are not auto-translated; confirm A/CNAME/ALIAS equivalents.",
+      "hitl_lane": "shape"
+    },
+    "aws_route53_resolver_rule_association": {
+      "default_target_resource_type": null,
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "azure_service_label": "No direct Azure DNS resolver association resource",
+      "confidence": 0.3,
+      "review": "Handle private DNS resolver links outside generated roots (Azure DNS Private Resolver)."
+    },
+    "aws_elasticache_cluster": {
+      "default_target_resource_type": "azurerm_redis_cache",
+      "migration_resource_class": "cache_redis",
+      "category": "cache",
+      "azure_service_label": "Azure Cache for Redis",
+      "confidence": 0.7,
+      "review": "Review SKU, clustering, TLS, auth keys (prefer Entra/Key Vault), and private endpoint."
+    },
+    "aws_elasticache_replication_group": {
+      "default_target_resource_type": "azurerm_redis_cache",
+      "migration_resource_class": "cache_redis",
+      "category": "cache",
+      "azure_service_label": "Azure Cache for Redis",
+      "confidence": 0.7,
+      "review": "Review HA/geo-replication posture; Redis Enterprise may be required for some AWS patterns."
+    },
+    "aws_cloudwatch_log_group": {
+      "default_target_resource_type": "azurerm_log_analytics_workspace",
+      "migration_resource_class": "observability_logs",
+      "category": "observability",
+      "azure_service_label": "Log Analytics workspace",
+      "confidence": 0.82,
+      "review": "Retention, cost, and diagnostic settings wiring are review-needed; not a 1:1 CloudWatch group.",
+      "hitl_lane": "shape"
+    },
+    "aws_db_parameter_group": {
+      "default_target_resource_type": null,
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "azure_service_label": "Folds into Flexible Server configuration",
+      "confidence": 0.4,
+      "review": "Translate engine parameters onto azurerm_postgresql_flexible_server (or MySQL) configuration; do not scaffold a fake parameter group."
+    },
+    "aws_iam_user": {
+      "default_target_resource_type": null,
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "azure_service_label": "Microsoft Entra ID user (outside Terraform azurerm)",
+      "confidence": 0.35,
+      "review": "Long-lived IAM users should become Entra identities or workload identities; not generated as azurerm resources."
+    },
+    "aws_iam_user_policy": {
+      "default_target_resource_type": null,
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "azure_service_label": "Entra / RBAC outside scaffold",
+      "confidence": 0.35,
+      "review": "Convert to RBAC role assignments on managed identities; do not recreate IAM user policies."
+    },
+    "aws_iam_user_policy_attachment": {
+      "default_target_resource_type": null,
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "azure_service_label": "Entra / RBAC outside scaffold",
+      "confidence": 0.35,
+      "review": "Convert attachments to scoped Azure RBAC assignments."
+    },
+    "aws_iam_access_key": {
+      "default_target_resource_type": null,
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "azure_service_label": "No access-key equivalent (use managed identity)",
+      "confidence": 0.2,
+      "review": "Do not mint static Azure credentials; migrate callers to managed identity or federated credentials."
+    },
+    "aws_iam_group": {
+      "default_target_resource_type": null,
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "azure_service_label": "Microsoft Entra ID group",
+      "confidence": 0.35,
+      "review": "Model as Entra groups + RBAC; not an azurerm scaffold."
+    },
+    "aws_iam_group_policy": {
+      "default_target_resource_type": null,
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "azure_service_label": "Entra / RBAC outside scaffold",
+      "confidence": 0.35,
+      "review": "Convert group policies to Azure RBAC or Entra role assignments."
+    },
+    "aws_iam_group_policy_attachment": {
+      "default_target_resource_type": null,
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "azure_service_label": "Entra / RBAC outside scaffold",
+      "confidence": 0.35,
+      "review": "Convert attachments to scoped Azure RBAC assignments."
+    },
+    "aws_iam_group_membership": {
+      "default_target_resource_type": null,
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "azure_service_label": "Microsoft Entra ID group membership",
+      "confidence": 0.35,
+      "review": "Manage membership in Entra, not in azurerm migration roots."
+    },
+    "aws_iam_instance_profile": {
+      "default_target_resource_type": null,
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "azure_service_label": "Folds into VM/VMSS managed identity",
+      "confidence": 0.45,
+      "review": "Instance profiles become the VM/VMSS identity block; no separate Azure resource."
+    },
+    "aws_iam_saml_provider": {
+      "default_target_resource_type": null,
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "azure_service_label": "Entra ID federation / enterprise app",
+      "confidence": 0.3,
+      "review": "Configure SAML/OIDC in Entra ID outside generated roots."
+    },
+    "aws_ecs_cluster": {
+      "default_target_resource_type": "azurerm_container_app_environment",
+      "migration_resource_class": "container_apps",
+      "category": "containers",
+      "azure_service_label": "Container Apps environment",
+      "confidence": 0.7,
+      "review": "ECS\u2192Container Apps is approximate; review networking, capacity, and whether AKS is a better fit."
+    },
+    "aws_ecs_task_definition": {
+      "default_target_resource_type": "azurerm_container_app",
+      "migration_resource_class": "container_apps",
+      "category": "containers",
+      "azure_service_label": "Container App (task definition approx.)",
+      "confidence": 0.65,
+      "companion_resource_types": [
+        "azurerm_container_app_environment"
+      ],
+      "review": "Container image, CPU/memory, secrets, and probes need human translation from task JSON."
+    },
+    "aws_cloudfront_distribution": {
+      "default_target_resource_type": "azurerm_cdn_frontdoor_profile",
+      "migration_resource_class": "cdn_front_door",
+      "category": "cdn",
+      "azure_service_label": "Azure Front Door profile",
+      "confidence": 0.55,
+      "review": "Origins, cache behaviors, WAF, and TLS custom domains require a dedicated Front Door design review."
+    },
+    "aws_cloudfront_origin_access_identity": {
+      "default_target_resource_type": null,
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "azure_service_label": "Folds into Front Door / Storage private access",
+      "confidence": 0.35,
+      "review": "Replace OAI with Front Door origin auth or Storage private endpoints + RBAC."
+    },
+    "aws_ebs_volume": {
+      "default_target_resource_type": "azurerm_managed_disk",
+      "migration_resource_class": "managed_disk",
+      "category": "storage",
+      "azure_service_label": "Managed Disk",
+      "confidence": 0.82,
+      "review": "Disk type/size/encryption and attachment to VM/VMSS must be reviewed; not auto-attached.",
+      "hitl_lane": "shape"
+    },
+    "aws_key_pair": {
+      "default_target_resource_type": null,
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "azure_service_label": "SSH key supplied to VM/VMSS variables",
+      "confidence": 0.4,
+      "review": "Pass operator SSH public keys via variables or Key Vault; do not commit private keys."
+    },
+    "aws_iam_role_policy": {
+      "default_target_resource_type": "azurerm_role_definition",
+      "migration_resource_class": "iam_policy",
+      "category": "identity",
+      "azure_service_label": "Azure RBAC role definition (inline)",
+      "confidence": 0.72,
+      "companion_resource_types": [
+        "azurerm_user_assigned_identity"
+      ],
+      "review": "Inline app-role policies are the custom permission surface \u2014 fold into the role's Azure custom role definition and list AWS actions in comments for translation."
+    },
+    "aws_iam_role_policy_attachment": {
+      "default_target_resource_type": null,
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "azure_service_label": "No Azure resource (attachment glue \u2014 scanned for co-location)",
+      "confidence": 0.4,
+      "companion_resource_types": [],
+      "review": "Attachments are glue: keep them in discovery so generate can bind customer-managed policies to the workload role. No standalone Azure resource."
+    },
+    "aws_alb": {
+      "default_target_resource_type": "azurerm_lb",
+      "migration_resource_class": "load_balancer",
+      "category": "load_balancer",
+      "azure_service_label": "Azure Load Balancer (ALB approx.)",
+      "confidence": 0.7,
+      "companion_resource_types": [
+        "azurerm_lb_backend_address_pool",
+        "azurerm_public_ip"
+      ],
+      "review": "ALB often maps better to Application Gateway for L7; confirm L4 vs L7 and TLS."
+    },
+    "aws_elb": {
+      "default_target_resource_type": "azurerm_lb",
+      "migration_resource_class": "load_balancer",
+      "category": "load_balancer",
+      "azure_service_label": "Azure Load Balancer (classic ELB)",
+      "confidence": 0.7,
+      "companion_resource_types": [
+        "azurerm_lb_backend_address_pool",
+        "azurerm_public_ip"
+      ],
+      "review": "Classic ELB listeners/health checks need human translation to LB rules and probes."
+    },
+    "aws_api_gateway_rest_api": {
+      "default_target_resource_type": "azurerm_api_management",
+      "migration_resource_class": "api_management",
+      "category": "api",
+      "azure_service_label": "API Management",
+      "confidence": 0.55,
+      "review": "API Gateway to APIM is a design review: products, policies, backends, and auth models differ."
+    },
+    "aws_api_gateway_resource": {
+      "default_target_resource_type": "azurerm_api_management_api",
+      "migration_resource_class": "api_management",
+      "category": "api",
+      "azure_service_label": "API Management API/operation",
+      "confidence": 0.55,
+      "companion_resource_types": [
+        "azurerm_api_management"
+      ],
+      "review": "Path/method resources become APIM operations; policy XML is not auto-translated."
+    },
+    "aws_glue_catalog_database": {
+      "default_target_resource_type": null,
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "azure_service_label": "Synapse/Databricks catalog (outside azurerm scaffold)",
+      "confidence": 0.35,
+      "review": "Glue Data Catalog has no 1:1 azurerm resource; document schema ownership in Synapse or Databricks."
+    },
+    "aws_glue_catalog_table": {
+      "default_target_resource_type": null,
+      "migration_resource_class": "non_applicable",
+      "category": "non_applicable",
+      "azure_service_label": "Synapse/Databricks table (outside azurerm scaffold)",
+      "confidence": 0.35,
+      "review": "Glue tables are metadata; recreate in the chosen analytics catalog outside generated roots."
+    }
+  },
+  "migration_classes": {
+    "object_storage": {
+      "target_resource_types": [
+        "azurerm_storage_account",
+        "azurerm_storage_container"
+      ],
+      "attribute_mapping": {
+        "aws_s3_bucket": {
+          "bucket": {
+            "azurerm_storage_account": "name",
+            "azurerm_storage_container": "name"
+          }
+        }
+      }
+    },
+    "queue_service": {
+      "target_resource_types": [
+        "azurerm_servicebus_queue",
+        "azurerm_storage_queue"
+      ],
+      "attribute_mapping": {
+        "aws_sqs_queue": {
+          "name": {
+            "azurerm_servicebus_queue": "name",
+            "azurerm_storage_queue": "name"
+          }
+        }
+      }
+    },
+    "nosql_database": {
+      "target_resource_types": [
+        "azurerm_cosmosdb_table",
+        "azurerm_storage_table"
+      ],
+      "attribute_mapping": {
+        "aws_dynamodb_table": {
+          "name": {
+            "azurerm_cosmosdb_table": "name",
+            "azurerm_storage_table": "name"
+          }
+        }
+      }
+    },
+    "iam_policy": {
+      "target_resource_types": [
+        "azurerm_role_definition"
+      ]
+    },
+    "iam_role": {
+      "target_resource_types": [
+        "azurerm_user_assigned_identity",
+        "azurerm_role_definition",
+        "azurerm_role_assignment"
+      ]
+    },
+    "serverless_function": {
+      "target_resource_types": [
+        "azurerm_linux_function_app",
+        "azurerm_service_plan"
+      ],
+      "attribute_mapping": {
+        "aws_lambda_function": {
+          "function_name": {
+            "azurerm_linux_function_app": "name"
+          },
+          "tags": {
+            "azurerm_linux_function_app": "tags"
+          }
+        }
+      }
+    },
+    "virtual_network": {
+      "target_resource_types": [
+        "azurerm_virtual_network"
+      ],
+      "attribute_mapping": {
+        "aws_vpc": {
+          "cidr_block": {
+            "azurerm_virtual_network": "address_space"
+          },
+          "tags": {
+            "azurerm_virtual_network": "tags"
+          }
+        }
+      }
+    },
+    "subnet_networking": {
+      "target_resource_types": [
+        "azurerm_subnet"
+      ],
+      "attribute_mapping": {
+        "aws_subnet": {
+          "vpc_id": {
+            "azurerm_subnet": "virtual_network_name"
+          },
+          "cidr_block": {
+            "azurerm_subnet": "address_prefixes"
+          }
+        }
+      }
+    },
+    "database_subnet": {
+      "target_resource_types": [
+        "azurerm_subnet"
+      ]
+    },
+    "network_gateway": {
+      "target_resource_types": [
+        "azurerm_virtual_network_gateway"
+      ]
+    },
+    "network_routing": {
+      "target_resource_types": [
+        "azurerm_route_table",
+        "azurerm_nat_gateway"
+      ],
+      "attribute_mapping": {
+        "aws_route_table": {
+          "tags": {
+            "azurerm_route_table": "tags"
+          }
+        }
+      }
+    },
+    "network_routing_association": {
+      "target_resource_types": [
+        "azurerm_subnet_route_table_association"
+      ],
+      "attribute_mapping": {
+        "aws_route_table_association": {
+          "route_table_id": {
+            "azurerm_subnet_route_table_association": "route_table_id"
+          }
+        }
+      }
+    },
+    "firewall_rules": {
+      "target_resource_types": [
+        "azurerm_network_security_group"
+      ],
+      "attribute_mapping": {
+        "aws_security_group": {
+          "name": {
+            "azurerm_network_security_group": "name"
+          },
+          "ingress": {
+            "azurerm_network_security_group": "security_rules"
+          },
+          "egress": {
+            "azurerm_network_security_group": "security_rules"
+          }
+        }
+      }
+    },
+    "static_ip": {
+      "target_resource_types": [
+        "azurerm_public_ip"
+      ]
+    },
+    "kubernetes_service": {
+      "target_resource_types": [
+        "azurerm_kubernetes_cluster"
+      ],
+      "attribute_mapping": {
+        "aws_eks_cluster": {
+          "name": {
+            "azurerm_kubernetes_cluster": "name"
+          }
+        }
+      }
+    },
+    "compute_vm": {
+      "target_resource_types": [
+        "azurerm_linux_virtual_machine",
+        "azurerm_network_interface"
+      ],
+      "attribute_mapping": {
+        "aws_instance": {
+          "tags": {
+            "azurerm_linux_virtual_machine": "tags"
+          }
+        }
+      }
+    },
+    "compute_scaleset": {
+      "target_resource_types": [
+        "azurerm_linux_virtual_machine_scale_set"
+      ]
+    },
+    "load_balancer": {
+      "target_resource_types": [
+        "azurerm_lb",
+        "azurerm_application_gateway"
+      ]
+    },
+    "relational_database": {
+      "target_resource_types": [
+        "azurerm_postgresql_flexible_server"
+      ],
+      "attribute_mapping": {
+        "aws_rds_cluster": {
+          "cluster_identifier": {
+            "azurerm_postgresql_flexible_server": "name"
+          }
+        },
+        "aws_db_instance": {
+          "identifier": {
+            "azurerm_postgresql_flexible_server": "name"
+          }
+        }
+      }
+    },
+    "pubsub_event": {
+      "target_resource_types": [
+        "azurerm_eventgrid_topic",
+        "azurerm_servicebus_topic"
+      ],
+      "attribute_mapping": {
+        "aws_sns_topic": {
+          "name": {
+            "azurerm_eventgrid_topic": "name",
+            "azurerm_servicebus_topic": "name"
+          }
+        }
+      }
+    },
+    "streaming": {
+      "target_resource_types": [
+        "azurerm_eventhub",
+        "azurerm_eventhub_namespace"
+      ],
+      "attribute_mapping": {
+        "aws_kinesis_stream": {
+          "name": {
+            "azurerm_eventhub": "name"
+          },
+          "shard_count": {
+            "azurerm_eventhub": "partition_count"
+          }
+        }
+      }
+    },
+    "message_queue": {
+      "target_resource_types": [
+        "azurerm_servicebus_namespace",
+        "azurerm_eventgrid_topic"
+      ],
+      "attribute_mapping": {
+        "aws_mq_configuration": {
+          "name": {
+            "azurerm_servicebus_namespace": "name",
+            "azurerm_eventgrid_topic": "name"
+          }
+        }
+      }
+    },
+    "encryption_key": {
+      "target_resource_types": [
+        "azurerm_key_vault_key",
+        "azurerm_key_vault"
+      ]
+    },
+    "key_management": {
+      "target_resource_types": [
+        "azurerm_key_vault_secret",
+        "azurerm_key_vault"
+      ],
+      "attribute_mapping": {
+        "aws_ssm_parameter": {
+          "name": {
+            "azurerm_key_vault_secret": "name"
+          }
+        }
+      }
+    },
+    "analytics": {
+      "target_resource_types": [
+        "azurerm_synapse_workspace"
+      ]
+    },
+    "data_reference": {
+      "target_resource_types": [
+        "data_azurerm_client_config"
+      ]
+    },
+    "non_applicable": {
+      "target_resource_types": []
+    },
+    "dns_zone": {
+      "target_resource_types": [
+        "azurerm_dns_zone"
+      ],
+      "attribute_mapping": {
+        "aws_route53_zone": {
+          "name": {
+            "azurerm_dns_zone": "name"
+          },
+          "tags": {
+            "azurerm_dns_zone": "tags"
+          }
+        }
+      }
+    },
+    "dns_record": {
+      "target_resource_types": [
+        "azurerm_dns_a_record",
+        "azurerm_dns_cname_record",
+        "azurerm_dns_txt_record"
+      ],
+      "attribute_mapping": {
+        "aws_route53_record": {
+          "name": {
+            "azurerm_dns_a_record": "name"
+          },
+          "ttl": {
+            "azurerm_dns_a_record": "ttl"
+          }
+        }
+      }
+    },
+    "cache_redis": {
+      "target_resource_types": [
+        "azurerm_redis_cache"
+      ],
+      "attribute_mapping": {
+        "aws_elasticache_cluster": {
+          "cluster_id": {
+            "azurerm_redis_cache": "name"
+          },
+          "tags": {
+            "azurerm_redis_cache": "tags"
+          }
+        },
+        "aws_elasticache_replication_group": {
+          "replication_group_id": {
+            "azurerm_redis_cache": "name"
+          },
+          "tags": {
+            "azurerm_redis_cache": "tags"
+          }
+        }
+      }
+    },
+    "observability_logs": {
+      "target_resource_types": [
+        "azurerm_log_analytics_workspace"
+      ],
+      "attribute_mapping": {
+        "aws_cloudwatch_log_group": {
+          "name": {
+            "azurerm_log_analytics_workspace": "name"
+          },
+          "retention_in_days": {
+            "azurerm_log_analytics_workspace": "retention_in_days"
+          },
+          "tags": {
+            "azurerm_log_analytics_workspace": "tags"
+          }
+        }
+      }
+    },
+    "container_apps": {
+      "target_resource_types": [
+        "azurerm_container_app_environment",
+        "azurerm_container_app"
+      ],
+      "attribute_mapping": {}
+    },
+    "cdn_front_door": {
+      "target_resource_types": [
+        "azurerm_cdn_frontdoor_profile"
+      ],
+      "attribute_mapping": {}
+    },
+    "managed_disk": {
+      "target_resource_types": [
+        "azurerm_managed_disk"
+      ],
+      "attribute_mapping": {
+        "aws_ebs_volume": {
+          "size": {
+            "azurerm_managed_disk": "disk_size_gb"
+          },
+          "tags": {
+            "azurerm_managed_disk": "tags"
+          }
+        }
+      }
+    },
+    "api_management": {
+      "target_resource_types": [
+        "azurerm_api_management",
+        "azurerm_api_management_api"
+      ],
+      "attribute_mapping": {}
+    }
+  }
+}

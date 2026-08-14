@@ -1,0 +1,19 @@
+__pycache__/
+*.pyc
+*.tfvars
+.terraform
+tfplan
+# Local OpenTofu backend overrides (CI uses -backend-config from GitHub vars).
+**/backend.hcl
+
+# Terraform state records live resource metadata and can carry secrets in
+# plaintext attributes. The split pipeline writes per-group state under
+# aws/groups/ and aws/artifacts/; none of it may be committed.
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+agent-pipeline-config/tfvars/*.json
+
+# Local runner / Helm values often embed mothership tokens — never commit.
+**/runner-helm-values.yaml
+**/*-helm-values.local.yaml

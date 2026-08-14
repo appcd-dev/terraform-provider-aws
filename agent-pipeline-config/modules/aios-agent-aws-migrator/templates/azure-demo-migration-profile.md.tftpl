@@ -1,0 +1,66 @@
+# Azure review-candidate migration profile
+
+This runbook is the default, versioned migration profile for Azure generation.
+Output is **review-candidate IaC** — safe to open a PR and inspect — not apply-ready landing zones.
+
+## Operating mode
+
+- Best effort, no approval gates for ambiguous mappings.
+- Do not ask clarifying questions for service mapping choices.
+- Continue with a reasonable Azure default when the source intent is ambiguous.
+- Record every ambiguous, low-confidence, security-sensitive, or unsupported mapping in `azure/artifacts/review-needed.md` and the PR body.
+- If a strong equivalent does not exist, generate the closest valid Terraform scaffold or a clearly marked placeholder and document why review is needed.
+- Treat catalog `status=mapped` as "target type known". Trust `emission` for what HCL was actually written (`full_scaffold` vs `managed_identity_scaffold` vs `resource_group_only`).
+
+## Open standards (realistic floor)
+
+- **Microsoft CAF naming** abbreviations (`rg-`, `vnet-`, `snet-`, `nsg-`, `st`, `id-`, `vmss-`, `aks-`, ...).
+- **Azure Well-Architected security defaults**: TLS 1.2+, HTTPS-only storage, private containers, SSH-only Linux compute (no password defaults in git).
+- **OpenTofu / HashiCorp root layout** per group (`versions.tf`, `providers.tf`, `variables.tf`, `main.tf`, `outputs.tf`) plus `azure/.gitignore` excluding plans/logs/state.
+- **Not** full Azure Verified Modules (AVM) / CAF landing-zone composition for every AWS service — that remains an operator follow-up.
+
+## Mapping source of truth (do not invent mappings)
+
+- The AWS Terraform type to Azure Terraform type mapping is defined by the versioned catalog `scripts/mappings/aws-to-azure.json` (preloaded with the script pack). The `azure-migration-blueprint` and `azure-iac-generate` stages resolve it deterministically via `scripts/azure_mapping_catalog.py`; you do not hand-map resource types.
+- **Do not invent an alternate Azure service when a catalog default exists.** Use the catalog `default_target_resource_type`. Only propose an alternate from that type's `target_resource_types` list, and record the reason in `review-needed.md`.
+- Types marked `non_applicable` (e.g. IAM users, parameter groups, OAI) fold into Entra/other resources or have no Azure resource. Never scaffold a fake service for them; list them as review/skipped.
+- Types absent from the catalog resolve as `unsupported`: the generated root is a resource group plus a review note. Prefer adding the type to the catalog (see `mappings/README.md`) over one-off mappings in a PR.
+
+## Default mappings (aligned to the catalog)
+
+The table below is a human-readable summary of `scripts/mappings/aws-to-azure.json`; the catalog is authoritative when they differ.
+
+| AWS source | Azure default | Review focus |
+| --- | --- | --- |
+| EKS (`aws_eks_cluster`) | AKS (`azurerm_kubernetes_cluster`) | Networking, RBAC, node pools, ingress, add-ons |
+| Auto Scaling Group / launch template | VMSS (`azurerm_linux_virtual_machine_scale_set`) | Image, user data, scaling policy, load balancer |
+| EC2 singleton (`aws_instance`) | Linux VM (`azurerm_linux_virtual_machine`) | OS image, SSH key, disks, network interfaces |
+| Lambda (`aws_lambda_function`) | Azure Functions (`azurerm_linux_function_app` + plan + storage) | Runtime, triggers, packaging, environment, identity |
+| S3 (`aws_s3_bucket`) | Storage Account (`azurerm_storage_account`) + container companion | Naming, containers, lifecycle, encryption, public access |
+| RDS/PostgreSQL (`aws_rds_cluster` / `aws_db_instance`) | Azure Database for PostgreSQL Flexible Server | Version, HA, extensions, backup, firewall, Key Vault password |
+| ElastiCache | Azure Cache for Redis | SKU, TLS, private endpoint, auth |
+| Route53 zone/record | Azure DNS zone / record | Public vs private, cutover |
+| CloudWatch log group | Log Analytics workspace | Retention and diagnostic settings |
+| ECS cluster/task | Container Apps environment (+ review) | Whether AKS is a better fit |
+| CloudFront | Front Door profile (review-heavy) | Origins, WAF, custom domains |
+| SQS (`aws_sqs_queue`) | Service Bus Queue (`azurerm_servicebus_queue`); Storage Queue alternate | FIFO/dead-letter semantics, retry behavior |
+| IAM role/policy | Managed identity scaffold + RBAC review notes | Emission is identity-only; operators author RBAC |
+| IAM user/group/access key | Entra / non_applicable | Do not recreate static cloud users in azurerm |
+
+## Defaults
+
+- Location: `eastus`
+- Resource group pattern: `rg-<group_id>`
+- Tags: `generated_by=stackgen-aws-migrator`, `migration_mode=review-candidate`, `standards=caf-waf-opentofu`, `migration_group=<group_id>`
+- Networking: VNet/subnet/NSG with deny-Internet inbound baseline when compute/network categories are present; CIDRs are variables for IPAM replacement.
+- Identity: user-assigned managed identity scaffold; IAM→RBAC stays review-needed.
+- Compute access: SSH public key variable (placeholder must be replaced before apply); password auth disabled.
+- SKU posture: low-cost review SKUs unless the source group strongly implies otherwise.
+- Module source preference: local Terraform roots under `azure/groups/<group_id>`; replace with AVM/CAF modules later if desired.
+
+## Validation
+
+- Static: `tofu fmt`, `tofu validate` on **all** generated groups (unless an explicit sample override is set).
+- Live plan: sampled when `AZURE_LIVE_PLAN_MAX_GROUPS` is set; PR must disclose `planned/total`.
+- Never apply migrated Azure resources from this workflow.
+- When live plan is required, missing credentials fail validation.

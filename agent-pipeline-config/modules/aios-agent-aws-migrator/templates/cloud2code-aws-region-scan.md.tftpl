@@ -1,0 +1,74 @@
+# Cloud2Code AWS region scan
+
+Capture one AWS region as a monolithic Terraform state so the later phases can
+decompose it, reverse-engineer HCL, and reach a clean plan.
+
+Keywords: cloud2code, aws, terraform state, tfstate, brownfield, region scan, import.
+
+## Goal
+
+Run `cloud2code import aws` against a single AWS region and produce the
+monolithic Terraform state that the decomposition phase consumes.
+
+This is only the **first half** of an AWS-to-Azure migration: capture AWS as
+Terraform IaC, split it into smaller state/project groups, reverse-engineer HCL
+for each group, and reach a successful Terraform plan. Do not generate the Azure
+equivalent IaC in this phase.
+
+## Inputs
+
+Required:
+
+- `aws_region` — AWS region to scan, for example `us-east-1`.
+
+Optional:
+
+- `cloud2code_include` — comma-separated AWS Terraform resource types. Empty means scan the whole region supported by cloud2code.
+- `cloud2code_exclude` — comma-separated AWS Terraform resource types to omit.
+- `cloud2code_tags` — comma-separated `Key:Value` filters.
+- `cloud2code_output_dir` — output directory on the execution host. Defaults to a run-scoped directory under the working home.
+- `cloud2code_discovery_name` — optional discovery name.
+
+Always run `cloud2code --auto-import=false` so the scan produces local Terraform
+state for reverse engineering only.
+
+## Host requirements
+
+The execution host must have `cloud2code`, `aws`, `jq`, `tofu` or `terraform`,
+and AWS read credentials for `aws_region`. Terraform does not install those
+binaries; they must already be present on the host image.
+
+## Procedure
+
+1. Read the run inputs.
+2. Run, in a single batched shell sequence:
+   - CLI preflight (`cloud2code`, `aws`, `jq`)
+   - optional AWS caller-identity probe
+   - `cloud2code import aws --region <aws_region> --output-dir <output_dir> --auto-import=false`
+   - optional `--include`, `--exclude`, `--tags`, `--name`, `--project`
+   - tfstate discovery and JSON validation
+3. Record `cloud2code_scan_ok`, the tfstate path, `monolith_state_uri`, the
+   tfstate filename, `monolith_resource_count`, and a compact scan result.
+
+## Blocking conditions
+
+Stop with a compact blocked reason on any of:
+
+- missing `aws_region`
+- `cloud2code`, `aws`, or `jq` not installed on the host
+- the scan itself failing
+- the tfstate being missing or invalid JSON
+
+Downstream phases must stop on these and must not ask the operator for
+`monolith_state_uri`; the scan owns tfstate creation.
+
+## Handoff
+
+The only value downstream needs is:
+
+```text
+monolith_state_uri=<terraform.tfstate path on the execution host>
+```
+
+The decomposition phase treats that local path exactly like a user-supplied
+monolith state URI and then runs the decomposition procedure.

@@ -1,0 +1,94 @@
+set -euo pipefail
+export HOME=${runner_work_home}
+export WORKFLOW_RUN_ID="$${WORKFLOW_RUN_ID:-}"
+
+# Plain bash ingest bootstrap. This file is preloaded on the runner at ${script_pack_preload_dir}/ingest-bootstrap.sh.
+# The large script pack is preloaded in the same directory; no script bytes are passed through runner env.
+dbsplit_resolve_work_root() {
+  if [ -n "$${WORKFLOW_RUN_ID:-}" ] && ! printf '%s' "$${WORKFLOW_RUN_ID}" | grep -q '{{'; then
+    ABS_WORK_ROOT="${runner_work_home}/.$${WORKFLOW_RUN_ID}"
+    WORK_ROOT="$ABS_WORK_ROOT"
+    echo "WORK_ROOT_source=WORKFLOW_RUN_ID path=$WORK_ROOT"
+    return 0
+  fi
+  local uri_file=""
+  uri_file="$(find ${runner_work_home} -maxdepth 4 -path '*/.work/spawn_monolith_uri' -print -quit 2>/dev/null || true)"
+  if [ -n "$uri_file" ] && [ -f "$uri_file" ]; then
+    ABS_WORK_ROOT="$(cd "$(dirname "$(dirname "$uri_file")")" && pwd)"
+    WORK_ROOT="$ABS_WORK_ROOT"
+    echo "WORK_ROOT_source=spawn_monolith_uri_file path=$WORK_ROOT"
+    return 0
+  fi
+  return 1
+}
+
+if ! dbsplit_resolve_work_root; then
+  echo "error=WORK_ROOT_unset"
+  exit 1
+fi
+
+dbsplit_resolve_monolith_uri() {
+  local work_root="$${1:?WORK_ROOT}"
+  if [ -n "$${MONOLITH_URI:-}" ]; then
+    return 0
+  fi
+  if [ -n "$${MONOLITH_STATE_URI:-}" ]; then
+    export MONOLITH_URI="$${MONOLITH_STATE_URI}"
+    echo "MONOLITH_URI_source=MONOLITH_STATE_URI"
+    return 0
+  fi
+  if [ -n "$${TFSTATE_FILE:-}" ]; then
+    export MONOLITH_URI="$${TFSTATE_FILE}"
+    echo "MONOLITH_URI_source=TFSTATE_FILE"
+    return 0
+  fi
+  mkdir -p "$work_root/.work"
+  if [ -f "$work_root/.work/spawn_monolith_uri" ]; then
+    export MONOLITH_URI="$(tr -d '\n\r' < "$work_root/.work/spawn_monolith_uri")"
+    echo "MONOLITH_URI_source=spawn_monolith_uri_file"
+    return 0
+  fi
+  if [ -f "$work_root/notes.json" ]; then
+    local raw
+    raw="$(jq -r '.monolith_state_uri // .tfstate_file // empty' "$work_root/notes.json" 2>/dev/null || true)"
+    raw="$${raw#monolith_state_uri=}"
+    if [ -n "$raw" ]; then
+      export MONOLITH_URI="$raw"
+      echo "MONOLITH_URI_source=notes_json_fallback"
+      return 0
+    fi
+  fi
+  return 1
+}
+
+${dbsplit_script_pack_preload_helpers}
+
+mkdir -p "$WORK_ROOT/scripts" "$WORK_ROOT/state" "$WORK_ROOT/.work"
+[ -f "$WORK_ROOT/notes.json" ] || echo '{}' >"$WORK_ROOT/notes.json"
+chmod 700 "$WORK_ROOT" 2>/dev/null || true
+
+if ! dbsplit_resolve_monolith_uri "$WORK_ROOT"; then
+  # Emit the loop/gate sentinel directly so ingest-split-loop and
+  # ingest-blocked-gate match without LLM translation of error=MONOLITH_URI_unset.
+  if command -v jq >/dev/null 2>&1 && [ -f "$WORK_ROOT/notes.json" ]; then
+    tmp="$(mktemp "$WORK_ROOT/notes.json.XXXXXX")"
+    jq --arg k "blocked:missing_monolith_state_uri" --arg v "true" \
+      '. + {($k): $v, "stage_summary:ingest-and-split": "blocked:missing_monolith_state_uri"}' \
+      "$WORK_ROOT/notes.json" >"$tmp" && mv "$tmp" "$WORK_ROOT/notes.json"
+  fi
+  echo 'blocked:missing_monolith_state_uri: "true"'
+  echo 'stage_summary:ingest-and-split=blocked:missing_monolith_state_uri'
+  echo "error=MONOLITH_URI_unset"
+  exit 1
+fi
+echo "MONOLITH_URI_resolved=true"
+
+if ! dbsplit_ensure_script_pack "$WORK_ROOT"; then
+  exit 1
+fi
+export DBSPLIT_EMBEDDED=1
+export DBSPLIT_ALLOCATE_SHA256="${script_pack_allocate_sha256}"
+export DBSPLIT_DECOMPOSER_SHA256="${script_pack_decomposer_sha256}"
+export DBSPLIT_DEFAULT_STRATEGY="${default_grouping_strategy}"
+export DBSPLIT_DEFAULT_CAP="${default_max_resources_per_appstack}"
+bash -s ingest-and-split "$WORK_ROOT" "$MONOLITH_URI" < "$WORK_ROOT/scripts/stage-runner.sh"

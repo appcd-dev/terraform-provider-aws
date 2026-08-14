@@ -1,0 +1,200 @@
+# Logical grouping of a monolithic Terraform/OpenTofu state
+
+Split a monolithic Terraform/OpenTofu state into logical groups for **AWS,
+Azure, GCP** (and mixed) — not limited to RDS.
+
+Keywords: terraform show -json, state list, jq, dependency closure, connectivity, connected components, tags, default_tags, module path, for_each, workspace, aws_*, azurerm_*, google_*, azapi_*, logical_group, shard.
+
+## Inputs
+
+- Monolith state JSON or `terraform state list` output (path recorded as **`monolith_state_local_path`** — often under **`/tmp`** when the primary workdir is read-only).
+- Optional **`grouping_policy_json`**: rules such as
+  - **Tag keys** (e.g. `app`, `service`, `team`, `cost-center`) — match `values.tags` / provider `default_tags` in state.
+  - **Module address prefix** (e.g. `module.data_plane`).
+  - **Resource type regex** (e.g. `^(aws_db_|azurerm_mssql_)`).
+  - **Explicit include/exclude lists** of addresses.
+- Optional **`grouping_strategy`** string:
+  - Omitted or **`tfstate_monolith_decomposer`** — primary path. Run **`tfstate_monolith_decomposer.py split`**, which classifies resources into Foundation (L1), Platform (L2), and Application (L3), treats cross-layer dependencies as `terraform_remote_state` wiring instead of merge signals, and emits per-group state shards.
+  - **`layered_three_tier`** — alias for the same decomposer algorithm.
+  - Legacy values **`policy_first`**, **`tag_seeded_connectivity`**, **`tag_seeded_connectivity_capped`**, **`connectivity`**, **`connectivity_capped`**, and **`type_chunk`** remain accepted for old payloads, but this AWS-to-Azure workflow should normalize back to **`tfstate_monolith_decomposer`** unless an operator explicitly directs otherwise.
+- Optional **`max_resources_per_appstack`** — hard ceiling on **managed resource instance count** per `group_id` in **`logical_group_manifest`** after allocation. With `tfstate_monolith_decomposer`, this is a candidate knob for deterministic cap partitioning; `0` means unlimited and is often best when cap-splitting creates cross-group references.
+- Optional decomposer tuning controls:
+  - **`tfstate_decomposer_env_scope`** — `all` (default), `l2l3`, or `l2`; changes which layers are partitioned by environment.
+  - **`tfstate_decomposer_env_tag_keys`** — comma-separated environment tag keys; default `env,environment,Environment,stage,Stage`.
+  - **`tfstate_decomposer_layer3_tag_keys`** — comma-separated application tag keys; default `app,application,Application,service,team,project`.
+  - **`tfstate_decomposer_overrides_json`** / **`tfstate_decomposer_overrides_path`** — JSON with `resource_overrides`, `type_rules`, and `accept_provisional` for confirmed placement.
+  - **`tfstate_decomposer_layer_taxonomy_json`** — type-to-layer taxonomy written to `layer_taxonomy.json` before the split.
+  - **`tfstate_decomposer_skip_unknown_type_review`** — boolean; when true, unknown-type provisional placements are still scored instead of remaining review-blocking.
+  - **`tfstate_decomposer_max_tuning_iterations`** — bounded candidate count (default 10).
+
+## Steps (policy-first — default)
+
+1. **Normalize state**
+   Count resource **instances** (including `count`/`for_each` keys). Persist `monolith_resource_count`.
+
+2. **Anchor / seed detection (multi-vendor)**
+   Prefer **user grouping policy** when present. Otherwise infer **candidate anchors** from high-fanout types across clouds, for example:
+   - **AWS:** `aws_db_instance`, `aws_rds_cluster`, `aws_dynamodb_table`, `aws_elasticache_*`, `aws_opensearch_domain`, `aws_msk_cluster`, …
+   - **Azure:** `azurerm_mssql_server`, `azurerm_postgresql_flexible_server`, `azurerm_cosmosdb_account`, `azurerm_storage_account`, `azurerm_kubernetes_cluster`, …
+   - **GCP:** `google_sql_database_instance`, `google_bigquery_dataset`, `google_spanner_instance`, `google_redis_instance`, `google_container_cluster`, …
+   Emit `logical_group_seeds` (JSON): each seed `{address, resource_type, suggested_group_key}`.
+
+3. **Pattern-based clustering**
+   - **Tags:** build adjacency: resources sharing the same `(tag_key, tag_value)` for configured keys → same **logical_group**.
+   - **Module tree:** everything under `module.foo` shares group `foo` unless policy splits by submodule.
+   - **Provider split:** never put `aws_*` and `azurerm_*` in the same group; split on `provider["registry…"]` boundaries when tags disagree.
+
+4. **Graph closure**
+   For each logical group, expand with dependency edges from state JSON so security groups, subnets, keys, and secrets **owned only by that group** ride along. Mark **shared** resources (NAT, org-wide KMS, hub VPC) as `shared_ambiguous` — assign to a dedicated `shared-services` group or exclude until a human rule; **never double-count**.
+
+5. **Manifest**
+   Output JSON **`logical_group_manifest`** (alias / successor to `shard_manifest`):
+   `group_id -> { cloud_hint, resource_addresses[], notes? }`.
+   Also mirror legacy key **`shard_manifest`** with the same JSON if downstream steps still expect it.
+
+6. **Counts**
+   `per_group_resource_counts`, `aggregate_group_resource_count`; `count_reconciliation_ok` iff sum equals `monolith_resource_count` and no duplicate addresses.
+
+## 7. Connectivity-first grouping (`grouping_strategy`: `connectivity` or `connectivity_capped`)
+
+Use when operators want Terraform roots aligned to dependency structure instead of broad **resource-type** buckets (e.g. "all IAM in one root").
+
+1. **Build a resource graph** from `terraform show -json`: vertices = managed resource addresses (same `data.*` / deposed rules as policy mode). Add an **undirected** edge when either resource’s config references the other’s address (dependency edges, `depends_on` when visible in JSON, cross-resource attribute references).
+2. **Provider partition** — compute **connected components** **per cloud** (`aws_*` vs `azurerm_*` vs `google_*` / `azapi_*` never mixed in one `group_id`). Optional: within a giant component, merge only along **strong** edges (e.g. duplicate `depends_on` both ways) if telemetry shows hairball graphs — document the rule in `logical_group_manifest.notes`.
+3. **Shared hubs** — NAT gateways, org-wide KMS keys, default VPCs: assign to a dedicated `shared-*` `group_id` or keep in the largest attached component but **never double-count** addresses.
+4. **Optional policy blend** — if `grouping_policy_json` is present, use tag/module rules only to **subdivide** large components or **seed** partition roots, not to merge unrelated components across missing edges.
+5. **Manifest & counts** — emit **`logical_group_manifest`** / `shard_manifest` and `per_group_resource_counts` as in policy mode; use `group_id` names like `conn-aws-001` and `notes.grouping: connectivity`.
+
+## 8. Group size cap (`max_resources_per_appstack`)
+
+Apply when **`max_resources_per_appstack`** is set (typically with **`connectivity_capped`**) or when operators cap **`policy_first`** results.
+
+Let **N** = positive integer parsed from the input (default **80** if `grouping_strategy` is `connectivity_capped` and the cap input is empty).
+
+After initial groups exist, **split** any `group_id` whose managed `resource_addresses` length **exceeds N**:
+
+1. Work on the **induced subgraph** of that group’s addresses.
+2. **Partition** into new `group_id`s each with **<= N** addresses, best-effort **minimizing cut edges** (fewer cross-group references):
+   - Preferred: **seeded expansion** — pick a high-degree or policy-tagged seed, BFS/DFS add neighbors until N, start the next group from an unvisited high-degree node.
+   - Acceptable fallback: **deterministic bin-packing** (lexicographic order into chunks of N) when time-bounded; note `notes.partition: greedy-chunk` so plans can be revisited.
+3. If a **hub** resource would need to appear in multiple groups for correctness, keep it in **one** primary group and record dependent addresses that reference it in `notes.cross_shard_refs` (expect follow-up wiring via `terraform_remote_state` or later IaC). Avoid duplicating the same address in two `group_id` lists.
+4. Assign fresh **`group_id`**s (suffix `-shard-01`, incrementing counter, etc.), recompute counts, and assert **every** group has `≤ N` resources and the global sum still equals `monolith_resource_count`.
+
+## 9. Per-group state shards (`groups/<group_id>/terraform.tfstate`)
+
+After **`split-manifest`** (or `extract-group-states`), each `group_id` has an isolated state file under **`groups/<group_id>/terraform.tfstate`**. These slices:
+
+- Contain only managed resource **instances** assigned to that group (including `count` / `for_each` keys).
+- Preserve monolith `version`, `terraform_version`, `serial`, and `lineage` metadata.
+- Use empty `outputs` in the shard (workload outputs stay in the monolith until migrated).
+
+**Scaffold and hydration steps** run `tofu plan` **inside each group directory** using its slice — do not re-parse the multi-megabyte monolith per group.
+
+## 9.5. Split quality score and tuned reruns
+
+`split-manifest` is implemented by the script-pack file
+**`tfstate_monolith_decomposer.py`**. A single pass is not acceptable. Run the
+decomposer, immediately run `scaffold-registry` so `orphans_bundle.json` exists,
+score the candidate, and rerun with tuned inputs when the score report
+recommends an optimization.
+
+Primary command shape:
+
+```bash
+python3 tfstate_monolith_decomposer.py split "$WORK_ROOT" "$WORK_ROOT/state/terraform.tfstate" "$CAP" \
+  --env-scope "$ENV_SCOPE" \
+  --env-tag-keys "$ENV_TAG_KEYS" \
+  --layer3-tag-keys "$LAYER3_TAG_KEYS" \
+  --overrides "$WORK_ROOT/overrides.json" \
+  --skip-unknown-type-review
+python3 tfstate_monolith_decomposer.py scaffold-registry "$WORK_ROOT"
+```
+
+Only include optional flags when the corresponding input is non-empty.
+`tfstate_decomposer_layer_taxonomy_json` is written to
+`$WORK_ROOT/layer_taxonomy.json` before the split; the decomposer loads that file
+automatically.
+
+Tag seeds for partitioning are **generic** (app/service/team/… synonyms, case-
+insensitive). There are no vendor-specific keys in the pack. Prefer
+`--layer3-tag-keys` / `--env-tag-keys` (or env `TFSTATE_DECOMPOSER_LAYER3_TAG_KEYS`,
+`TFSTATE_ALLOCATE_SEED_TAG_KEYS`) when the customer taxonomy differs; otherwise any
+non-cloud-managed tag is used before falling back to resource type.
+
+### Deterministic sorting and partition order
+
+The algorithm is intentionally deterministic so candidate outputs can be compared:
+
+- Unknown resource type prefix rules are checked in sorted layer order.
+- Resource graph connected-component traversal visits sorted vertices.
+- Small groups are merged by sorted seed keys and sorted resource addresses.
+- Cap splitting uses BFS seeded by highest degree, with ties by address; neighbors prefer same seed key, then higher degree, then address.
+- Type fallback chunking orders by `(type, address)`.
+- L1 components sort by size descending; L3 app buckets sort by app name.
+- Review items sort by descending impact score; batch type rules sort by type frequency descending.
+- Sample group IDs are sorted by `group_id`.
+
+A changed output should be explainable by changed inputs (`cap`, tag keys,
+taxonomy, overrides, env scope, or unknown-type handling), not nondeterminism.
+
+### Quality scoring
+
+The decomposer writes **`split_quality_report.json`** and
+**`split_tuning_history.json`** under `WORK_ROOT` and records their paths. The
+report scores:
+
+- hard correctness: `count_reconciliation_ok`, duplicate addresses, unallocated addresses, missing groups, and cap violations;
+- orphan objective: `metrics.orphan_count` from `orphans_bundle.json` after registry scaffolding;
+- decomposition quality: group count, largest/smallest/average/median group sizes, singleton ratio, cross-shard refs, and shared refs;
+- review burden: high-impact review item count, batch-rule count, auto-assigned count, unknown/provisional placements, and stale overrides;
+- fallback smells: single oversized hairball, type-chunk fallback, over-fragmented singletons, and too many tiny groups.
+
+Selection priority is:
+
+1. Count reconciliation must be true and there must be no duplicate/unallocated addresses.
+2. Prefer the candidate with the highest quality score.
+3. On equal score, prefer the lower `metrics.orphan_count`.
+4. If still tied, prefer fewer high-impact review items and less fragmentation.
+
+### Rerun tuning controls
+
+When the report includes `recommendation`, rerun the decomposer with the
+recommended controls, bounded by `tfstate_decomposer_max_tuning_iterations`.
+Typical optimizations:
+
+- High orphan count with `env_scope=all` → try `env_scope=l2l3`.
+- High orphan count with `env_scope=l2l3` → try `env_scope=l2`.
+- High-impact unknown-type review items → try `tfstate_decomposer_skip_unknown_type_review=true`, then encode durable fixes in `tfstate_decomposer_overrides_json` or `tfstate_decomposer_layer_taxonomy_json`.
+- Oversized group / hairball → try a positive `max_resources_per_appstack` such as `120`.
+- Cross-shard refs or singleton over-fragmentation after capping → try `max_resources_per_appstack=0`.
+- Incorrect environment or application grouping → rerun with explicit `tfstate_decomposer_env_tag_keys` or `tfstate_decomposer_layer3_tag_keys`.
+
+Stop only when `split_quality_pass=true`, a repeated recommendation is detected,
+or the bounded iteration limit is reached. If a best candidate is selected after
+bounded tuning while residual non-hard issues remain, the final report must
+include `selection_reason="best_candidate_after_bounded_tuning"` and
+`residual_issues[]`. Downstream steps must use the final selected manifest and
+copy `split_quality_report.json`, `split_tuning_history.json`,
+`review_items.json`, `layer_summary.json`, and `orphans_bundle.json` into the IaC
+PR artifacts.
+
+## 10. Shared hub isolation (`*-shared-*` groups)
+
+High fan-in resources (IAM roles/policies, KMS keys, shared log groups, S3
+buckets referenced by many services) are pulled into **`{cloud}-shared-NNN`**
+groups when in-degree ≥ threshold. Workload groups record **`shared_refs`** /
+**`cross_shard_refs`** in manifest notes for later `terraform_remote_state`
+wiring. Hydrate **shared groups first**, then workload shards — this reduces plan
+drift from missing dependency targets.
+
+### Large states (speed + reliability)
+
+- **Do not** paste full state JSON into prose. Write `*.jq` / shell scripts to a file under the run working directory, then run short commands that reference the script **path**. Multi-step shell work is **always** batched into one sequence — never many rapid-succession one-off commands.
+- **Progressive passes:** instance count → provider/module histogram → manifest build, instead of one giant `jq` that materializes everything at once (avoids OOM, timeouts, and truncated output).
+- Keep each shell step under typical time limits; split by module prefix or by cloud if the monolith is huge.
+
+### Edge cases (addresses, deposed, data sources)
+
+- **Addresses** must match Terraform exactly, including **`count` / `for_each` keys** (e.g. `aws_instance.foo[0]`, `module.x.aws_s3_bucket.y["a"]`). Stripping indices breaks allocation and count reconciliation.
+- **`deposed`** / tainted rows and **orphan** objects: decide include vs exclude per org policy; document in `logical_group_manifest.notes` so `monolith_resource_count` stays comparable to shard sums.
+- **`data.*`** entries in JSON snapshots are usually **not** managed resources — exclude from managed-instance totals unless policy says otherwise.

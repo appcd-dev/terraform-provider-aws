@@ -1,0 +1,158 @@
+# Apply the walle OpenTofu root against the Guild (StackGen) workspace.
+# Secrets/vars live in the GitHub Environment `guild` (STACKGEN_TOKEN, AWS OIDC role, etc.).
+name: Tofu apply (walle / Guild)
+
+on:
+  workflow_dispatch:
+    inputs:
+      plan_only:
+        description: "Run tofu plan only (skip apply)"
+        type: boolean
+        default: false
+  push:
+    branches:
+      - main
+      - feat/aws-azure-mapping-catalog
+    paths:
+      - "agent-pipeline-config/**"
+      - ".github/workflows/tofu-apply-walle.yml"
+      - ".opentofu-version"
+
+permissions:
+  contents: read
+  id-token: write # AWS OIDC
+
+concurrency:
+  group: tofu-apply-walle
+  cancel-in-progress: false
+
+env:
+  TF_ROOT: agent-pipeline-config/deployments/walle
+  # Empty profile → default credential chain (OIDC in Actions; AWS_PROFILE locally).
+  TF_VAR_aws_profile: ""
+
+jobs:
+  apply:
+    name: OpenTofu apply (walle)
+    runs-on: ubuntu-latest
+    environment: guild
+    defaults:
+      run:
+        working-directory: ${{ env.TF_ROOT }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: gha-cloud-migrator-tofu
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v2
+        with:
+          tofu_version_file: ${{ github.workspace }}/.opentofu-version
+          tofu_wrapper: false
+
+      - name: Write tfvars from environment secrets
+        env:
+          STACKGEN_URL: ${{ vars.STACKGEN_URL }}
+          STACKGEN_TOKEN: ${{ secrets.STACKGEN_TOKEN }}
+          STACKGEN_PROJECT_ID: ${{ vars.STACKGEN_PROJECT_ID }}
+          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+          TF_GITHUB_TOKEN: ${{ secrets.TF_GITHUB_TOKEN }}
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          GCP_REGION: ${{ vars.GCP_REGION }}
+          GCP_CREDENTIALS_JSON: ${{ secrets.GCP_CREDENTIALS_JSON }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+        run: |
+          set -euo pipefail
+          test -n "${STACKGEN_TOKEN}"
+          test -n "${STACKGEN_PROJECT_ID}"
+          test -n "${TF_GITHUB_TOKEN}"
+          test -n "${AWS_ACCOUNT_ID}"
+
+          # HCL-escape double quotes / backslashes in JSON and tokens.
+          hcl_escape() {
+            python3 -c 'import json,sys; print(json.dumps(sys.stdin.read())[1:-1])' <<<"$1"
+          }
+
+          {
+            echo "stackgen_url        = \"${STACKGEN_URL:-https://walmart.cloud.stackgen.com}\""
+            echo "stackgen_token      = \"$(hcl_escape "${STACKGEN_TOKEN}")\""
+            echo "stackgen_project_id = \"${STACKGEN_PROJECT_ID}\""
+            echo "aws_account_id      = \"$(hcl_escape "${AWS_ACCOUNT_ID}")\""
+            echo "aws_profile         = \"\""
+            echo "azure_subscription_id = \"${ARM_SUBSCRIPTION_ID}\""
+            if [[ -n "${GCP_CREDENTIALS_JSON}" && -n "${GCP_PROJECT_ID}" ]]; then
+              echo "gcp_project_id = \"${GCP_PROJECT_ID}\""
+              echo "gcp_region     = \"${GCP_REGION:-us-central1}\""
+              echo "gcp_credentials_json = <<EOT"
+              printf '%s\n' "${GCP_CREDENTIALS_JSON}"
+              echo "EOT"
+            fi
+          } > /tmp/walle.ci.tfvars
+
+          # GitHub PAT for Guild GitHub integration + runner git push (not Actions GITHUB_TOKEN).
+          echo "TF_VAR_github_token is set (${#TF_GITHUB_TOKEN} chars)"
+          echo "TF_VAR_github_token=${TF_GITHUB_TOKEN}" >> "${GITHUB_ENV}"
+
+      - name: Azure credentials for azurerm / azuread
+        env:
+          ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+          ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+        run: |
+          set -euo pipefail
+          test -n "${ARM_CLIENT_ID}"
+          test -n "${ARM_CLIENT_SECRET}"
+          test -n "${ARM_TENANT_ID}"
+          test -n "${ARM_SUBSCRIPTION_ID}"
+          {
+            echo "ARM_CLIENT_ID=${ARM_CLIENT_ID}"
+            echo "ARM_CLIENT_SECRET=${ARM_CLIENT_SECRET}"
+            echo "ARM_TENANT_ID=${ARM_TENANT_ID}"
+            echo "ARM_SUBSCRIPTION_ID=${ARM_SUBSCRIPTION_ID}"
+            echo "AZURE_CLIENT_ID=${ARM_CLIENT_ID}"
+            echo "AZURE_CLIENT_SECRET=${ARM_CLIENT_SECRET}"
+            echo "AZURE_TENANT_ID=${ARM_TENANT_ID}"
+          } >> "${GITHUB_ENV}"
+
+      - name: tofu init
+        env:
+          TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+          TF_STATE_KEY: ${{ vars.TF_STATE_KEY }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          set -euo pipefail
+          test -n "${TF_STATE_BUCKET}"
+          test -n "${TF_STATE_KEY}"
+          test -n "${AWS_REGION}"
+          # Partial backend in backend.tf — location comes from the guild env.
+          # No profile: OIDC credentials from configure-aws-credentials.
+          tofu init -input=false \
+            -backend-config="bucket=${TF_STATE_BUCKET}" \
+            -backend-config="key=${TF_STATE_KEY}" \
+            -backend-config="region=${AWS_REGION}"
+
+      - name: tofu plan
+        id: plan
+        run: |
+          set -euo pipefail
+          tofu plan -input=false -var-file=/tmp/walle.ci.tfvars -out=/tmp/walle.tfplan
+          tofu show -no-color /tmp/walle.tfplan | tee /tmp/walle.plan.txt
+          # Summarize for the job summary (no secrets — plan is resource ops only).
+          {
+            echo "## OpenTofu plan (walle)"
+            echo '```'
+            tail -n 40 /tmp/walle.plan.txt
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: tofu apply
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.plan_only != true }}
+        run: tofu apply -input=false -auto-approve /tmp/walle.tfplan

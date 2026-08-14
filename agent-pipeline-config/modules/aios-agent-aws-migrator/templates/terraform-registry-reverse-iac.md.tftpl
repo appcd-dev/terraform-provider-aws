@@ -1,0 +1,54 @@
+# Reverse-engineer Terraform IaC from allocated state slices
+
+Keywords: import block, terraform import, moved block, module registry, brownfield, codegen, aws, azure, gcp.
+
+## Entry
+
+Start from the recorded `repo_clone_path`, `monolith_state_local_path`,
+`logical_group_manifest`, `group_state_paths`, and `count_reconciliation_ok`. If
+`count_reconciliation_ok` is not `"true"`, do not scaffold HCL.
+
+Do not ask the operator for prior-phase artifacts. Recover them from the run
+working directory or stop with a compact upstream blocker.
+
+## HCL-only scaffold
+
+For each `group_id`, create a Terraform root under `aws/groups/<group_id>/` with:
+
+- `versions.tf`
+- `providers.tf`
+- `imports.tf`
+- optional module wrapper files
+
+Use Terraform 1.5+ `import {}` blocks when possible. Do not commit `*.tf.json`.
+
+## Hydration contract
+
+The validation phase owns final hydration, but this phase must prepare
+importable roots:
+
+```bash
+tofu init -input=false -no-color
+tofu plan -generate-config-out=generated.tf -input=false -lock=false -no-color -out=hydrate.tfplan
+tofu fmt -recursive -no-color
+```
+
+Generated files remain HCL. Empty `resource "..." "..." {}` stubs are not an
+acceptable stopping point.
+
+## Registry best fit
+
+Match resource patterns to known Terraform modules and local repository
+conventions. When a group fits an existing module, use a pinned `source` and
+replace hand-written duplicate scaffolding. When nothing fits, keep explicit
+resource HCL and record the rationale.
+
+Addresses that cannot be read or represented safely go to `orphans_bundle` with
+`{ address, group_id, reason, suggested_new_module_name }`.
+
+## Outputs
+
+- `registry_mapping_report`
+- `groups_synced_to_repo`
+- `pr_url` or `pr_blocker`
+- updated `orphans_bundle`

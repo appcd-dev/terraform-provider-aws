@@ -1,0 +1,74 @@
+/bin/bash <<'RUNNER_CAPABILITY_PREFLIGHT_EXECUTE'
+set -euo pipefail
+
+export HOME=${runner_work_home}
+ABS_WORK_ROOT="${runner_work_home}/.{{workflow_run_id}}"
+WORK_ROOT="$ABS_WORK_ROOT"
+NOTES_JSON="$WORK_ROOT/notes.json"
+SCRIPT_PACK_DIR="${script_pack_preload_dir}"
+
+mkdir -p "$WORK_ROOT/.work"
+chmod 700 "$WORK_ROOT" 2>/dev/null || true
+[ -f "$NOTES_JSON" ] || echo '{}' >"$NOTES_JSON"
+
+mirror_note() {
+  local key="$${1:?KEY}"
+  local value="$${2:-}"
+  local tmp
+  tmp="$(mktemp "$${NOTES_JSON}.XXXXXX")"
+  jq --arg k "$key" --arg v "$value" '. + {($k): $v}' "$NOTES_JSON" >"$tmp" \
+    && mv "$tmp" "$NOTES_JSON"
+}
+
+emit_blocked() {
+  local sentinel="$${1:?SENTINEL}"
+  local summary="$${2:-$sentinel}"
+  if command -v jq >/dev/null 2>&1 && [ -f "$NOTES_JSON" ]; then
+    mirror_note "$sentinel" "true"
+    mirror_note "stage_summary:runner-capability-preflight" "blocked:$summary"
+  fi
+  echo "$${sentinel}: \"true\""
+  echo "stage_summary:runner-capability-preflight=blocked:$summary"
+  exit 1
+}
+
+# jq is required for note mirroring; fail first if absent (cannot mirror_note).
+if ! command -v jq >/dev/null 2>&1; then
+  echo 'blocked:remote_runner_jq_missing: "true"'
+  echo 'stage_summary:runner-capability-preflight=blocked:jq_missing'
+  exit 1
+fi
+
+if ! command -v aws >/dev/null 2>&1; then
+  emit_blocked "blocked:remote_runner_awscli_missing" "awscli_missing"
+fi
+
+if ! command -v python3 >/dev/null 2>&1; then
+  emit_blocked "blocked:remote_runner_python3_missing" "python3_missing"
+fi
+
+if ! command -v git >/dev/null 2>&1; then
+  emit_blocked "blocked:remote_runner_git_missing" "git_missing"
+fi
+
+if ! command -v tofu >/dev/null 2>&1 && ! command -v terraform >/dev/null 2>&1; then
+  emit_blocked "blocked:remote_runner_tofu_missing" "tofu_missing"
+fi
+
+${ensure_cloud2code_script}
+
+if ! ensure_cloud2code; then
+  emit_blocked "blocked:remote_runner_cloud2code_missing" "cloud2code_install_failed"
+fi
+
+if [ ! -d "$SCRIPT_PACK_DIR" ] || [ ! -f "$SCRIPT_PACK_DIR/stage-runner.sh" ] || [ ! -f "$SCRIPT_PACK_DIR/ingest-bootstrap.sh" ]; then
+  emit_blocked "blocked:remote_runner_script_pack_missing" "script_pack_missing"
+fi
+
+mirror_note "runner_capability_preflight_ok" "true"
+mirror_note "stage_summary:runner-capability-preflight" "ok"
+mirror_note "script_pack_preload_dir" "$SCRIPT_PACK_DIR"
+echo 'runner_capability_preflight_ok: "true"'
+echo "script_pack_preload_dir=$SCRIPT_PACK_DIR"
+echo 'stage_summary:runner-capability-preflight=ok'
+RUNNER_CAPABILITY_PREFLIGHT_EXECUTE
