@@ -1,0 +1,6 @@
+*
+!runner/
+!agent-pipeline-config/modules/aios-agent-aws-migrator/scripts/
+!agent-pipeline-config/modules/aios-agent-aws-migrator/mappings/
+!agent-pipeline-config/modules/aios-agent-aws-migrator/templates/ingest-execute-series-embedded.sh.tftpl
+!agent-pipeline-config/modules/aios-agent-aws-migrator/templates/dbsplit-script-pack-env.sh.tftpl

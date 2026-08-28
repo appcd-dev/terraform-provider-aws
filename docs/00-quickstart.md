@@ -18,7 +18,7 @@ The agent **never applies** destination Terraform. PRs are for human review.
 | StackGen URL + PAT + workspace UUID | Put in **gitignored** `*.tfvars` only |
 | AWS credentials | Create IAM role + read/write the deployment S3 state bucket |
 | GitHub PAT (`repo` + `read:org`) | `export TF_VAR_github_token="$(gh auth token)"` |
-| Docker (or Helm) | Start `aiden-runner` after apply |
+| Docker (or Helm) | Start this repo's image `ghcr.io/walmart-stackgen/nile-factory-runner` after apply ([runner README](../runner/README.md)) |
 | Optional: Azure Reader rights | Live `tofu plan` on generated Azure roots |
 | Optional: GCP SA JSON | Live `tofu plan` on generated GCP roots |
 | Optional: Azure OpenAI URL + key + models | Custom LLM provider; omit for Guild built-in default |
@@ -61,8 +61,11 @@ tofu init -backend-config=backend.hcl
 tofu apply -input=false -var-file=../../tfvars/walle.tfvars
 
 # 3. Start the remote runner (required)
+# Prefer this repo's image (tools + script pack baked in):
+#   ghcr.io/walmart-stackgen/nile-factory-runner:pack-20260813.27
+# See runner/README.md. tofu output still has mothership URL + runner token.
 tofu output -raw remote_runner_cli_start_command
-# run that command; wait until the runner is online in StackGen UI
+# run that command with the Nile-Factory image; wait until the runner is online in StackGen UI
 ```
 
 Full bring-up, CI wiring, and troubleshooting: [deployments README](../agent-pipeline-config/deployments/README.md).
@@ -70,7 +73,7 @@ Full bring-up, CI wiring, and troubleshooting: [deployments README](../agent-pip
 ## After apply — run a workflow
 
 1. Confirm the remote runner is **online**.  
-2. Preload the script pack when the module README / day-2 ops say to (after pack version bumps).  
+2. Confirm the runner image tag matches `script_pack_version` (rebuild after pack bumps). `kubectl cp` preload is only a hot-fix.  
 3. In StackGen, start one of:
 
 | Workflow | Use when |

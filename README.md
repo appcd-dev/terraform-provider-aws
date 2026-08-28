@@ -9,6 +9,7 @@ Private repository for StackGen AWS → Azure / GCP IaC migration: the agent pip
 | Path | Purpose |
 | --- | --- |
 | [`docs/`](docs/) | Technical guides for the migration pipeline ([quickstart](docs/00-quickstart.md) first) |
+| [`runner/`](runner/) | Dockerfile + GHCR publish for the Nile-Factory `aiden-runner` image |
 | [`agent-pipeline-config/`](agent-pipeline-config/) | OpenTofu modules, runner script pack, and deployment roots that install the agent into a StackGen workspace |
 | [`agent-pipeline-config/deployments/`](agent-pipeline-config/deployments/) | **Empty-workspace bring-up** — creates IAM role, integrations, policy, remote runner, agent, and workflows |
 | [`agent-pipeline-config/examples/scenarios/aws-migrator/`](agent-pipeline-config/examples/scenarios/aws-migrator/) | Demo Workspace root that **reuses** existing integrations/runner/policy |
@@ -39,8 +40,9 @@ tofu init -backend-config=backend.hcl
 tofu apply -input=false -var-file=../../tfvars/walle.tfvars
 
 # 3. Start the remote runner (required before any workflow run)
+# Image: ghcr.io/walmart-stackgen/nile-factory-runner (see runner/README.md)
 tofu output -raw remote_runner_cli_start_command
-# paste/run that Docker or aiden-runner CLI command; wait until the runner shows online
+# run with this repo's image + the printed mothership URL and token
 ```
 
 Full prerequisites, troubleshooting (including stale state locks), and how to clone the deployment for another workspace: **[deployments README](agent-pipeline-config/deployments/README.md)**.
@@ -73,4 +75,4 @@ Module behavior, script-pack preload, and workflow inputs: [`aios-agent-aws-migr
 - AWS credentials that can create an IAM role and use the deployment’s S3 state backend
 - GitHub PAT with `repo` + `read:org` (`TF_VAR_github_token`)
 - StackGen PAT + workspace UUID in a local `*.tfvars` file (gitignored)
-- Docker (or Helm) to run `aiden-runner` after apply
+- Docker (or Helm) to run `ghcr.io/walmart-stackgen/nile-factory-runner` after apply

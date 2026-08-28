@@ -15,12 +15,14 @@ These guides explain **cloud-migrator** for engineers working with StackGen, Gui
 | 7b | [Reading GCP PRs](07b-reading-gcp-prs.md) | How to review a GCP migration PR |
 | 8 | [Day-2 ops](08-day-2-ops.md) | Apply, runner, script pack, trigger a run |
 | 9 | [How to change things](09-how-to-change-things.md) | Safe edit checklist for catalog, pack, and workflow changes |
+| 10 | [Remote runner FAQ](10-remote-runner-faq.md) | Image, registry, tags, K8s vs Docker, `--auto-discover`, ACA, sizing, FQDNs, tokens |
 
 ## Related READMEs (deeper / machine-facing)
 
 | Path | Audience |
 | --- | --- |
 | [Root README](../README.md) | Quick start + path map |
+| [Runner image](../runner/README.md) | Nile-Factory Dockerfile, GHCR tags, `docker run` |
 | [agent-pipeline-config](../agent-pipeline-config/README.md) | Config layout |
 | [deployments](../agent-pipeline-config/deployments/README.md) | Empty-workspace bring-up (`walle`) |
 | [aios-agent-aws-migrator](../agent-pipeline-config/modules/aios-agent-aws-migrator/README.md) | Module contract, stages, evidence |

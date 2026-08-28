@@ -21,8 +21,8 @@ tofu plan  -var-file=walle.tfvars
 tofu apply -var-file=walle.tfvars
 ```
 
-4. Start / confirm the remote runner using the module’s CLI/Helm output.  
-5. **Preload script pack** after every `script_pack_version` bump (see deployments README / module README). SHA mismatch fails stages loudly.
+4. Start / confirm the remote runner using this repo's image (`runner/README.md`) plus the module CLI/Helm token output.  
+5. **Rebuild and republish** `ghcr.io/walmart-stackgen/nile-factory-runner` after every `script_pack_version` bump (the image bakes the pack). `kubectl cp` preload still works as a hot-fix. SHA mismatch fails stages loudly.
 
 ## Trigger a run
 
@@ -35,7 +35,7 @@ Any edit under module `scripts/` or `mappings/` that the runner must execute:
 
 1. Bump `script_pack_version` (module) **and** `SCRIPT_PACK_VERSION` (`stage-runner.sh`) together.  
 2. `tofu apply` the deployment.  
-3. Preload pack onto the runner.  
+3. Rebuild/push the runner image (or preload pack onto a live runner).  
 4. Confirm stage logs show the new version / matching sha256.
 
 Skipping preload is the most common “it works on my laptop JSON but fails in Guild” bug.
