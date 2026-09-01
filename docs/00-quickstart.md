@@ -8,7 +8,7 @@ Get from a fresh clone to a **first migration PR** in this repo. For deeper back
 2. An `aiden-runner` online with the aws-migrator script pack.  
 3. A workflow run that opens PRs under `aws/`, `azure/`, and/or `gcp/`.
 
-The agent **never applies** destination Terraform. PRs are for human review.
+The agent **never applies** destination Terraform. Destination PRs open only after living Nile governance re-verification (`*_iac_governance_ok=true`). PRs are for human review.
 
 ## Prerequisites (checklist)
 
@@ -62,7 +62,7 @@ tofu apply -input=false -var-file=../../tfvars/walle.tfvars
 
 # 3. Start the remote runner (required)
 # Prefer this repo's image (tools + script pack baked in):
-#   ghcr.io/walmart-stackgen/nile-factory-runner:pack-20260813.27
+#   ghcr.io/walmart-stackgen/nile-factory-runner:pack-20260827.4
 # See runner/README.md. tofu output still has mothership URL + runner token.
 tofu output -raw remote_runner_cli_start_command
 # run that command with the Nile-Factory image; wait until the runner is online in StackGen UI
@@ -91,7 +91,9 @@ Discovery needs at least `aws_region` (for example `us-east-1`).
 | `aws/groups/<group_id>/` | Reverse-engineered AWS Terraform |
 | `aws/artifacts/` | Manifests, split reports |
 | `azure/groups/<group_id>/` | Catalog-driven Azure HCL |
+| `azure/artifacts/` | Blueprint, living-gov SHA / findings / report |
 | `gcp/groups/<group_id>/` | Catalog-driven GCP HCL |
+| `gcp/artifacts/` | Blueprint, living-gov SHA / findings / report |
 
 How to review those PRs: [Azure](07-reading-azure-prs.md) · [GCP](07b-reading-gcp-prs.md).
 

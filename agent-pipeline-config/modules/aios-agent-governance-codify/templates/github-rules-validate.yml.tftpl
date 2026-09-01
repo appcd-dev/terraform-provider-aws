@@ -1,0 +1,43 @@
+name: rules-validate
+
+on:
+  pull_request:
+    paths:
+      - "rules/**"
+      - ".github/workflows/rules-validate.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "rules/**"
+      - ".github/workflows/rules-validate.yml"
+
+jobs:
+  rules-validate:
+    name: ${github_check_name}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install opa
+        run: |
+          curl -sL -o opa https://openpolicyagent.org/downloads/v1.4.2/opa_linux_amd64_static
+          chmod +x opa
+          sudo mv opa /usr/local/bin/opa
+          opa version
+
+      - name: Validate manifest schema
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path("rules/manifest.json")
+          assert p.exists(), "rules/manifest.json missing"
+          manifest = json.loads(p.read_text())
+          assert manifest.get("schema") == "nile-codify-manifest/v1", manifest.get("schema")
+          assert isinstance(manifest.get("entries"), list), "entries must be a list"
+          print(f"manifest ok entries={len(manifest['entries'])}")
+          PY
+
+      - name: Run rules test harness
+        run: bash rules/run-tests.sh

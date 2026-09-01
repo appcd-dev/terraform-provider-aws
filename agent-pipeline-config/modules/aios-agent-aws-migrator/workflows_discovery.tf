@@ -178,12 +178,11 @@ resource "sg_workflow" "aws_migrator_discovery" {
         [local.sop_orchestration_name],
         try(var.workflow_skill_refs["aws-cloud-discovery::runner-capability-preflight"], []),
       )
-      spawn_contracts = local.spawn_contracts_runner_capability_preflight
-      note            = <<-EOT
+      note = <<-EOT
         **Purpose:** fail fast when the remote runner lacks tools or the script pack is not preloaded — before cloud2code or ingest burn cost.
-        **Incremental bring-up execution:** Your FIRST tool call must be ONE `${local.shell_tool_prefix}_execute_series` pasting `RUNNER_CAPABILITY_PREFLIGHT_EXECUTE_SERIES` verbatim. Never compose custom probes. If `${local.shell_tool_prefix}_execute_*` tools are absent, emit `blocked:remote_runner_shell_unavailable: "true"` and return — do not ask clarifying questions.
+        **Incremental bring-up execution:** Your FIRST tool call must be ONE `${local.shell_tool_prefix}_execute_series` pasting `RUNNER_CAPABILITY_PREFLIGHT_EXECUTE_SERIES` verbatim (starts with `/bin/bash <<'RUNNER_CAPABILITY_PREFLIGHT_EXECUTE'`). Never compose custom probes or hand-written shell — session dcfbdaa2 failed with `Illegal option -o pipefail` because a custom script ran under `/bin/sh`. If `${local.shell_tool_prefix}_execute_*` tools are absent, emit `blocked:remote_runner_shell_unavailable: "true"` and return — do not ask clarifying questions.
         **Hard evidence gate:** completion requires `runner_capability_preflight_ok: "true"`. Absent that, record `stage_summary:runner-capability-preflight=blocked:missing_runner_evidence` and return blocked.
-        **Blocked sentinels:** `blocked:remote_runner_jq_missing`, `blocked:remote_runner_awscli_missing`, `blocked:remote_runner_python3_missing`, `blocked:remote_runner_git_missing`, `blocked:remote_runner_tofu_missing`, `blocked:remote_runner_cloud2code_missing`, `blocked:remote_runner_script_pack_missing`, `blocked:remote_runner_shell_unavailable`.
+        **Blocked sentinels:** `blocked:remote_runner_jq_missing`, `blocked:remote_runner_awscli_missing`, `blocked:remote_runner_python3_missing`, `blocked:remote_runner_git_missing`, `blocked:remote_runner_tofu_missing`, `blocked:remote_runner_opa_missing`, `blocked:remote_runner_cloud2code_missing`, `blocked:remote_runner_script_pack_missing`, `blocked:remote_runner_shell_unavailable`.
 
         ${local.aws_migrator_spawn_context_preflight}
       EOT
@@ -195,7 +194,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
       stage_depends_on = ["runner-capability-preflight"]
       action_config = {
         condition = "output_matches_regex"
-        match     = "blocked:remote_runner_jq_missing|blocked:remote_runner_awscli_missing|blocked:remote_runner_python3_missing|blocked:remote_runner_git_missing|blocked:remote_runner_tofu_missing|blocked:remote_runner_cloud2code_missing|blocked:remote_runner_script_pack_missing|blocked:remote_runner_shell_unavailable|stage_summary:runner-capability-preflight=blocked:"
+        match     = "blocked:remote_runner_jq_missing|blocked:remote_runner_awscli_missing|blocked:remote_runner_python3_missing|blocked:remote_runner_git_missing|blocked:remote_runner_tofu_missing|blocked:remote_runner_opa_missing|blocked:remote_runner_cloud2code_missing|blocked:remote_runner_script_pack_missing|blocked:remote_runner_shell_unavailable|stage_summary:runner-capability-preflight=blocked:"
         skip_to   = "final-gate-and-memory"
         reason    = "Runner capability preflight failed — skip scan, ingest, destination, and orphan stages"
       }
@@ -212,8 +211,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
         [local.sop_cloud2code_scan_name, local.sop_orchestration_name],
         try(var.workflow_skill_refs["aws-cloud-discovery::cloud2code-scan-aws"], []),
       )
-      spawn_contracts = local.spawn_contracts_cloud2code_scan
-      note            = <<-EOT
+      note = <<-EOT
         **Purpose:** create the monolithic AWS Terraform state for this workflow. This stage owns `monolith_state_uri`; downstream stages must not ask the operator for it.
         **Incremental bring-up execution:** do not call `read_notes`, `note`, or `create_agent` before the scan. Your FIRST tool call must be ONE `${local.shell_tool_prefix}_execute_series` containing exactly two commands: first write `$HOME/.<workflow_run_id>/.work/cloud2code-inputs.json` with `aws_region` copied from the workflow input; second paste `CLOUD2CODE_SCAN_EXECUTE_SERIES` verbatim. The bootstrap embeds module defaults for the repository and branch. Never replace it with hand-written availability probes, installation steps, or scan commands. Do not call `${local.shell_tool_prefix}_execute_command`.
         **Hard evidence gate:** never report this stage complete from notes or reasoning alone. Completion requires a successful `${local.shell_tool_prefix}_execute_series` result containing `cloud2code_scan_ok: "true"`, a non-empty `monolith_state_uri`, and `monolith_resource_count` greater than zero. If those values are absent, record `stage_summary:cloud2code-scan-aws=blocked:missing_runner_evidence` and return blocked.
@@ -254,9 +252,9 @@ resource "sg_workflow" "aws_migrator_discovery" {
         # Require emitted sentinel forms (`: "true"` / stage_summary=blocked:), not bare
         # names — loop_stage FINISH reasons embed the exit_match pattern text and would
         # otherwise false-trigger this gate after a successful cloud2code_scan_ok.
-        match     = "blocked:missing_aws_region:\\s*\\\"true\\\"|blocked:remote_runner_cloud2code_missing:\\s*\\\"true\\\"|blocked:remote_runner_awscli_missing:\\s*\\\"true\\\"|blocked:remote_runner_jq_missing:\\s*\\\"true\\\"|blocked:cloud2code_scan_failed:\\s*\\\"true\\\"|blocked:cloud2code_tfstate_missing:\\s*\\\"true\\\"|blocked:cloud2code_tfstate_invalid:\\s*\\\"true\\\"|stage_summary:cloud2code-scan-aws=blocked:"
-        skip_to   = "final-gate-and-memory"
-        reason    = "Cloud2code scan blocked — skip ingest, registry, destination, and orphan stages"
+        match   = "blocked:missing_aws_region:\\s*\\\"true\\\"|blocked:remote_runner_cloud2code_missing:\\s*\\\"true\\\"|blocked:remote_runner_awscli_missing:\\s*\\\"true\\\"|blocked:remote_runner_jq_missing:\\s*\\\"true\\\"|blocked:cloud2code_scan_failed:\\s*\\\"true\\\"|blocked:cloud2code_tfstate_missing:\\s*\\\"true\\\"|blocked:cloud2code_tfstate_invalid:\\s*\\\"true\\\"|stage_summary:cloud2code-scan-aws=blocked:"
+        skip_to = "final-gate-and-memory"
+        reason  = "Cloud2code scan blocked — skip ingest, registry, destination, and orphan stages"
       }
     },
     {
@@ -272,8 +270,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
         try(var.workflow_skill_refs["aws-cloud-discovery::ingest-and-split"], []),
         try(var.workflow_skill_refs["aws-cloud-discovery::ingest-monolith"], []),
       )
-      spawn_contracts = local.spawn_contracts_ingest_and_split
-      note            = <<-EOT
+      note = <<-EOT
         DBSPLIT_ALLOCATE_SHA256=${local.script_pack_allocate_sha256}
         DBSPLIT_DECOMPOSER_SHA256=${local.script_pack_decomposer_sha256}
         Budget: ≤ 1 remote-runner script subagent, ≤ $1.50, ≤ 60m (script_runner_timeout_seconds=${local.subagent_budgets.script_runner_timeout_seconds}).
@@ -321,9 +318,9 @@ resource "sg_workflow" "aws_migrator_discovery" {
         # Use emitted sentinel forms only. loop_stage FINISH reasons paste the
         # exit_match regex (e.g. script_pack_verify_ok[^\\n]{0,40}\"false\") and
         # must not trip this gate after a successful split.
-        match     = "blocked:missing_monolith_state_uri:\\s*\\\"true\\\"|blocked:three_runner_attempts_failed:\\s*\\\"true\\\"|blocked:ingest_script_pack_failed:\\s*\\\"true\\\"|stage_summary:ingest-and-split=blocked:|script_pack_verify_ok:\\s*\\\"false\\\"|count_reconciliation_ok:\\s*\\\"false\\\"|split_quality_pass:\\s*\\\"false\\\"|script_pack_error=[A-Za-z0-9_]"
-        skip_to   = "final-gate-and-memory"
-        reason    = "Ingest or split quality failure — skip registry, converge, destination, and orphan stages"
+        match   = "blocked:missing_monolith_state_uri:\\s*\\\"true\\\"|blocked:three_runner_attempts_failed:\\s*\\\"true\\\"|blocked:ingest_script_pack_failed:\\s*\\\"true\\\"|stage_summary:ingest-and-split=blocked:|script_pack_verify_ok:\\s*\\\"false\\\"|count_reconciliation_ok:\\s*\\\"false\\\"|split_quality_pass:\\s*\\\"false\\\"|script_pack_error=[A-Za-z0-9_]"
+        skip_to = "final-gate-and-memory"
+        reason  = "Ingest or split quality failure — skip registry, converge, destination, and orphan stages"
       }
     },
     {
@@ -338,8 +335,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
         [local.sop_orchestration_name, local.sop_registry_reverse_name],
         try(var.workflow_skill_refs["aws-cloud-discovery::registry-and-import-codegen"], [])
       )
-      spawn_contracts = local.spawn_contracts_registry_codegen
-      note            = <<-EOT
+      note = <<-EOT
         **Upstream blocked guard (step 0):** trip this guard **only** when the upstream output positively shows a failure — a cloud2code blocked sentinel, `blocked:missing_monolith_state_uri`, `blocked:three_runner_attempts_failed`, `blocked:ingest_script_pack_failed`, `count_reconciliation_ok` present and not `"true"`, `split_quality_pass` present and not `"true"`, or `stage_summary:ingest-and-split=blocked:`. A key that is simply **absent** is never a blocker: if `count_reconciliation_ok` and `split_quality_pass` both read `"true"`, proceed with the runner work even when no `stage_summary:ingest-and-split` line is present. When the guard does trip, emit one-line `notify({stage:'registry-and-import-codegen',error:'upstream_ingest_blocked'})` and **return** (no remediation prose).
         **Incremental bring-up execution (mandatory):** this workspace runs stages in an execution mode that does not expose `create_agent`. Do **not** attempt `create_agent`, and never report this stage blocked because a subagent could not be spawned — run the runner work yourself using the embedded context below. Never author your own scaffold or PR shell.
         **Script-first IaC PR (mandatory):** make **ONE** `${local.shell_tool_prefix}_execute_series` call that pastes IAC_PR_EXECUTE_SERIES verbatim. Pipeline: registry scaffold → prepare-parallel-artifacts → clone → cp sync groups → gh pr create.
@@ -368,8 +364,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
         try(var.workflow_skill_refs["aws-cloud-discovery::shell-converge-matrix"], []),
         try(var.workflow_skill_refs["aws-cloud-discovery::hcl-hydrate-per-group"], []),
       )
-      spawn_contracts = local.spawn_contracts_shell_converge
-      note            = <<-EOT
+      note = <<-EOT
         **Upstream blocked guard (step 0):** trip only on a positively present ingest failure sentinel (`blocked:ingest_script_pack_failed`, `blocked:three_runner_attempts_failed`, or `count_reconciliation_ok` present and not `"true"`) → one-line `notify({stage:'shell-converge-matrix',error:'upstream_ingest_blocked'})` and **return**. A missing key is not a blocker; when the ingest counters read `"true"`, run the converge series.
         **Incremental bring-up execution (mandatory):** this workspace runs stages in an execution mode that does not expose `create_agent`. Do **not** attempt `create_agent`, and never report this stage blocked because a subagent could not be spawned — run the runner work yourself using the embedded context below.
         **One series, then return:** make **ONE** `${local.shell_tool_prefix}_execute_series` call pasting CONVERGE_EXECUTE_SERIES verbatim — it runs `hydrate-and-plan-matrix` over `sample_group_ids.json`, performing repaired `tofu init` (provider cache / TF data moved to runner scratch when needed), import-code hydration, `tofu fmt -check`, `tofu validate`, `tofu test` when tests exist, `tflint` when installed, and final `tofu plan` zero-change verification. Then **RETURN** — no probes, no re-runs.
@@ -390,7 +385,6 @@ resource "sg_workflow" "aws_migrator_discovery" {
       stage_depends_on = ["shell-converge-matrix"]
       runbook_refs     = null
       skill_refs       = null
-      spawn_contracts  = null
       action_config = {
         loop_to        = "shell-converge-matrix"
         max_iterations = var.max_convergence_iterations
@@ -408,9 +402,9 @@ resource "sg_workflow" "aws_migrator_discovery" {
         condition = "output_matches_regex"
         # Emitted sentinel forms only — loop_stage FINISH reasons paste exit_match
         # (e.g. blocked:remote_runner_tofu_missing) and must not trip after success.
-        match     = "blocked:remote_runner_tofu_missing:\\s*\\\"true\\\"|blocked:remote_runner_shell_unavailable:\\s*\\\"true\\\"|stage_summary:shell-converge-matrix=blocked:"
-        skip_to   = "final-gate-and-memory"
-        reason    = "Shell converge blocked — skip orphan and final destination stages"
+        match   = "blocked:remote_runner_tofu_missing:\\s*\\\"true\\\"|blocked:remote_runner_shell_unavailable:\\s*\\\"true\\\"|stage_summary:shell-converge-matrix=blocked:"
+        skip_to = "final-gate-and-memory"
+        reason  = "Shell converge blocked — skip orphan and final destination stages"
       }
     },
     {

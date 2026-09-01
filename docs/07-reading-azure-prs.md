@@ -19,6 +19,9 @@ Typical files:
 | File | Why it matters |
 | --- | --- |
 | `migration-blueprint.json` | Per-group mapping decisions + group confidence |
+| `governance-source.json` | Living Nile docs repo/ref/**SHA** used this run (not the submodule pin) |
+| `governance-conformance-report.json` | `conformance_ok` + iteration; PR should not exist if this is false |
+| `governance-exceptions.md` | Blocking residuals only — not human approval |
 | `validation-report.json` | Which groups got fmt/validate/plan |
 | Catalog / emission summaries | How many `full_scaffold` vs `managed_identity_rbac_scaffold` vs placeholders |
 

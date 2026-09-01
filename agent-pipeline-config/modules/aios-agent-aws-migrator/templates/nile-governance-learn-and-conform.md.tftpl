@@ -1,0 +1,69 @@
+# Nile governance — learn on the fly, then conform
+
+This SOP is a **method**, not a control catalog. Nile markdown in Governance-and-Policy keeps changing. Each `azure-iac-governance-conform` / `gcp-iac-governance-conform` visit must **refresh** the current docs, **rebuild** a per-resource decision tree from that text, **author** a validator from the tree, **execute** it against generated IaC, **fix** mechanical gaps, and **re-verify**. Do **not** reuse a prior run's tree or a frozen Priority-1 list in Python.
+
+Validation evidence is **not** human approval (Evidence Schema / PRR Gate 11).
+
+## Authority this run
+
+1. Refresh into `$WORK_ROOT/governance/` (harness `--refresh`). Fail closed on fetch failure (`blocked:governance_docs_unavailable`).
+2. Record repo, ref, commit SHA, and paths in `azure|gcp/artifacts/governance-source.json`.
+3. Optional human pin: Nile-Factory submodule `docs/nile-governance` — **not** the runtime source unless fetch is impossible (still fail closed).
+4. When refreshed docs contradict older artifacts in the same PR, **current docs win**. Note the delta in `governance-decision-tree.json`.
+
+Read (under the refreshed tree):
+
+- `governance/policy-catalog.md`
+- `governance/control-matrix.md`
+- `governance/tagging-labeling-standard.md`
+- `governance/priority-controls.md`
+- `governance/production-readiness-gates.md`
+- `governance/evidence-schema.md`
+- exception / approval models when present
+- `architecture/` overviews when present
+
+## Rebuild the decision tree (every visit)
+
+Do **not** reuse last run's tree when:
+
+- `governance-source.json` SHA ≠ last recorded SHA
+- inventory has new resource types
+- findings cite a control that current docs renamed or removed
+
+For each inventoried resource R with type T:
+
+1. Map T → category from **current** matrix/catalog text (compute, storage, networking, identity, data, kubernetes, other). Inventory `suggested_category` is a hint only.
+2. Walk applicable **Priority-1** leaves from current `priority-controls.md` + catalog (metadata/tags, identity, network, data protection). Logging / backup / privileged access that cannot be decided from HCL → `evidence_gap` (does not invent topology).
+3. Candidate / deferred controls are **not** active unless current docs say so.
+4. Do **not** invent controls absent from this-run docs.
+
+Write `azure|gcp/artifacts/governance-decision-tree.json` with `governance_commit_sha`, type→category, and leaves used.
+
+## Author and run the validator
+
+Replace the harness scaffold `azure|gcp/artifacts/governance-validator.py` (must drop `NILE_GOVERNANCE_VALIDATOR_SCAFFOLD`). Implement **this-run** tree only.
+
+Emit `azure|gcp/artifacts/governance-findings.json` with per finding: `resource_address`, `decision_path`, `control_id`, `nile_priority`, `blocks_commit`, `autofixed`. Then run:
+
+```text
+python3 $WORK_ROOT/scripts/governance_conform.py --work-root $WORK_ROOT --cloud azure|gcp --run-validator
+```
+
+Or re-run the stage harness (`run-destination-stage.sh azure-iac-governance-conform` or `gcp-iac-governance-conform`).
+
+The harness also runs **OPA Rego** from Nile-Factory `rules/` against `tofu plan` JSON for each group. Read `azure|gcp/artifacts/governance-opa-fix-hints.md` and `governance-opa-findings.json` when `*_iac_governance_ok` is false after OPA denies.
+
+## Remediate and iterate
+
+Fix mechanical HCL under `azure/groups/` or `gcp/groups/` only (tags, labels, TLS, encryption flags already present in generated shape). **OPA denies are first-class:** each `TLS-*` / `GCP-*` message names the resource and missing label or flag — patch the matching `.tf` block, then re-run the execute series.
+
+Do **not** invent IAM translations or network redesigns. Re-verify after each fix.
+
+Loop until every resource is Priority-1-conformant **and** OPA reports `opa_ok=true` (`*_iac_governance_ok=true`) or the stage hits max iterations / a terminal blocker. PR opens **only** when governance_ok is true. Pin the governance SHA in artifacts and the PR body.
+
+## Forbidden
+
+- Freezing policy text into Nile-Factory as the control catalog
+- Treating candidate GCP controls as active unless current docs say so
+- Claiming `governance-findings.json` satisfies human approval / Gate 11
+- Opening a destination PR with blocking residuals

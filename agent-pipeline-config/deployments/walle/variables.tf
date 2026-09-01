@@ -119,14 +119,14 @@ variable "default_branch" {
 variable "azure_only_source_branch" {
   description = "Git branch with prior discovery IaC for the azure-only smoke workflow."
   type        = string
-  # Latest ap-south-1 discovery PR tip (Walmart-StackGen/Nile-Factory#34).
-  default = "discovery/wf-aws-cloud-discovery-3dd76608accb4230"
+  # Minimal fixture for OPA/governance loop smoke (full discovery branches were deleted).
+  default = "fixture/opa-gcp-source-mini"
 }
 
 variable "gcp_only_source_branch" {
   description = "Git branch with prior discovery IaC for the gcp-only smoke workflow."
   type        = string
-  default     = "discovery/wf-aws-cloud-discovery-3dd76608accb4230"
+  default     = "fixture/opa-gcp-source-mini"
 }
 
 variable "azure_openai_api_url" {

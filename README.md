@@ -10,6 +10,7 @@ Private repository for StackGen AWS → Azure / GCP IaC migration: the agent pip
 | --- | --- |
 | [`docs/`](docs/) | Technical guides for the migration pipeline ([quickstart](docs/00-quickstart.md) first) |
 | [`runner/`](runner/) | Dockerfile + GHCR publish for the Nile-Factory `aiden-runner` image |
+| [`docs/nile-governance`](docs/nile-governance) | Optional pin of [Governance-and-Policy](https://github.com/Walmart-StackGen/Governance-and-Policy) for humans — **not** the runtime source (each conform run refreshes latest docs) |
 | [`agent-pipeline-config/`](agent-pipeline-config/) | OpenTofu modules, runner script pack, and deployment roots that install the agent into a StackGen workspace |
 | [`agent-pipeline-config/deployments/`](agent-pipeline-config/deployments/) | **Empty-workspace bring-up** — creates IAM role, integrations, policy, remote runner, agent, and workflows |
 | [`agent-pipeline-config/examples/scenarios/aws-migrator/`](agent-pipeline-config/examples/scenarios/aws-migrator/) | Demo Workspace root that **reuses** existing integrations/runner/policy |

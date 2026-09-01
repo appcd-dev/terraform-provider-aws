@@ -185,6 +185,19 @@ module "aws_migrator" {
   default_branch             = var.default_branch
   enable_github_webhook      = false
 
+  nile_rules_ref = "f8f6f171a0a15c195954c53c330e15df2af6aa99_20260827033726"
+
   # Empty when Azure OpenAI is off or azure_openai_models is [] → Guild built-in default.
   model_names = local.enable_azure_openai ? [for m in var.azure_openai_models : m.name] : []
+}
+
+module "governance_codify" {
+  source = "../../modules/aios-agent-governance-codify"
+
+  existing_github_integration_name = module.github_integration.integration_name
+  default_source_repository_url    = "https://github.com/Walmart-StackGen/Governance-and-Policy.git"
+  default_source_ref               = "main"
+  default_target_repository_url    = "https://github.com/Walmart-StackGen/Nile-Factory.git"
+  default_target_ref               = "main"
+  default_base_branch              = "main"
 }

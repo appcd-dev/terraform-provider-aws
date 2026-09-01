@@ -1,0 +1,4 @@
+[submodule "nile-governance"]
+	path = docs/nile-governance
+	url = https://github.com/Walmart-StackGen/Governance-and-Policy.git
+	branch = main

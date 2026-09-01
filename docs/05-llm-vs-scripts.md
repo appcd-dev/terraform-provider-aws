@@ -8,7 +8,7 @@ This is the most common source of confusion when reading the pipeline.
 | --- | --- |
 | Does the LLM invent AWS→Azure mappings? | **No.** The catalog + Python do. |
 | Does the LLM write `azure_iac_generate.py` output? | **No.** The script writes HCL. |
-| What is the LLM for? | **Orchestration**: pick the right stage series, paste `execute_series`, read tool output, set notes, submit evidence, recover from recoverable errors. |
+| What is the LLM for? | **Orchestration** on most stages: paste `execute_series`, read notes, recover. **Living Nile governance** is the exception: after the harness refresh, the agent derives a this-run decision tree and authors `governance-validator.py` from current docs (not a frozen Priority-1 list in Python). |
 
 ## Picture
 
@@ -54,4 +54,6 @@ If Azure HCL looks wrong, **fix the catalog or generator**, not the persona prom
 | `scripts/azure_mapping_catalog.py` | Load catalog, classify emission |
 | `mappings/aws-to-azure.json` | AWS type → Azure target + emission |
 | `scripts/stage-runner.sh` | Bash orchestration for all stages |
-| Module templates `*.tftpl` | Series the LLM is told to paste |
+| `scripts/governance_conform.py` | Harness only: refresh living docs, inventory, run whatever validator path notes point at |
+| `scripts/governance_schemas/` | JSON Schema for source / inventory / tree / findings / report |
+| Module templates `*.tftpl` | Series the LLM is told to paste (`nile-governance-learn-and-conform` is a **method**) |

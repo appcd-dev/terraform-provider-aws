@@ -25,16 +25,23 @@
 ### C. Workflow stage text / evidence
 
 1. Edit the right `workflows_*.tf` / `locals_*_stages.tf` / `templates/*.tftpl`.  
-2. Keep stage instructions clear: LLM pastes series; scripts do mapping.  
+2. Keep stage instructions clear: LLM pastes series; scripts do mapping. Living-gov conform is the exception: series first, then the agent **authors** a validator from refreshed docs.  
 3. Apply deployment (pack bump only if templates embed pack scripts that changed).
 
-### D. Destination live-plan wiring
+### D. Living Nile governance (do not freeze policy text)
+
+1. Runtime source is `Walmart-StackGen/Governance-and-Policy` (`nile_governance_repo_url` / `nile_governance_ref`).  
+2. Change **docs there**, not a Python control list in Nile-Factory. Next conform run must rebuild the tree/validator (SHA in `governance-source.json`).  
+3. Optional human pin: submodule `docs/nile-governance` — not the runner fetch.  
+4. Bump pack version when `governance_conform.py` / `stage-runner.sh` change.
+
+### E. Destination live-plan wiring
 
 1. Azure: `aios-integration-azure` + runner `ARM_*` secrets + `require_azure_live_plan`.  
 2. GCP: `aios-integration-gcp` + runner ADC secret + `require_gcp_live_plan`.  
 3. Document PR honesty if sample caps stay low.
 
-### E. Policies
+### F. Policies
 
 1. Edit deployment `policies/*.rego` carefully.  
 2. Apply; verify HITL still gates destructive shell.

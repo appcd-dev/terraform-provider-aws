@@ -4,15 +4,19 @@
 
 Scan one AWS region with `cloud2code`, synthesize a Terraform state, split it into logical Terraform roots, reverse-engineer HCL, validate AWS roots to zero-change plans, and open a **multi-commit aws-cloud-discovery PR**. Destination Terraform under `azure/` or `gcp/` is produced by separate workflows (`azure-migration-pr` / `gcp-migration-pr`) that take `source_pr` or `source_iac_branch` as handoff. Do **not** create AppStacks or call StackGen MCP tools.
 
+## Stage note override (mandatory)
+
+When the current stage note says **Do not call `create_agent`** and requires ONE `${shell_tool_prefix}_execute_series`, you MUST paste the BEGIN/END one-liner yourself on the first tool call. That beats any delegation habit. Never spawn a subagent whose only job is to paste runner commands for `azure-migration-pr` or `gcp-migration-pr` script stages.
+
 ## Workflow shape
 
 `aws-cloud-discovery`: `runner-capability-preflight` -> `preflight-blocked-gate` -> `cloud2code-scan-aws` -> `cloud2code-scan-loop` -> `scan-blocked-gate` -> `ingest-and-split` -> `ingest-split-loop` -> `ingest-blocked-gate` -> `registry-and-import-codegen` -> `shell-converge-matrix` -> `shell-converge-loop` -> `converge-blocked-gate` -> `orphans-secondary-pipeline` -> `final-gate-and-memory`
 
 Blocked gates are platform `conditional_skip` stages (no LLM). They jump to `final-gate-and-memory` so a cold runner or upstream blocker does not fan into orphan/final stages.
 
-`azure-migration-pr`: `azure-source-fetch` -> `azure-migration-blueprint` -> `azure-iac-generate` -> parallel(`azure-iac-validate`, `azure-iac-harden`) -> `azure-iac-loop` -> `azure-pr` -> `azure-only-final`
+`azure-migration-pr`: `azure-source-fetch` -> `azure-migration-blueprint` -> `azure-iac-generate` -> parallel(`azure-iac-validate`, `azure-iac-harden`, `azure-iac-governance-conform`) -> `azure-iac-loop` + `azure-iac-governance-loop` -> `azure-pr` -> `azure-only-final`
 
-`gcp-migration-pr`: `gcp-source-fetch` -> `gcp-migration-blueprint` -> `gcp-iac-generate` -> parallel(`gcp-iac-validate`, `gcp-iac-harden`) -> `gcp-iac-loop` -> `gcp-pr` -> `gcp-only-final`
+`gcp-migration-pr`: `gcp-source-fetch` -> `gcp-migration-blueprint` -> `gcp-iac-generate` -> parallel(`gcp-iac-validate`, `gcp-iac-harden`, `gcp-iac-governance-conform`) -> `gcp-iac-loop` + `gcp-iac-governance-loop` -> `gcp-pr` -> `gcp-only-final`
 
 ## Stage Ownership
 
@@ -24,15 +28,19 @@ Blocked gates are platform `conditional_skip` stages (no LLM). They jump to `fin
 | `registry-and-import-codegen` | Spawn one `registry-and-import-codegen-runner` with `IAC_PR_EXECUTE_SERIES`. | Per-group LLM scaffold, second execute series |
 | `shell-converge-matrix` | Spawn one `shell-converge-matrix-runner` with `CONVERGE_EXECUTE_SERIES`; it repairs Terraform init/provider-cache disk failures, hydrates import config, then runs fmt, validate, optional tests, available lint, and zero-diff plan. If spawn dedup blocks a loop retry, run the same execute_series directly. | `hcl-hydrate-runner-batch-*`, probes |
 | `shell-converge-loop` | Loop stage only; re-enters `shell-converge-matrix` until `multi_plan_zero_diff_ok=true` or a terminal blocker. | LLM work |
-| `azure-source-fetch` | Spawn one `azure-source-fetch-runner` with `AZURE_SOURCE_FETCH_EXECUTE_SERIES`; it clones the configured split branch and restores `aws/groups` plus artifacts into the runner work root. | cloud2code, tfstate splitting, AWS HCL hydration |
-| `azure-migration-blueprint` | Spawn one `azure-migration-blueprint-runner` with `AZURE_BLUEPRINT_EXECUTE_SERIES`; it writes the default profile, migration blueprint, and review-needed artifact. | StackGen MCP tools, AppStacks, asking for mapping approvals |
-| `azure-iac-generate` | Spawn one `azure-iac-generate-runner` with `AZURE_GENERATE_EXECUTE_SERIES`; it writes HCL under `azure/groups/<group_id>/`. | Manual approval gates, non-HCL Terraform output |
-| `azure-iac-validate` | Spawn one `azure-iac-validate-runner` with `AZURE_VALIDATE_EXECUTE_SERIES`; it runs fmt, validate, optional tests, optional lint, and plan when Azure credentials exist. Runs **in parallel** with `azure-iac-harden`. | Treating missing Azure credentials as a blocker |
-| `azure-iac-harden` | Spawn one `azure-only-harden-runner` with `AZURE_HARDEN_EXECUTE_SERIES`; mechanical autofix + tflint/checkov/tfsec/trivy into `azure/groups/` for the same PR. | Inventing IAM translations or network redesigns |
+| `azure-source-fetch` | ONE `${shell_tool_prefix}_execute_series`: paste the exact one-line BEGIN/END body from the stage note (`run-destination-stage.sh azure-source-fetch`). Never the label `AZURE_SOURCE_FETCH_EXECUTE_SERIES`. Never `create_agent`. | cloud2code, tfstate splitting, AWS HCL hydration, subagents for runner paste |
+| `azure-migration-blueprint` | ONE `${shell_tool_prefix}_execute_series`: paste BEGIN/END `AZURE_BLUEPRINT_EXECUTE_SERIES` one-liner (`run-destination-stage.sh azure-migration-blueprint`). No `create_agent`. | StackGen MCP tools, AppStacks, subagents |
+| `azure-iac-generate` | ONE `${shell_tool_prefix}_execute_series`: paste BEGIN/END `AZURE_GENERATE_EXECUTE_SERIES` one-liner. No `create_agent`. | Manual approval gates, non-HCL Terraform output, subagents |
+| `azure-iac-validate` | ONE `${shell_tool_prefix}_execute_series`: paste BEGIN/END `AZURE_VALIDATE_EXECUTE_SERIES` one-liner (`timeout_seconds=7200`). Runs **in parallel** with `azure-iac-harden`. No `create_agent`. | Treating missing Azure credentials as a blocker, subagents |
+| `azure-iac-harden` | ONE `${shell_tool_prefix}_execute_series`: paste BEGIN/END `AZURE_HARDEN_EXECUTE_SERIES` one-liner (`timeout_seconds=3600`). No `create_agent`. | Inventing IAM translations or network redesigns, subagents |
+| `azure-iac-governance-conform` | FIRST: ONE `${shell_tool_prefix}_execute_series` with BEGIN/END `AZURE_GOVERNANCE_CONFORM_EXECUTE_SERIES` (`timeout_seconds=3600`). Then load `${sop_governance_conform_name}`, rebuild tree, `create_files` validator, fix HCL, re-run series until `azure_iac_governance_ok=true`. No `create_agent` for the series paste. | Frozen control catalogs; inventing controls not in refreshed docs; treating validation as human approval |
 | `azure-iac-loop` | Loop stage only; re-enters `azure-iac-generate` until a conclusive `azure_iac_validation_ok` (true or false) or a terminal blocker — does not thrash on repeated fail. | LLM work |
+| `azure-iac-governance-loop` | Loop stage only; re-enters `azure-iac-governance-conform` until `azure_iac_governance_ok` true\|false or docs/generation blocked. | LLM work |
 | `gcp-iac-harden` | Spawn one `gcp-only-harden-runner` with `GCP_HARDEN_EXECUTE_SERIES`; mechanical autofix + scanners into `gcp/groups/` for the same PR (parallel with validate). | Inventing IAM translations or network redesigns |
+| `gcp-iac-governance-conform` | Same living-gov loop as Azure under `gcp/`. | Frozen catalogs; inventing controls; treating validation as approval |
 | `gcp-iac-loop` | Loop stage only; re-enters `gcp-iac-generate` until a conclusive `gcp_iac_validation_ok` (true or false) or a terminal blocker — does not thrash on repeated fail. | LLM work |
-| `azure-pr` | Spawn one `azure-pr-runner` with `AZURE_PR_EXECUTE_SERIES` after validate-loop **and** harden fan-in; syncs `azure/` to branch `azure/<workflow_run_id>` and opens a PR. | AppStack creation, StackGen MCP calls |
+| `gcp-iac-governance-loop` | Loop stage only; re-enters `gcp-iac-governance-conform` until `gcp_iac_governance_ok` true\|false or docs/generation blocked. | LLM work |
+| `azure-pr` | ONE `${shell_tool_prefix}_execute_series`: paste BEGIN/END `AZURE_PR_EXECUTE_SERIES` one-liner after validate-loop, harden, **and** governance-loop fan-in. Open PR **only** when `azure_iac_governance_ok=true`. No `create_agent`. | AppStack creation, StackGen MCP calls, subagents |
 | `orphans-secondary-pipeline` | Read notes; skip empty bundle or hand off to secondary workflow. | Probe subagents |
 | `final-gate-and-memory` | Submit evidence and publish the final rollup only after AWS and Azure validation converge and Azure PR exists — or emit a single blocked rollup when an upstream gate short-circuited. | Claiming completion with non-zero AWS plan output or failed Azure static validation |
 
@@ -54,6 +62,7 @@ Use:
 4. **`${sop_substate_converge_name}`** — fmt, validate, tests, lint, and zero-diff plan loop.
 5. **`${sop_azure_migration_name}`** — no-approval Azure migration profile, generation defaults, validation behavior, and review-needed documentation.
 6. **`${sop_orphan_bootstrap_name}`** — orphan bundle handling.
+7. **`${sop_governance_conform_name}`** — method for refreshing living Nile docs each run, deriving a per-resource decision tree, authoring a validator, and iterating IaC until Priority-1-conformant. Not a frozen control list.
 
 The split is not single-pass. The runner must use `tfstate_monolith_decomposer.py`, review `split_quality_report.json` and `split_tuning_history.json`, and rerun with tuned `tfstate_decomposer_*` inputs when the score recommends it.
 
@@ -83,9 +92,11 @@ The split is not single-pass. The runner must use `tfstate_monolith_decomposer.p
 - `azure_iac_generated`
 - `azure_iac_validation_evidence`
 - `azure_iac_harden_evidence`
+- `azure_iac_governance_evidence`
 - `azure_pr_url_recorded`
 - `gcp_migration_blueprint_recorded`
 - `gcp_iac_generated`
 - `gcp_iac_validation_evidence`
 - `gcp_iac_harden_evidence`
+- `gcp_iac_governance_evidence`
 - `gcp_pr_url_recorded`

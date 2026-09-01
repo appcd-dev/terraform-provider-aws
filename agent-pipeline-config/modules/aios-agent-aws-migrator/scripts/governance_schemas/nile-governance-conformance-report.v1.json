@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "nile-governance-conformance-report/v1",
+  "title": "Conformance rollup for this visit",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema",
+    "cloud",
+    "governance_commit_sha",
+    "iteration",
+    "conformance_ok"
+  ],
+  "properties": {
+    "schema": { "const": "nile-governance-conformance-report/v1" },
+    "cloud": { "enum": ["azure", "gcp"] },
+    "governance_repo": { "type": "string" },
+    "governance_ref": { "type": "string" },
+    "governance_commit_sha": { "type": "string" },
+    "iteration": { "type": "integer", "minimum": 0 },
+    "validator_path": { "type": "string" },
+    "resource_count": { "type": "integer" },
+    "finding_count": { "type": "integer" },
+    "blocking_count": { "type": "integer" },
+    "authored": { "type": "boolean" },
+    "conformance_ok": { "type": "boolean" },
+    "blocked": { "type": "string" },
+    "generated_at": { "type": "string" }
+  }
+}

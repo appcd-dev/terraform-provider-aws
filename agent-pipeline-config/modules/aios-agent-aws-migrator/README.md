@@ -38,7 +38,7 @@ Pipeline summary:
 
 The module creates and attaches a remote runner by default. Use the `remote_runner_cli_start_command_with_secrets` or `remote_runner_helm_install_command` output to start the runner before invoking the workflow. Preload the tfstate decomposition script pack on the runner under `/home/runner/.aws-migrator/script-pack/<script_pack_version>`; do not pass the large scripts through runner environment variables, because an oversized runner environment can make every `sh -c` command fail with `E2BIG`.
 
-The preloaded script pack must include `allocate_manifest.py`, `tfstate_monolith_decomposer.py`, `stage-runner.sh`, `ingest-bootstrap.sh`, Azure + GCP catalog/generator scripts, and mapping catalogs (`aws-to-azure.json`, `aws-to-gcp.json`). Each file is sha256-gated: bumping a catalog (or any pack file) requires bumping `local.script_pack_version` and re-preloading, otherwise the runner fails loudly with `script_pack_error=preload_sha256_mismatch`. Validate catalog edits offline with `python3 scripts/test_azure_mapping_catalog.py` and `python3 scripts/test_gcp_mapping_catalog.py`.
+The preloaded script pack must include `allocate_manifest.py`, `tfstate_monolith_decomposer.py`, `stage-runner.sh`, `ingest-bootstrap.sh`, Azure + GCP catalog/generator scripts, `destination_iac_harden.py`, `governance_conform.py`, and mapping catalogs (`aws-to-azure.json`, `aws-to-gcp.json`). Each file is sha256-gated: bumping a catalog (or any pack file) requires bumping `local.script_pack_version` and re-preloading, otherwise the runner fails loudly with `script_pack_error=preload_sha256_mismatch`. Validate catalog edits offline with `python3 scripts/test_azure_mapping_catalog.py` and `python3 scripts/test_gcp_mapping_catalog.py`. Living-gov harness tests: `python3 scripts/test_governance_conform.py`.
 
 ## Runner Credentials
 
@@ -81,7 +81,7 @@ Azure destination PR workflow: `azure-migration-pr`
 
 GCP destination PR workflow: `gcp-migration-pr`
 
-Destination PR workflows skip cloud2code, tfstate split, AWS HCL hydration, and orphan handling. They resolve `source_pr` (preferred) or `source_iac_branch` (fallback default `azure_only_source_branch` / `gcp_only_source_branch`) from `default_iac_repository_url`, restore `aws/groups` plus `aws/artifacts`, then run destination blueprint, generation, validation, and a **four-commit** sibling PR.
+Destination PR workflows skip cloud2code, tfstate split, AWS HCL hydration, and orphan handling. They resolve `source_pr` (preferred) or `source_iac_branch` (fallback default `azure_only_source_branch` / `gcp_only_source_branch`) from `default_iac_repository_url`, restore `aws/groups` plus `aws/artifacts`, then run destination blueprint, generation, validation, living Nile governance conform, and a sibling PR gated on `*_iac_governance_ok`.
 
 Required workflow input:
 

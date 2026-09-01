@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "nile-governance-decision-tree/v1",
+  "title": "This-run decision tree derived from living governance docs",
+  "description": "Agent-authored. Must rebuild when governance SHA or inventory types change. Do not freeze Nile Priority-1 text into Nile-Factory.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema", "governance_commit_sha"],
+  "properties": {
+    "schema": { "const": "nile-governance-decision-tree/v1" },
+    "governance_commit_sha": { "type": "string" },
+    "governance_repo": { "type": "string" },
+    "governance_ref": { "type": "string" },
+    "docs_delta_note": { "type": "string" },
+    "type_to_category": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "leaves": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "control_id": { "type": "string" },
+          "nile_priority": { "type": "integer" },
+          "categories": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "source_paths": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

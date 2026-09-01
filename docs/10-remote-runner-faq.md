@@ -2,7 +2,7 @@
 
 Answers for running **Aiden 2.0 / Guild `aiden-runner`** with this repo. This is not the older Aiden 1.0 chart (`aiden-remote-runner` from `registry.devopsnow.io`). Do not mix those install commands.
 
-Checked against Nile-Factory image **`ghcr.io/walmart-stackgen/nile-factory-runner`** (`runner/Dockerfile`, `aiden-runner` 0.2.13, pack `20260813.27`) on 2026-08-28.
+Checked against Nile-Factory image **`ghcr.io/walmart-stackgen/nile-factory-runner`** (`runner/Dockerfile`, `aiden-runner` 0.2.13, pack `20260827.4`) on 2026-08-28.
 
 How Nile-Factory actually starts the process: after `tofu apply` on `deployments/walle`, run `tofu output -raw remote_runner_cli_start_command` (or the Helm output). That string is the source of truth for mothership URL and runner token.
 
@@ -13,7 +13,7 @@ How Nile-Factory actually starts the process: after `tofu apply` on `deployments
 | 1 | Exact Docker image | `ghcr.io/walmart-stackgen/nile-factory-runner` (this repo). Guild stock image is not enough. |
 | 2 | Registry | GitHub Container Registry (`ghcr.io`), org `walmart-stackgen` |
 | 3 | Pull auth | Authenticated. Private package on a private repo. |
-| 4 | Tag to pin | `pack-20260813.27` (script pack) or `sha-…`. Also `aiden-0.2.13`. Do not pin `latest`. |
+| 4 | Tag to pin | `pack-20260827.4` (script pack) or `sha-…`. Also `aiden-0.2.13`. Do not pin `latest`. |
 | 5 | Without Kubernetes? | Yes. Docker or the `aiden-runner` binary is enough. |
 | 6 | Kubernetes API only for K8s integration? | Yes. Mothership talk is outbound HTTPS. The API server is only needed if you want in-cluster `kubectl` / Helm RBAC. |
 | 7 | `--auto-discover` | Host **CLI binaries** and **MCP configs** on the runner, advertised as `host.available_clis`. Not AWS/Azure/GCP resource discovery. |
@@ -51,7 +51,7 @@ The upstream `aiden-runner` binary tarball used during **build** is public (`rel
 
 ## 4. What tag should be pinned?
 
-Pin **`pack-20260813.27`** (or the current `SCRIPT_PACK_VERSION`) so the baked script pack matches the module.
+Pin **`pack-20260827.4`** (or the current `SCRIPT_PACK_VERSION`) so the baked script pack matches the module.
 
 Also published: `aiden-0.2.13`, `sha-<git>`, `latest` on `main`. Do not pin `latest` in production. Rebuild after every pack bump.
 
@@ -231,7 +231,7 @@ helm upgrade --install aiden-runner \
   aiden-runner \
   --version 0.2.13 \
   --set image.repository=ghcr.io/walmart-stackgen/nile-factory-runner \
-  --set image.tag=pack-20260813.27 \
+  --set image.tag=pack-20260827.4 \
   --set 'runner.allowedClis=tofu\,terraform\,jq\,git\,aws\,gh\,python3\,tar\,curl\,wget\,opa\,tflint\,cloud2code' \
   --set runner.mothershipUrl=https://walmart.cloud.stackgen.com \
   --set runner.token='<from tofu output, never commit>' \

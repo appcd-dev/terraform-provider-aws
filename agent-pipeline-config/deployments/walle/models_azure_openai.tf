@@ -3,7 +3,8 @@
 # Models come only from var.azure_openai_models (default []) — no presets.
 
 locals {
-  enable_azure_openai = trimspace(var.azure_openai_api_url) != "" && trimspace(var.azure_openai_api_key) != ""
+  # nonsensitive: boolean gate only (empty vs set); never used as for_each keys from secret material.
+  enable_azure_openai = nonsensitive(trimspace(var.azure_openai_api_url) != "" && trimspace(var.azure_openai_api_key) != "")
 }
 
 resource "sg_secret" "azure_openai" {

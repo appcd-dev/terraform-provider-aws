@@ -1,0 +1,1 @@
+cd {{CLONE_DIR}} && set -eu && git fetch origin {{BASE_BRANCH}} && SOURCE_SHA='SOURCE_COMMIT_SHA' && DATE=$(date -u +%Y%m%d%H%M%S) && BRANCH="$${SOURCE_SHA}_$${DATE}" && git checkout -b "$${BRANCH}" origin/{{BASE_BRANCH}} && printf 'codify_branch=%s\n' "$${BRANCH}"

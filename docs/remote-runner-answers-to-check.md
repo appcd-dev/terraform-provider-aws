@@ -2,7 +2,7 @@
 
 Draft for review. Confirm or mark wrong. Longer write-up: [10-remote-runner-faq.md](10-remote-runner-faq.md).
 
-Checked on 2026-08-28 against this repo's image (`runner/Dockerfile`, `aiden-runner` 0.2.13, pack `20260813.27`).
+Checked on 2026-08-28 against this repo's image (`runner/Dockerfile`, `aiden-runner` 0.2.13, pack `20260827.4`).
 
 - [ ] 1. Exact Docker image
 - [ ] 2. Registry
@@ -47,7 +47,7 @@ Authenticated. Private GHCR package. `docker login ghcr.io`.
 
 ## 4. What tag should be pinned?
 
-`pack-20260813.27` (current `SCRIPT_PACK_VERSION`).
+`pack-20260827.4` (current `SCRIPT_PACK_VERSION`).
 
 Also: `aiden-0.2.13`, `sha-…`. Do not pin `latest`.
 

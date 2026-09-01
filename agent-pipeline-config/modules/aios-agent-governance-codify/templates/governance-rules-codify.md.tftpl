@@ -1,0 +1,242 @@
+# Governance rules codify
+
+Convert living governance **markdown** (source repo) into durable **IaC OPA/conftest** packs under `rules/` (target repo). Enforceable Rego must evaluate **Terraform plan JSON** (`resource_changes`). Process-only obligations stay in `controls.json` with `"enforce": false` — never invent `input.exception` schemas. Validation runs in **target-repo GitHub Actions**.
+
+Load **`${opa_codify_method_name}`** during `rules-codify` for the IaC markdown→Rego method.
+
+## Cross-repo model (mandatory)
+
+| Role | Default repo | Clone dir | Purpose |
+| --- | --- | --- | --- |
+| **Source** | `${default_source_repo_full}` @ `${default_source_ref}` | `${source_clone_dir}` | Read `governance/**/*.md` (markdown only) |
+| **Target** | `${default_target_repo_full}` @ `${default_target_ref}` | `${target_clone_dir}` | Write `rules/**`, open PR, run CI |
+
+Never read policy markdown from the target clone. Never write Rego to the source clone.
+
+## Tooling boundary
+
+- **Allowed:** `${github_tool_prefix}_create_files`, `${github_tool_prefix}_execute_command`, `${github_tool_prefix}_execute_series`, `gh`, `git`, `rg`, `note`, `read_notes`, `load_skill`, `create_agent` (reactree, **current stage scope only**)
+- **Forbidden:** sub-agents whose goal is a **later workflow stage** (e.g. "do codify and PR"), remote-runner tools, shell heredocs for file content
+
+Auth probe: `gh api user -q .login` before mutations.
+
+## Integration shell policy (mandatory)
+
+The GitHub sidecar blocks **environment enumeration**. Never run: `env`, `printenv`, bare `export`, bare `set`, `set foo`.
+
+**Safe patterns:** `export NAME=value && ...`, `set -eu`, `gh`, `git`, `rg`, `jq`, `mktemp`, `printf`, `cd`.
+
+## Dual clone (mandatory)
+
+Intake FIRST tool call — ONE `${github_tool_prefix}_execute_series` (copy verbatim):
+
+---BEGIN CODIFY_INTAKE_EXECUTE_SERIES---
+${codify_intake_execute_series_template}
+---END CODIFY_INTAKE_EXECUTE_SERIES---
+
+Then note:
+
+- `note(codify_source_clone_dir=${source_clone_dir})`
+- `note(codify_source_repo_full=${default_source_repo_full})`
+- `note(codify_source_ref=${default_source_ref})`
+- `note(codify_clone_dir=${target_clone_dir})` (target; legacy key name)
+- `note(codify_repo_full=${default_target_repo_full})` (target PR repo)
+- `note(codify_target_ref=${default_target_ref})`
+
+All **`create_files`** paths must be absolute under **`${target_clone_dir}/...`**.
+
+## File writes (mandatory)
+
+Use **`${github_tool_prefix}_create_files`** with **absolute paths** under the **target** clone:
+
+```json
+{
+  "files": [
+    {
+      "path": "${target_clone_dir}/rules/manifest.json",
+      "content": "{ … valid nile-codify-manifest/v1 … }"
+    }
+  ]
+}
+```
+
+Relative paths like `rules/README.md` **fail** in this integration. Never use heredoc/`tee`/`cat >` in shell.
+
+After writes: `git add … && git commit -m "codify: …"` from **target** clone root (`working_dir=${target_clone_dir}`).
+
+## Inputs (workflow notes or defaults)
+
+| Input | Default |
+| --- | --- |
+| `source_repository_url` | `${default_source_repository_url}` |
+| `source_ref` | `${default_source_ref}` |
+| `target_repository_url` | `${default_target_repository_url}` |
+| `target_ref` | `${default_target_ref}` |
+| `base_branch` | `${default_base_branch}` (PR base on **target** repo) |
+| `rules_output_dir` | `${default_rules_output_dir}` |
+| `force_recodify` | false |
+
+## Intake (`rules-intake`)
+
+1. Dual clone with CODIFY_INTAKE execute_series (see above).
+2. On **source** clone: glob `governance/**/*.md` (and `architecture/**/*.md` if present). Hash each file.
+3. On **target** clone: read `${default_rules_output_dir}/manifest.json` if present; check bootstrap (`run-tests.sh`, `rules-validate` workflow).
+4. Compute stale docs: source markdown hash vs manifest entries on **target**.
+5. `note(codify_inventory_json=<nile-codify-inventory/v1>)`:
+
+```json
+${codify_inventory_schema}
+```
+
+Inventory must include **both** `source_repo`/`source_ref` and target `repo`/`ref`. `doc_path` values are paths **in the source repo** (e.g. `governance/priority-controls.md`).
+
+6. **Stop.** Do not write Rego or spawn codify/PR sub-agents — `rules-codify` runs next.
+
+## Codify (`rules-codify`) — OPA expert stage
+
+Load skill **`${opa_codify_method_name}`** first.
+
+Skip when zero stale docs and not `force_recodify` — `note(codify_skipped_unchanged=true)` and stop.
+
+### Parallel fan-out (mandatory when 2+ stale docs)
+
+1. Parent: bootstrap (if needed) + create branch on target.
+2. Build work units from `stale_docs[]` — **one sub-agent per markdown file**, or **one sub-agent per folder**.
+3. Call **`create_agent` for every work unit in the same LLM response**.
+4. Each pack worker: classify IaC vs process; write `controls.json`; for IaC controls write Rego over `input.resource_changes` + terraform-shaped fixtures. **No process-schema Rego.** No manifest/commit in workers.
+5. Parent: merge manifest, commit, `note(codify_handoff_json=...)`.
+
+Sub-agent minimum budget: `max_tool_iterations=24`, `max_llm_calls=30`. No nested `create_agent`.
+
+### Single stale doc
+
+When only one stale doc, codify inline (no sub-agent) using the steps below.
+
+For each stale doc (inline or sub-agent):
+
+1. **Read** `${source_clone_dir}/<doc_path>` (full markdown).
+2. **Extract essence** — obligations, priorities, blocking language → `controls.json`.
+3. **Write OPA** — `policy.rego` (Rego v1), `policy_test.rego`, conftest pass/fail fixtures on **target** only.
+4. **Update** `rules/manifest.json` `entries[]`; **commit** on target.
+
+### Branch (on target)
+
+Branch name pattern: **`{source_commit_sha}_{YYYYMMDDHHMMSS}`** (full source SHA + UTC timestamp — unique every run).
+
+ONE `${github_tool_prefix}_execute_series` — substitute `SOURCE_COMMIT_SHA` with **full** `source_commit_sha` from `codify_inventory_json`:
+
+---BEGIN CODIFY_BRANCH_EXECUTE_SERIES---
+${codify_branch_execute_series_template}
+---END CODIFY_BRANCH_EXECUTE_SERIES---
+
+Example: `f8f6f171a0a15c195954c53c330e15df2af6aa99_20260827153000`
+
+`note(codify_branch=<branch from stdout>)`.
+
+### Bootstrap first (when bootstrap_needed=true OR scaffold missing on target)
+
+Write via **absolute-path create_files** on **target** clone:
+
+- `${target_clone_dir}/rules/README.md`
+- `${target_clone_dir}/rules/manifest.json` — schema **nile-codify-manifest/v1** with `"entries": []` initially
+- `${target_clone_dir}/rules/run-tests.sh` — verbatim:
+
+```bash
+${rules_run_tests_sh}
+```
+
+- `${target_clone_dir}/.github/workflows/rules-validate.yml` — verbatim:
+
+```yaml
+${github_rules_validate_yml}
+```
+
+`chmod +x rules/run-tests.sh`. Commit: `git add rules .github && git commit -m "codify: bootstrap rules scaffold"` (working_dir=${target_clone_dir}).
+
+**Before handoff:** parent runs `bash ${target_clone_dir}/rules/run-tests.sh`. If any pack fails, fix or re-spawn that pack worker. Do not hand off with red local tests.
+
+### Per stale doc (mandatory when stale_docs non-empty)
+
+Map source path to target pack dir — drop `.md`, prefix with `rules/`:
+
+```text
+Source: governance/priority-controls.md
+Target: rules/governance/priority-controls/
+  controls.json
+  policy.rego
+  policy_test.rego
+  conftest/fixtures/pass/plan.json
+  conftest/fixtures/fail/plan.json
+```
+
+**controls.json** must validate against leaf shape; cite `source_paths` pointing at **source repo** paths.
+
+**manifest.json** on **target** must use `"entries"` array (not `"packs"`). Update after each pack.
+
+Commit per pack on **target**. `note(codify_rules_written=true)` after `git log origin/<base>..HEAD` shows commits.
+
+### Stage handoff (required before stage ends)
+
+```text
+note(codify_handoff_json=<JSON string>)
+```
+
+JSON must include: `source_clone_dir`, `clone_dir` (target), `repo_full` (target), `source_repo_full`, `branch`, `commit_sha`, `rules_written` (bool), `manifest_path` (`rules/manifest.json`).
+
+**Never delegate `rules-pr` or "remaining stages" to create_agent** — stagerunner runs the next stage.
+
+## PR + CI gate (`rules-pr`) — mandatory deliverable
+
+### Recover state
+
+1. `read_notes` and parse `[Workflow notes from prior stage]` / `workflow_notes_snapshot` footer.
+2. Target clone is `${target_clone_dir}`. PR repo is **target** (`codify_repo_full`).
+3. If `codify_branch` or `codify_clone_dir` missing, parse `codify_handoff_json` or run:
+   - `git -C "${target_clone_dir}" branch --show-current`
+   - `git -C "${target_clone_dir}" log --oneline -5`
+
+Open PR on **target repo** when the codify branch has commits ahead of base.
+
+**Preflight (mandatory before push):**
+
+1. `${target_clone_dir}/rules/run-tests.sh` and `${target_clone_dir}/.github/workflows/rules-validate.yml` exist. If missing, write bootstrap from method skill then commit.
+2. `bash ${target_clone_dir}/rules/run-tests.sh` exits 0. If not, fail closed with `blocked:codify_tests_failed` — do not open PR.
+
+### Push + PR (first tool call after preflight green)
+
+ONE `${github_tool_prefix}_execute_series` (`working_dir=${target_clone_dir}`, `timeout_seconds=600`):
+
+---BEGIN CODIFY_PR_EXECUTE_SERIES---
+${codify_pr_execute_series_template}
+---END CODIFY_PR_EXECUTE_SERIES---
+
+Substitute target `OWNER/REPO`, `BRANCH`, title/body. Capture PR URL from stdout.
+
+`note(rules_pr_url=<url>)`, `note(codify_pr_opened=true)`.
+
+### CI gate
+
+`gh pr checks --repo <target-owner>/<target-repo> --watch` until **`${github_check_name}`** succeeds.
+
+When green: `note(codify_ci_green=true)`, `note(rules_codify_ok=true)`.
+
+Do **not** merge.
+
+## Blocked sentinels
+
+| Sentinel | Meaning |
+| --- | --- |
+| `blocked:github_integration_unavailable` | gh auth down |
+| `blocked:codify_source_unavailable` | cannot read source or target repo |
+| `blocked:codify_pr_failed` | push or PR create failed on **target** |
+| `blocked:codify_ci_failed` | `${github_check_name}` failed |
+
+## Forbidden
+
+- Sub-agents that skip ahead to later workflow stages
+- Relative paths in `create_files`
+- Writing Rego to the source repo or reading policy only from target
+- Invented process Rego (`input.exception`, `input.resource.phase`, fake approval flags)
+- Invented controls; fake PR URLs; merge without human approval
+- Scaffold-only commits with no real IaC `policy.rego` when tagging/resource docs are stale
+- Conftest fixtures that are not Terraform plan JSON

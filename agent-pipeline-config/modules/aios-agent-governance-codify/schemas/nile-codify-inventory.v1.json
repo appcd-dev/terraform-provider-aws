@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "nile-codify-inventory/v1",
+  "title": "Governance codify intake inventory",
+  "description": "Emitted by rules-intake: cross-repo inventory — source markdown vs target rules/manifest.json.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "source_repo",
+    "source_ref",
+    "source_commit_sha",
+    "repo",
+    "ref",
+    "commit_sha",
+    "stale_docs"
+  ],
+  "properties": {
+    "schema": { "const": "nile-codify-inventory/v1" },
+    "source_repo": {
+      "type": "string",
+      "description": "owner/repo for governance markdown (e.g. Walmart-StackGen/Governance-and-Policy)"
+    },
+    "source_ref": {
+      "type": "string",
+      "description": "Git ref cloned on the source repo"
+    },
+    "source_commit_sha": {
+      "type": "string",
+      "description": "HEAD SHA of the source clone at intake"
+    },
+    "repo": {
+      "type": "string",
+      "description": "owner/repo for Rego output and PR (target, e.g. Walmart-StackGen/Nile-Factory)"
+    },
+    "ref": {
+      "type": "string",
+      "description": "Git ref cloned on the target repo before branching"
+    },
+    "commit_sha": {
+      "type": "string",
+      "description": "HEAD SHA of the target clone at intake"
+    },
+    "rules_output_dir": {
+      "type": "string",
+      "default": "rules"
+    },
+    "bootstrap_needed": {
+      "type": "boolean",
+      "description": "True when target rules/run-tests.sh or rules-validate GHA workflow is missing"
+    },
+    "force_recodify": { "type": "boolean" },
+    "stale_docs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["doc_path", "content_sha256", "reason"],
+        "properties": {
+          "doc_path": {
+            "type": "string",
+            "description": "Path in the source repo (e.g. governance/priority-controls.md)"
+          },
+          "content_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "reason": {
+            "type": "string",
+            "enum": ["missing_pack", "hash_mismatch", "force_recodify"]
+          },
+          "existing_pack_dir": {
+            "type": "string",
+            "description": "Pack dir under target rules/ if present"
+          }
+        }
+      }
+    },
+    "unchanged_docs": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

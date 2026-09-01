@@ -23,19 +23,20 @@ locals {
   workflow_secondary_name  = "aws-migrator-orphan-iac-module-authoring${local.suffix}"
   webhook_name             = "github-aws-migrator-receiver${local.suffix}"
 
-  sop_cloud2code_scan_name   = "cloud2code-aws-region-scan-sop${local.suffix}"
-  sop_orchestration_name     = "aws-migrator-orchestration-sop${local.suffix}"
-  sop_shard_extraction_name  = "aws-migrator-terraform-state-shard-extraction-sop${local.suffix}"
-  sop_tfstate_splitter_name  = "aws-migrator-tfstate-splitter-sop${local.suffix}"
-  sop_registry_reverse_name  = "aws-migrator-terraform-registry-reverse-iac-sop${local.suffix}"
-  sop_substate_converge_name = "aws-migrator-terraform-substate-convergence-sop${local.suffix}"
-  sop_azure_migration_name   = "aws-migrator-azure-migration-profile-sop${local.suffix}"
-  sop_orphan_bootstrap_name  = "aws-migrator-orphan-iac-module-bootstrap-sop${local.suffix}"
-  sop_cce_iac_alignment      = "aws-migrator-cce-iac-alignment-sop${local.suffix}"
-  evidence_primary_name      = "aws-cloud-discovery-evidence${local.suffix}"
-  evidence_azure_only_name   = "azure-migration-pr-evidence${local.suffix}"
-  evidence_gcp_only_name     = "gcp-migration-pr-evidence${local.suffix}"
-  evidence_orphan_name       = "aws-migrator-orphan-iac-module-authoring-evidence${local.suffix}"
+  sop_cloud2code_scan_name    = "cloud2code-aws-region-scan-sop${local.suffix}"
+  sop_orchestration_name      = "aws-migrator-orchestration-sop${local.suffix}"
+  sop_shard_extraction_name   = "aws-migrator-terraform-state-shard-extraction-sop${local.suffix}"
+  sop_tfstate_splitter_name   = "aws-migrator-tfstate-splitter-sop${local.suffix}"
+  sop_registry_reverse_name   = "aws-migrator-terraform-registry-reverse-iac-sop${local.suffix}"
+  sop_substate_converge_name  = "aws-migrator-terraform-substate-convergence-sop${local.suffix}"
+  sop_azure_migration_name    = "aws-migrator-azure-migration-profile-sop${local.suffix}"
+  sop_governance_conform_name = "nile-governance-learn-and-conform-sop${local.suffix}"
+  sop_orphan_bootstrap_name   = "aws-migrator-orphan-iac-module-bootstrap-sop${local.suffix}"
+  sop_cce_iac_alignment       = "aws-migrator-cce-iac-alignment-sop${local.suffix}"
+  evidence_primary_name       = "aws-cloud-discovery-evidence${local.suffix}"
+  evidence_azure_only_name    = "azure-migration-pr-evidence${local.suffix}"
+  evidence_gcp_only_name      = "gcp-migration-pr-evidence${local.suffix}"
+  evidence_orphan_name        = "aws-migrator-orphan-iac-module-authoring-evidence${local.suffix}"
   # Destination PR workflows fetch prior discovery IaC from these branches (deployment-supplied fallback).
   azure_only_source_branch        = trimspace(var.azure_only_source_branch)
   gcp_only_source_branch          = trimspace(var.gcp_only_source_branch)
@@ -148,9 +149,15 @@ locals {
   gcp_mapping_catalog_script          = file("${path.module}/scripts/gcp_mapping_catalog.py")
   gcp_mapping_catalog_json            = file("${path.module}/mappings/aws-to-gcp.json")
   ensure_cloud2code_script            = file("${path.module}/scripts/ensure_cloud2code.sh")
-  script_pack_version                 = "20260813.27"
+  script_pack_version                 = "20260827.4"
   script_pack_git_ref                 = "main"
   script_pack_preload_dir             = "${local.runner_work_home}/.aws-migrator/script-pack/${local.script_pack_version}"
+
+  # Nile-Factory runner image (GHCR). Bakes script pack + opa/tofu/cloud2code; pin pack-* tag to script_pack_version.
+  nile_factory_runner_image_repository = "ghcr.io/walmart-stackgen/nile-factory-runner"
+  nile_factory_runner_image_tag        = "pack-${local.script_pack_version}"
+  nile_factory_runner_image            = "${local.nile_factory_runner_image_repository}:${local.nile_factory_runner_image_tag}"
+  nile_factory_runner_allowed_clis     = "tofu,terraform,jq,git,aws,gh,python3,tar,curl,wget,opa,tflint,cloud2code"
   script_pack_allocate_sha256         = sha256(local.allocate_manifest_script)
   script_pack_decomposer_sha256       = sha256(local.tfstate_monolith_decomposer)
   script_pack_runner_sha256           = sha256(file("${path.module}/scripts/stage-runner.sh"))
@@ -249,7 +256,12 @@ locals {
     sop_registry_reverse_name           = local.sop_registry_reverse_name
     sop_substate_converge_name          = local.sop_substate_converge_name
     sop_azure_migration_name            = local.sop_azure_migration_name
+    sop_governance_conform_name         = local.sop_governance_conform_name
     sop_orphan_bootstrap_name           = local.sop_orphan_bootstrap_name
+    nile_governance_repo_url            = var.nile_governance_repo_url
+    nile_governance_ref                 = var.nile_governance_ref
+    nile_rules_repo_url                 = var.nile_rules_repo_url
+    nile_rules_ref                      = var.nile_rules_ref
     require_azure_live_plan             = local.require_azure_live_plan ? "1" : "0"
     require_gcp_live_plan               = local.require_gcp_live_plan ? "1" : "0"
     dest_harden_parallelism             = "4"
@@ -339,6 +351,11 @@ locals {
     local.template_vars,
   )
 
+  azure_governance_conform_execute_series_body = templatefile(
+    "${path.module}/templates/azure-iac-governance-conform-execute-series-embedded.sh.tftpl",
+    local.template_vars,
+  )
+
   azure_pr_execute_series_body = templatefile(
     "${path.module}/templates/azure-pr-execute-series-embedded.sh.tftpl",
     local.template_vars,
@@ -374,6 +391,11 @@ locals {
     local.template_vars,
   )
 
+  gcp_governance_conform_execute_series_body = templatefile(
+    "${path.module}/templates/gcp-iac-governance-conform-execute-series-embedded.sh.tftpl",
+    local.template_vars,
+  )
+
   gcp_pr_execute_series_body = templatefile(
     "${path.module}/templates/gcp-pr-execute-series-embedded.sh.tftpl",
     local.template_vars,
@@ -400,7 +422,7 @@ locals {
     **Primary execution:** all shell, `cloud2code`, `tofu`/`terraform`, `jq`, `git`, and **tfstate generation/download** run on remote runner **`${local.resolved_remote_runner_name}`** via **`${local.shell_tool_prefix}_execute_*`** tools (never Ubuntu CLI). Discovery starts with `runner-capability-preflight` so missing tools fail before scan/ingest. `cloud2code-scan-aws` writes a local tfstate path to `monolith_state_uri`; `stage-runner.sh download-state` then materializes `$WORK_ROOT/state/terraform.tfstate` for decomposition.%{if var.create_remote_runner~}
     Runner registered by Terraform via `sg_remote_runner`; install commands are in module outputs `remote_runner_cli_start_command` / `remote_runner_helm_install_command` — deploy aiden-runner on-prem with **outbound-only** access to mothership before running workflows.%{endif~}
     Per the **Execution Optimization Protocol** (${local.sop_orchestration_name}), multi-step work is batched into one `${local.shell_tool_prefix}_execute_series`; `${local.shell_tool_prefix}_execute_command` is for a single cohesive command; `${local.shell_tool_prefix}_execute_parallel` (or `flow_type:"parallel"` subagent batches) is the only sanctioned fan-out for independent per-group / per-shard work.
-    **Runner prerequisites:** the runner image must include **`tofu`/`terraform`**, **`jq`**, **`git`**, **`awscli`**, `tar`, and either `curl` or `wget`, plus AWS read credentials for the target region. The scan bootstrap downloads pinned Cloud2Code v0.5.1 into `$HOME/.local/bin` when `cloud2code` is absent; no root access is required. When `runner_git_token` / `runner_aws_*` or `runner_*_env_secret_id` / `remote_runner_typed_secret_refs` are set, Terraform binds **`sg_remote_runner_secrets`** so mothership sync injects **`GIT_TOKEN`** / **`AWS_*`** env on the runner (memory-only) for **`cloud2code import aws`**, **`git clone`**, **`gh pr create`**, and plan hydration. The large tfstate decomposition script pack is preloaded on the runner at **`${local.script_pack_preload_dir}`** and copied into each `$WORK_ROOT/scripts`; do not pass it through runner environment variables.
+    **Runner prerequisites:** deploy **`ghcr.io/walmart-stackgen/nile-factory-runner:pack-${local.script_pack_version}`** (see `remote_runner_image` output) so the script pack and **`opa`** CLI are baked in — avoid stock `stackgen-guild-aiden-runner` plus manual `kubectl cp`. The runner image must include **`tofu`/`terraform`**, **`jq`**, **`git`**, **`awscli`**, **`opa`**, `tar`, and either `curl` or `wget`, plus AWS read credentials for the target region. The scan bootstrap downloads pinned Cloud2Code v0.5.1 into `$HOME/.local/bin` when `cloud2code` is absent; no root access is required. When `runner_git_token` / `runner_aws_*` or `runner_*_env_secret_id` / `remote_runner_typed_secret_refs` are set, Terraform binds **`sg_remote_runner_secrets`** so mothership sync injects **`GIT_TOKEN`** / **`AWS_*`** env on the runner (memory-only) for **`cloud2code import aws`**, **`git clone`**, **`gh pr create`**, and plan hydration. The large tfstate decomposition script pack is preloaded on the runner at **`${local.script_pack_preload_dir}`** and copied into each `$WORK_ROOT/scripts`; do not pass it through runner environment variables.
     Persist artifact paths (plan JSON, state snapshots) via `note` keys `remote_runner_artifacts`. If `${local.shell_tool_prefix}_execute_*` is unavailable (runner offline), emit **`blocked:remote_runner_shell_unavailable: "true"`** and stop — do not fall back to inline shell on the architect.
     RUNNER
   )
@@ -633,7 +655,6 @@ resource "sg_agent" "aws_migrator_architect" {
   lifecycle {
     ignore_changes = [
       auto_approve_tools,
-      persona,
     ]
   }
 }
@@ -696,6 +717,12 @@ resource "sg_runbook_sop" "azure_demo_migration_profile" {
   description = trimspace(local.rendered_templates["azure-demo-migration-profile.md"])
 }
 
+resource "sg_runbook_sop" "nile_governance_learn_and_conform" {
+  name        = local.sop_governance_conform_name
+  approve     = true
+  description = trimspace(local.rendered_templates["nile-governance-learn-and-conform.md"])
+}
+
 resource "sg_runbook_sop" "orphan_iac_module_bootstrap" {
   name        = local.sop_orphan_bootstrap_name
   approve     = true
@@ -754,17 +781,19 @@ resource "sg_evidence_checklist" "aws_migrator_azure_only_evidence" {
     "azure_iac_generated",
     "azure_iac_validation_evidence",
     "azure_iac_harden_evidence",
+    "azure_iac_governance_evidence",
     "azure_pr_url_recorded",
   ]
   optional_items = [
     "azure_plan_json",
     "azure_review_needed_summary",
     "azure_harden_findings_summary",
+    "azure_governance_sha_recorded",
     "source_iac_branch_recorded",
     "source_pr_recorded",
   ]
   scoring = {
-    min_required         = 6
+    min_required         = 7
     confidence_threshold = 0.8
   }
   metadata = {
@@ -784,17 +813,19 @@ resource "sg_evidence_checklist" "aws_migrator_gcp_only_evidence" {
     "gcp_iac_generated",
     "gcp_iac_validation_evidence",
     "gcp_iac_harden_evidence",
+    "gcp_iac_governance_evidence",
     "gcp_pr_url_recorded",
   ]
   optional_items = [
     "gcp_plan_json",
     "gcp_review_needed_summary",
     "gcp_harden_findings_summary",
+    "gcp_governance_sha_recorded",
     "source_iac_branch_recorded",
     "source_pr_recorded",
   ]
   scoring = {
-    min_required         = 6
+    min_required         = 7
     confidence_threshold = 0.8
   }
   metadata = {

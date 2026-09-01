@@ -8,6 +8,8 @@ Same review discipline as [Azure PRs](07-reading-azure-prs.md), applied to the `
 | --- | --- |
 | `gcp/groups/<group_id>/` | OpenTofu roots with `google` provider; CAF-analogue naming where the generator emits full scaffolds |
 | `gcp/artifacts/migration-blueprint.json` | Per-group mapping decisions |
+| `gcp/artifacts/governance-source.json` | Living Nile docs SHA used this run |
+| `gcp/artifacts/governance-conformance-report.json` | Must show `conformance_ok` or the PR should not have opened |
 | `gcp/artifacts/review-needed.md` | Honest gaps (IAM, landing-zone, unsupported types) |
 | Validation / plan notes | `gcp_plan_status` — prefer `success` or `success:sample:N/M`; reject silent “ok” without plan when `require_gcp_live_plan` is on |
 

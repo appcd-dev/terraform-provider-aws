@@ -1,0 +1,289 @@
+# Governance markdown → IaC OPA codify method
+
+Use this skill in **`rules-codify`** after intake recorded `codify_inventory_json`.
+
+## Goal (non-negotiable)
+
+Write **conftest/OPA policies that evaluate Terraform plan JSON** (output of `terraform show -json` / `tofu show -json`).
+
+- **Input root:** `input.resource_changes` and/or `input.planned_values` / `input.configuration`.
+- **Deny when IaC violates** a markdown obligation (missing tags, bad labels, forbidden attributes, etc.).
+- **Forbidden:** inventing process schemas (`input.exception`, `input.resource.phase`, `input.resource.human_approval`, readiness booleans). Those are not Terraform plan fields.
+- **Process-only markdown** (exception authority, approval authority, evidence schema as process): put obligations in `controls.json` with `"enforce": false` and **do not** write `policy.rego` (or write an empty pack with no deny rules and note why). Do **not** invent fake JSON APIs for process docs.
+
+## Classify each markdown doc
+
+| Class | Examples | Action |
+| --- | --- | --- |
+| **IaC-enforceable** | tagging/labeling, GCP org policy constraints, resource encryption/network/IAM requirements stated as resource properties | `enforce: true` + Rego over `resource_changes` |
+| **Process / authority** | exception authority, approval routing, evidence review flow, human-review mandates | `enforce: false` only — no process Rego |
+| **Mixed** | production-readiness / priority controls | Enforce only obligations that map to **resource attributes in a plan**; leave human-approval/evidence-traceability as `enforce: false` |
+
+## Parallel codify (mandatory when `stale_docs` has 2+ entries)
+
+You are the **coordinator**. Do not codify every doc yourself in series when multiple stale docs exist.
+
+### Coordinator sequence
+
+1. `read_notes` → parse `codify_inventory_json`.
+2. `load_skill(${opa_codify_method_name})` (this file).
+3. **Bootstrap + branch** (parent only): run CODIFY_BRANCH execute_series; bootstrap when `bootstrap_needed=true`. Sub-agents assume branch + clones already exist.
+4. **Assign work units** from `stale_docs[]` — one sub-agent per markdown file (or per folder when multiple stale docs share a directory).
+5. **Spawn all pack workers synchronously in one LLM turn** — `create_agent` once per work unit in the **same response**. Set `background=false` (default). **Wait for every TOOL_CALL_RESULT** before merging manifest. Never fire-and-forget pack workers.
+6. Collect `codify_pack_<slug>` notes from completed workers only.
+7. Parent merges `rules/manifest.json`, commits, `note(codify_rules_written=true)` + `note(codify_handoff_json=...)`.
+
+Never spawn a sub-agent whose goal includes `rules-pr`, push, or PR creation.
+
+**Forbidden:** one monolithic sub-agent (`codify-bootstrap-branch-and-workers`) that does all packs.
+
+### Planner vs pack-worker split
+
+| Who | Job |
+| --- | --- |
+| **Stage planner** | Bootstrap/branch sub-agent, then N parallel pack workers in one response; merge manifest. |
+| **Bootstrap sub-agent** | Scaffold + branch `{source_commit_sha}_{YYYYMMDDHHMMSS}` only. |
+| **Pack-worker** | Read markdown → classify → `controls.json` → **IaC** `policy.rego` (if any enforce:true) → tests + terraform-shaped fixtures. |
+
+### Sub-agent budget (minimum per pack worker)
+
+| Parameter | Value |
+| --- | --- |
+| `task_type` | `tool_calling` |
+| `max_tool_iterations` | **32** |
+| `max_llm_calls` | **40** |
+| `tool_names` | `${github_tool_prefix}_create_files`, `${github_tool_prefix}_execute_command`, `${github_tool_prefix}_execute_series`, `note`, `read_notes`, `load_skill` |
+
+No nested `create_agent` in pack workers.
+
+### Sub-agent goal template
+
+```text
+IaC OPA pack worker for ONE governance markdown file. rules-codify only — no PR.
+
+Source: ${source_clone_dir}/<DOC_PATH>
+Target pack: ${target_clone_dir}/<PACK_DIR>/
+content_sha256: <SHA256>
+
+1. load_skill(${opa_codify_method_name})
+2. cat the markdown. Classify IaC-enforceable vs process-only.
+3. Write controls.json. Only set enforce:true for obligations checkable on Terraform plan JSON.
+4. If any enforce:true: write policy.rego that iterates input.resource_changes (and tags/labels/attributes). FORBIDDEN: input.exception, input.resource.phase, invented process flags.
+5. policy_test.rego + conftest fixtures that LOOK LIKE terraform show -json (resource_changes with type, name, change.after.tags|labels).
+6. MUST run: opa test ${target_clone_dir}/<PACK_DIR>  — fix Rego until PASS. Do not note success if opa test fails.
+7. If zero IaC-enforceable controls: controls.json only (all enforce:false); skip policy.rego; note iac_enforceable=false.
+8. Do NOT edit manifest or git commit. note(codify_pack_<SLUG>=JSON) with keys: doc_path, pack_dir, content_sha256, controls_count, enforce_count, iac_enforceable, policy_written, opa_test_passed.
+```
+
+## Per stale doc
+
+### 1. Read markdown
+
+```bash
+cat ${source_clone_dir}/<doc_path>
+```
+
+Extract: purpose, scope, MUST/SHALL, tables of required tags/labels/attributes, advisory vs blocking.
+
+### 2. `controls.json`
+
+```json
+{
+  "schema": "nile-governance-controls/v1",
+  "source_paths": ["governance/tagging-labeling-standard.md"],
+  "summary": "Enforces required Azure tags and GCP labels on Terraform planned resources.",
+  "input_schema": {
+    "description": "Terraform plan JSON (terraform show -json). Policies read resource_changes[].change.after.",
+    "required_fields": ["resource_changes"]
+  },
+  "controls": [
+    {
+      "id": "TLS-001",
+      "title": "Azure required tags present",
+      "source_section": "Section 5 – Azure Required Tags",
+      "severity": "blocker",
+      "obligation": "Nile-managed Azure resources must contain all required tags.",
+      "enforce": true,
+      "iac_check": "resource_changes for azurerm_* create/update; after.tags must include required keys"
+    }
+  ]
+}
+```
+
+### 3. `policy.rego` (IaC only)
+
+**Package name is mandatory:** `package policy` (CI evaluates `data.policy.deny`).
+
+```rego
+package policy
+
+import rego.v1
+
+# governance/tagging-labeling-standard.md § Section 5 – Azure Required Tags
+# TLS-001: Nile-managed Azure resources must contain all required tags.
+
+default allow := true
+
+required_azure_tags := {"owner", "created-by", "cost-center", "environment", "function", "service", "repo", "applicationname", "name", "notificationdistlist", "ssp", "trproductid", "apmid"}
+
+nonempty(s) if {
+	is_string(s)
+	trim(s, " \t\n\r") != ""
+}
+
+deny contains msg if {
+	some rc in input.resource_changes
+	startswith(rc.type, "azurerm_")
+	rc.change.actions[_] in {"create", "update"}
+	tags := object.get(rc.change.after, "tags", {})
+	some required in required_azure_tags
+	not nonempty(object.get(tags, required, ""))
+	msg := sprintf("TLS-001: %s.%s missing required Azure tag %q", [rc.type, rc.name, required])
+}
+```
+
+Every `deny` must:
+
+1. Cite markdown path + section in a comment.
+2. Include control id in `msg`.
+3. Inspect **plan** fields (`resource_changes`, `type`, `change.after`, `tags`, `labels`, …).
+
+### Rego syntax rules (OPA 1.x — fail CI if violated)
+
+| Do | Do not |
+| --- | --- |
+| `package policy` | `package nile.codify` or other names |
+| `trim(s, " \t\n\r")` (cutset required) | `trim(s)` |
+| Partial set: `vals contains x if { ... }` with **separate** rules, no `else` | `vals(after) contains x if {..} else contains y if {..}` |
+| Tests in `package policy` with `count(deny) == 0 with input as plan` | `count(data.policy.deny with input as plan)` (with inside count arg) |
+| Real Terraform attrs (`tags`, `labels`, `location`, `network_interface`) | Invented attrs (`logging_enabled`, `phase`, `human_approval`) |
+
+### 4. `policy_test.rego` (copy this shape)
+
+```rego
+package policy
+
+import rego.v1
+
+pass_plan := {
+	"resource_changes": [{
+		"address": "azurerm_resource_group.ok",
+		"mode": "managed",
+		"type": "azurerm_resource_group",
+		"name": "ok",
+		"change": {"actions": ["create"], "after": {"tags": {"owner": "platform", "created-by": "ci", "cost-center": "cc", "environment": "dev", "function": "app", "service": "nile", "repo": "org/repo", "applicationname": "demo", "name": "ok", "notificationdistlist": "ops", "ssp": "ssp", "trproductid": "tr", "apmid": "apm"}}},
+	}],
+}
+
+fail_plan := {
+	"resource_changes": [{
+		"address": "azurerm_resource_group.bad",
+		"mode": "managed",
+		"type": "azurerm_resource_group",
+		"name": "bad",
+		"change": {"actions": ["create"], "after": {"tags": {"owner": ""}}},
+	}],
+}
+
+test_pass_no_deny if {
+	count(deny) == 0 with input as pass_plan
+}
+
+test_fail_has_deny if {
+	count(deny) > 0 with input as fail_plan
+}
+```
+
+**Wrong (parse error):** `count(data.policy.deny with input as pass_plan) == 0`
+
+**Right:** `count(deny) == 0 with input as pass_plan` (same package) or `count(policy.deny) == 0 with input as pass_plan` from `package policy_test`.
+
+After writing files, run:
+
+```bash
+opa test ${target_clone_dir}/<PACK_DIR>
+```
+
+Fix until PASS. Do not emit `codify_pack_*` until green.
+
+### 5. Conftest fixtures (must be terraform plan shaped)
+
+`conftest/fixtures/pass/plan.json` / `fail/plan.json`:
+
+```json
+{
+  "format_version": "1.2",
+  "terraform_version": "1.5.0",
+  "resource_changes": [
+    {
+      "address": "azurerm_resource_group.example",
+      "mode": "managed",
+      "type": "azurerm_resource_group",
+      "name": "example",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": {
+        "actions": ["create"],
+        "after": {
+          "name": "rg-example",
+          "location": "eastus",
+          "tags": {
+            "owner": "platform",
+            "created-by": "pipeline",
+            "cost-center": "cc-1",
+            "environment": "dev",
+            "function": "app",
+            "service": "nile",
+            "repo": "org/repo",
+            "applicationname": "demo",
+            "name": "rg-example",
+            "notificationdistlist": "ops@example.com",
+            "ssp": "ssp-1",
+            "trproductid": "tr-1",
+            "apmid": "apm-1"
+          }
+        }
+      }
+    }
+  ]
+}
+```
+
+Fail fixture: same shape with missing/empty tags or labels.
+
+**Reject** fixtures whose root is `exception`, `resource.phase`, or other non-plan objects.
+
+### 6. Manifest
+
+Parent merges entries after workers finish. Sub-agents do not edit manifest.
+
+## Bootstrap (when `bootstrap_needed=true` OR scaffold files missing)
+
+Write via absolute-path `create_files` (always ensure these exist before pack workers finish / before PR):
+
+- `${target_clone_dir}/rules/README.md` — packs are **IaC** policies for Terraform plan JSON
+- `${target_clone_dir}/rules/manifest.json` — schema `nile-codify-manifest/v1`, `"entries": []` initially
+- `${target_clone_dir}/rules/run-tests.sh` — **copy verbatim**:
+
+```bash
+${rules_run_tests_sh}
+```
+
+- `${target_clone_dir}/.github/workflows/rules-validate.yml` — **copy verbatim**:
+
+```yaml
+${github_rules_validate_yml}
+```
+
+`chmod +x ${target_clone_dir}/rules/run-tests.sh`. Commit bootstrap on the codify branch.
+
+Parent **must** run `bash ${target_clone_dir}/rules/run-tests.sh` after merging packs and fix any failing packs before handoff. Fail closed if scaffold missing.
+
+## Quality bar (fail the stage if violated)
+
+- Every `enforce: true` control has Rego that reads `input.resource_changes` (or equivalent plan paths).
+- Zero process-schema denies (`input.exception`, invented readiness flags).
+- Fixtures are terraform plan JSON; pass fixture → no deny; fail fixture → deny.
+- `opa test` passes for every pack with `policy.rego`.
+- `rules/run-tests.sh` and `.github/workflows/rules-validate.yml` exist on the branch.
+- Process-only docs: `enforce_count=0`, `iac_enforceable=false`, no fake Rego.
+- Prefer strong packs for **tagging-labeling-standard** and cloud policy/resource docs.

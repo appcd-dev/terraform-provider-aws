@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# Validates Nile governance OPA packs against Terraform plan fixtures.
+# Policy package MUST be: package policy  (deny contains msg if { ... })
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+status=0
+
+if ! command -v opa >/dev/null 2>&1; then
+  echo "opa not found on PATH" >&2
+  exit 1
+fi
+
+policy_count=0
+while IFS= read -r policy_file; do
+  [ -n "$policy_file" ] || continue
+  policy_count=$((policy_count + 1))
+  pack_dir="$(dirname "$policy_file")"
+  echo "=== opa test $${pack_dir} ==="
+  if [ ! -f "$${pack_dir}/policy_test.rego" ]; then
+    echo "missing policy_test.rego in $${pack_dir}" >&2
+    status=1
+    continue
+  fi
+  if ! opa test "$${pack_dir}"; then
+    echo "opa test failed: $${pack_dir}" >&2
+    status=1
+    continue
+  fi
+
+  pass_fixture="$${pack_dir}/conftest/fixtures/pass/plan.json"
+  fail_fixture="$${pack_dir}/conftest/fixtures/fail/plan.json"
+
+  if [ -f "$pass_fixture" ]; then
+    echo "=== pass fixture $${pass_fixture} ==="
+    pass_denies="$(opa eval -f raw -i "$pass_fixture" -d "$${pack_dir}/policy.rego" 'data.policy.deny' || true)"
+    if [ "$pass_denies" != "[]" ]; then
+      echo "expected no denies on pass fixture, got: $${pass_denies}" >&2
+      status=1
+    fi
+  fi
+
+  if [ -f "$fail_fixture" ]; then
+    echo "=== fail fixture $${fail_fixture} ==="
+    fail_denies="$(opa eval -f raw -i "$fail_fixture" -d "$${pack_dir}/policy.rego" 'data.policy.deny' || true)"
+    if [ -z "$fail_denies" ] || [ "$fail_denies" = "[]" ] || [ "$fail_denies" = "undefined" ]; then
+      echo "expected denies on fail fixture, got: $${fail_denies}" >&2
+      status=1
+    fi
+  fi
+done <<EOF
+$(find "$repo_root/rules" -name 'policy.rego' -type f | sort)
+EOF
+
+if [ "$policy_count" -eq 0 ]; then
+  echo "No policy.rego files under rules/ — nothing to validate"
+  exit 0
+fi
+
+exit "$status"

@@ -44,6 +44,8 @@ cp "$PACK_SRC/gcp_iac_generate.py" "$STAGE/gcp_iac_generate.py"
 cp "$PACK_SRC/app_iam.py" "$STAGE/app_iam.py"
 cp "$PACK_SRC/hcl_sanity.py" "$STAGE/hcl_sanity.py"
 cp "$PACK_SRC/destination_iac_harden.py" "$STAGE/destination_iac_harden.py"
+cp "$PACK_SRC/governance_conform.py" "$STAGE/governance_conform.py"
+cp "$PACK_SRC/governance_opa_check.py" "$STAGE/governance_opa_check.py"
 cp "$PACK_SRC/run-destination-stage.sh" "$STAGE/run-destination-stage.sh"
 cp "$CATALOG_SRC" "$STAGE/mappings/aws-to-azure.json"
 cp "$GCP_CATALOG_SRC" "$STAGE/mappings/aws-to-gcp.json"
@@ -64,7 +66,7 @@ fi
 STAGING_DIR="${PRELOAD_DIR}.tmp.$$"
 echo "preloading script pack version=${VERSION} pod=${POD} ns=${NAMESPACE} dir=${PRELOAD_DIR} staging=${STAGING_DIR}"
 kubectl exec -n "$NAMESPACE" "$POD" -- sh -lc "rm -rf '${STAGING_DIR}' '${PRELOAD_DIR}.old' && mkdir -p '${STAGING_DIR}/mappings'"
-for f in allocate_manifest.py tfstate_monolith_decomposer.py stage-runner.sh azure_mapping_catalog.py azure_iac_generate.py gcp_mapping_catalog.py gcp_iac_generate.py app_iam.py hcl_sanity.py destination_iac_harden.py ingest-bootstrap.sh run-destination-stage.sh; do
+for f in allocate_manifest.py tfstate_monolith_decomposer.py stage-runner.sh azure_mapping_catalog.py azure_iac_generate.py gcp_mapping_catalog.py gcp_iac_generate.py app_iam.py hcl_sanity.py destination_iac_harden.py governance_conform.py governance_opa_check.py ingest-bootstrap.sh run-destination-stage.sh; do
   kubectl cp "$STAGE/$f" "${NAMESPACE}/${POD}:${STAGING_DIR}/$f"
 done
 kubectl cp "$STAGE/mappings/aws-to-azure.json" "${NAMESPACE}/${POD}:${STAGING_DIR}/mappings/aws-to-azure.json"
@@ -72,7 +74,7 @@ kubectl cp "$STAGE/mappings/aws-to-gcp.json" "${NAMESPACE}/${POD}:${STAGING_DIR}
 kubectl exec -n "$NAMESPACE" "$POD" -- sh -lc "
   set -e
   chmod +x '${STAGING_DIR}/stage-runner.sh' '${STAGING_DIR}/ingest-bootstrap.sh' '${STAGING_DIR}/run-destination-stage.sh'
-  for f in allocate_manifest.py tfstate_monolith_decomposer.py stage-runner.sh azure_mapping_catalog.py azure_iac_generate.py gcp_mapping_catalog.py gcp_iac_generate.py app_iam.py hcl_sanity.py destination_iac_harden.py ingest-bootstrap.sh run-destination-stage.sh mappings/aws-to-azure.json mappings/aws-to-gcp.json; do
+  for f in allocate_manifest.py tfstate_monolith_decomposer.py stage-runner.sh azure_mapping_catalog.py azure_iac_generate.py gcp_mapping_catalog.py gcp_iac_generate.py app_iam.py hcl_sanity.py destination_iac_harden.py governance_conform.py governance_opa_check.py ingest-bootstrap.sh run-destination-stage.sh mappings/aws-to-azure.json mappings/aws-to-gcp.json; do
     test -f '${STAGING_DIR}/'\$f || { echo \"error: staging missing \$f\" >&2; exit 1; }
   done
   if [ -d '${PRELOAD_DIR}' ]; then
@@ -84,6 +86,6 @@ kubectl exec -n "$NAMESPACE" "$POD" -- sh -lc "
 "
 
 echo "--- runner sha256 ---"
-kubectl exec -n "$NAMESPACE" "$POD" -- sh -lc "cd '${PRELOAD_DIR}' && sha256sum allocate_manifest.py tfstate_monolith_decomposer.py stage-runner.sh azure_mapping_catalog.py azure_iac_generate.py gcp_mapping_catalog.py gcp_iac_generate.py app_iam.py hcl_sanity.py destination_iac_harden.py run-destination-stage.sh mappings/aws-to-azure.json mappings/aws-to-gcp.json"
+kubectl exec -n "$NAMESPACE" "$POD" -- sh -lc "cd '${PRELOAD_DIR}' && sha256sum allocate_manifest.py tfstate_monolith_decomposer.py stage-runner.sh azure_mapping_catalog.py azure_iac_generate.py gcp_mapping_catalog.py gcp_iac_generate.py app_iam.py hcl_sanity.py destination_iac_harden.py governance_conform.py governance_opa_check.py run-destination-stage.sh mappings/aws-to-azure.json mappings/aws-to-gcp.json"
 echo "--- local sha256 ---"
-(cd "$STAGE" && shasum -a 256 allocate_manifest.py tfstate_monolith_decomposer.py stage-runner.sh azure_mapping_catalog.py azure_iac_generate.py gcp_mapping_catalog.py gcp_iac_generate.py app_iam.py hcl_sanity.py destination_iac_harden.py run-destination-stage.sh mappings/aws-to-azure.json mappings/aws-to-gcp.json)
+(cd "$STAGE" && shasum -a 256 allocate_manifest.py tfstate_monolith_decomposer.py stage-runner.sh azure_mapping_catalog.py azure_iac_generate.py gcp_mapping_catalog.py gcp_iac_generate.py app_iam.py hcl_sanity.py destination_iac_harden.py governance_conform.py governance_opa_check.py run-destination-stage.sh mappings/aws-to-azure.json mappings/aws-to-gcp.json)

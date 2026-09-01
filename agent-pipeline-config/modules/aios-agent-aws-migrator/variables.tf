@@ -381,6 +381,41 @@ variable "max_convergence_iterations" {
   }
 }
 
+variable "max_governance_iterations" {
+  description = "Cap for azure/gcp iac-governance-conform loops. Each iteration refreshes living Nile docs, rebuilds the decision tree, and re-verifies generated IaC. PR still requires *_iac_governance_ok=true."
+  type        = number
+  default     = 5
+
+  validation {
+    condition     = var.max_governance_iterations >= 1 && var.max_governance_iterations <= 20
+    error_message = "max_governance_iterations must be between 1 and 20."
+  }
+}
+
+variable "nile_governance_repo_url" {
+  description = "Living Nile governance git remote refreshed at the start of each governance-conform run. Default is Walmart-StackGen/Governance-and-Policy. The docs/nile-governance submodule is an optional human pin, not the runtime source."
+  type        = string
+  default     = "https://github.com/Walmart-StackGen/Governance-and-Policy.git"
+}
+
+variable "nile_governance_ref" {
+  description = "Git ref to checkout when refreshing living Nile governance docs (default main)."
+  type        = string
+  default     = "main"
+}
+
+variable "nile_rules_repo_url" {
+  description = "Nile-Factory git remote whose rules/ Rego packs are evaluated against terraform plan JSON during governance-conform. Default is Walmart-StackGen/Nile-Factory."
+  type        = string
+  default     = "https://github.com/Walmart-StackGen/Nile-Factory.git"
+}
+
+variable "nile_rules_ref" {
+  description = "Git ref for Nile-Factory rules/ when running OPA governance checks (default main; use PR branch SHA while codifying)."
+  type        = string
+  default     = "main"
+}
+
 variable "default_grouping_strategy" {
   description = <<-EOT
     Default `grouping_strategy` when workflow inputs omit it. Use `tfstate_monolith_decomposer` for

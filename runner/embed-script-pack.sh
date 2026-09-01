@@ -18,14 +18,10 @@ cp "$MODULE/scripts/gcp_iac_generate.py" "$DEST/"
 cp "$MODULE/scripts/app_iam.py" "$DEST/"
 cp "$MODULE/scripts/hcl_sanity.py" "$DEST/"
 cp "$MODULE/scripts/destination_iac_harden.py" "$DEST/"
+cp "$MODULE/scripts/governance_conform.py" "$DEST/"
+cp "$MODULE/scripts/governance_opa_check.py" "$DEST/"
 cp "$MODULE/scripts/run-destination-stage.sh" "$DEST/"
 cp "$MODULE/scripts/ensure_cloud2code.sh" "$DEST/"
-# Optional pack files added after the initial import.
-for optional in governance_conform.py governance_opa_check.py; do
-  if [ -f "$MODULE/scripts/$optional" ]; then
-    cp "$MODULE/scripts/$optional" "$DEST/"
-  fi
-done
 cp "$MODULE/mappings/aws-to-azure.json" "$DEST/mappings/"
 cp "$MODULE/mappings/aws-to-gcp.json" "$DEST/mappings/"
 chmod +x "$DEST/stage-runner.sh" "$DEST/run-destination-stage.sh"

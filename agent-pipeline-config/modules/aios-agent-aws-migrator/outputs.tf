@@ -164,6 +164,16 @@ output "script_pack_preload_dir" {
   value       = local.script_pack_preload_dir
 }
 
+output "remote_runner_image" {
+  description = "Recommended GHCR image for the remote runner (script pack + opa baked in). Pin this instead of stock guild-aiden-runner."
+  value       = local.nile_factory_runner_image
+}
+
+output "remote_runner_helm_image_sets" {
+  description = "Helm --set overrides when upgrading aiden-runner to the Nile-Factory image (append to remote_runner_helm_install_command)."
+  value       = "image.repository=${local.nile_factory_runner_image_repository} --set image.tag=${local.nile_factory_runner_image_tag} --set runner.allowedClis=${replace(local.nile_factory_runner_allowed_clis, ",", "\\,")}"
+}
+
 output "ingest_bootstrap_script" {
   description = <<-EOT
     Rendered `ingest-bootstrap.sh` that must be preloaded alongside the script

@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "nile-governance-findings/v1",
+  "title": "Per-resource governance findings",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema", "cloud", "findings"],
+  "properties": {
+    "schema": { "const": "nile-governance-findings/v1" },
+    "cloud": { "enum": ["azure", "gcp"] },
+    "authored": { "type": "boolean" },
+    "resources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "address": { "type": "string" },
+          "type": { "type": "string" },
+          "conformance_ok": { "type": "boolean" }
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["control_id", "blocks_commit"],
+        "properties": {
+          "resource_address": { "type": "string" },
+          "resource_type": { "type": "string" },
+          "file": { "type": "string" },
+          "decision_path": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "control_id": { "type": "string" },
+          "nile_priority": { "type": "integer" },
+          "blocks_commit": { "type": "boolean" },
+          "autofixed": { "type": "boolean" },
+          "severity": { "type": "string" },
+          "message": { "type": "string" },
+          "evidence_gap": { "type": "boolean" }
+        }
+      }
+    }
+  }
+}

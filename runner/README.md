@@ -16,11 +16,11 @@ identity that can read packages on `Walmart-StackGen/Nile-Factory`.
 | Tag | When |
 | --- | --- |
 | `sha-<git sha>` | Every successful publish |
-| `pack-<script_pack_version>` | Matches `SCRIPT_PACK_VERSION` in `stage-runner.sh` (currently `20260813.27`) |
+| `pack-<script_pack_version>` | Matches `SCRIPT_PACK_VERSION` in `stage-runner.sh` (currently `20260827.4`) |
 | `aiden-0.2.13` | Pinned `aiden-runner` binary |
 | `latest` | Tip of `main` |
 
-Pin `pack-20260813.27` (or the current pack tag) in production. Rebuild after every
+Pin `pack-20260827.4` (or the current pack tag) in production. Rebuild after every
 `script_pack_version` bump.
 
 ## What is inside
@@ -59,7 +59,7 @@ docker run --rm nile-factory-runner:local version
 
 ```bash
 docker login ghcr.io
-IMAGE=ghcr.io/walmart-stackgen/nile-factory-runner:pack-20260813.27
+IMAGE=ghcr.io/walmart-stackgen/nile-factory-runner:pack-20260827.4
 
 # Token and mothership URL come from tofu output (sensitive).
 # Prefer substituting this image into that command rather than pasting tokens into git.
@@ -70,7 +70,7 @@ docker run -d --name nile-factory-runner --restart unless-stopped \
   "$IMAGE"
 ```
 
-Helm: use the tofu `helm_install_command`, then `--set image.repository=ghcr.io/walmart-stackgen/nile-factory-runner --set image.tag=pack-20260813.27` and fix `runner.allowedClis` as above. Add an imagePullSecret if the cluster cannot pull private GHCR.
+Helm: use the tofu `helm_install_command`, then `--set image.repository=ghcr.io/walmart-stackgen/nile-factory-runner --set image.tag=pack-20260827.4` and fix `runner.allowedClis` as above. Add an imagePullSecret if the cluster cannot pull private GHCR.
 
 `kubectl cp` preload still works if you need to hot-fix the pack without waiting for a rebuild.
 

@@ -26,15 +26,27 @@ locals {
       required    = true
     },
     {
+      stage_id    = "gcp-iac-governance-conform"
+      description = "Refresh living Nile governance docs, derive a per-resource decision tree, author a validator, and re-verify GCP IaC"
+      note        = "LLM-led. DAG-parallel with validate/harden after generate. Runtime fetch of Governance-and-Policy (not the optional submodule pin). PR gated on gcp_iac_governance_ok=true."
+      required    = true
+    },
+    {
       stage_id    = "gcp-iac-loop"
       description = "Retry GCP generation and validation until generated GCP IaC is valid or a terminal blocker is emitted"
       note        = "loop_stage only. Re-enters gcp-iac-generate until a conclusive validate result (gcp_iac_validation_ok true|false) or terminal runner blocker — not forever on validation_ok=false."
       required    = false
     },
     {
+      stage_id    = "gcp-iac-governance-loop"
+      description = "Retry GCP governance conform until every resource is Priority-1-conformant or a terminal blocker is emitted"
+      note        = "loop_stage only. Re-enters gcp-iac-governance-conform until gcp_iac_governance_ok true|false or blocked:governance_docs_unavailable / generation_missing."
+      required    = false
+    },
+    {
       stage_id    = "gcp-pr"
       description = "Push gcp/ artifacts to the target IaC repo and open an GCP migration PR"
-      note        = "Script-first. Fresh branch starting with gcp/<workflow_run_id>; waits for validate-loop AND harden so lint/security fixes are in the same PR."
+      note        = "Script-first. Fresh branch starting with gcp/<workflow_run_id>; waits for validate-loop, harden, AND governance-loop. Opens only when gcp_iac_governance_ok=true."
       required    = true
     },
   ]

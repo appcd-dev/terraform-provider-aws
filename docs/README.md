@@ -8,7 +8,7 @@ These guides explain **cloud-migrator** for engineers working with StackGen, Gui
 | 1 | [Mental model](01-mental-model.md) | “What is this repo actually doing?” |
 | 2 | [Glossary](02-glossary.md) | Acronyms and StackGen jargon |
 | 3 | [Architecture](03-architecture.md) | Who talks to whom (StackGen, runner, GitHub, clouds) |
-| 4 | [Workflows & stages](04-workflows-and-stages.md) | Discovery vs azure-only vs gcp-only; stage DAG |
+| 4 | [Workflows & stages](04-workflows-and-stages.md) | Discovery vs azure-only vs gcp-only; living Nile gov loop; stage DAG |
 | 5 | [LLM vs scripts](05-llm-vs-scripts.md) | What the model does vs what Python/bash does |
 | 6 | [Catalog & generation](06-mapping-catalog-and-generation.md) | How AWS types become Azure/GCP HCL |
 | 7 | [Reading Azure PRs](07-reading-azure-prs.md) | How to review an Azure migration PR |

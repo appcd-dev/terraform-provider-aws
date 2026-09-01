@@ -38,6 +38,8 @@ dbsplit_copy_preloaded_script_pack() {
   [ -f "$preload_dir/app_iam.py" ] || missing="$missing app_iam.py"
   [ -f "$preload_dir/hcl_sanity.py" ] || missing="$missing hcl_sanity.py"
   [ -f "$preload_dir/destination_iac_harden.py" ] || missing="$missing destination_iac_harden.py"
+  [ -f "$preload_dir/governance_conform.py" ] || missing="$missing governance_conform.py"
+  [ -f "$preload_dir/governance_opa_check.py" ] || missing="$missing governance_opa_check.py"
   [ -n "$preload_gcp_catalog" ] || missing="$missing mappings/aws-to-gcp.json"
   if [ -n "$missing" ]; then
     echo "script_pack_error=preload_gcp_catalog_missing path=$preload_dir missing=$(echo $missing | tr ' ' ',')" >&2
@@ -54,6 +56,8 @@ dbsplit_copy_preloaded_script_pack() {
   cp "$preload_dir/app_iam.py" "$pack_dest/scripts/app_iam.py"
   cp "$preload_dir/hcl_sanity.py" "$pack_dest/scripts/hcl_sanity.py"
   cp "$preload_dir/destination_iac_harden.py" "$pack_dest/scripts/destination_iac_harden.py"
+  cp "$preload_dir/governance_conform.py" "$pack_dest/scripts/governance_conform.py"
+  cp "$preload_dir/governance_opa_check.py" "$pack_dest/scripts/governance_opa_check.py"
   if [ -f "$preload_dir/run-destination-stage.sh" ]; then
     cp "$preload_dir/run-destination-stage.sh" "$pack_dest/scripts/run-destination-stage.sh"
     chmod +x "$pack_dest/scripts/run-destination-stage.sh"
@@ -97,7 +101,7 @@ dbsplit_run_stage() {
   echo "--- stage_evidence ---"
   if [ -f "$pack_dest/notes.json" ]; then
     jq -r 'to_entries[]
-      | select(.key | test("^(stage_summary:|pr_url$|iac_pr_url$|azure_pr_url$|gcp_pr_url$|working_branch$|azure_working_branch$|gcp_working_branch$|pr_blocker$|iac_push_status$|azure_iac_|azure_source_|azure_migration_|azure_plan_|gcp_iac_|gcp_source_|gcp_migration_|gcp_plan_)"))
+      | select(.key | test("^(stage_summary:|pr_url$|iac_pr_url$|azure_pr_url$|gcp_pr_url$|working_branch$|azure_working_branch$|gcp_working_branch$|pr_blocker$|iac_push_status$|azure_iac_|azure_source_|azure_migration_|azure_plan_|azure_governance_|gcp_iac_|gcp_source_|gcp_migration_|gcp_plan_|gcp_governance_|azure_iac_opa_|gcp_iac_opa_)"))
       | "\(.key)=\(.value)"' "$pack_dest/notes.json" 2>/dev/null || true
   fi
   echo "stage_exit_code=$rc"
@@ -109,7 +113,7 @@ dbsplit_run_stage() {
 
 dbsplit_ensure_script_pack() {
   local pack_dest="$${1:?PACK_DEST}"
-  if [ -f "$pack_dest/scripts/allocate_manifest.py" ] && [ -f "$pack_dest/scripts/tfstate_monolith_decomposer.py" ] && [ -f "$pack_dest/scripts/stage-runner.sh" ] && [ -f "$pack_dest/scripts/azure_mapping_catalog.py" ] && [ -f "$pack_dest/scripts/mappings/aws-to-azure.json" ] && [ -f "$pack_dest/scripts/gcp_mapping_catalog.py" ] && [ -f "$pack_dest/scripts/mappings/aws-to-gcp.json" ] && [ -f "$pack_dest/scripts/gcp_iac_generate.py" ] && [ -f "$pack_dest/scripts/app_iam.py" ] && [ -f "$pack_dest/scripts/hcl_sanity.py" ] && [ -f "$pack_dest/scripts/destination_iac_harden.py" ]; then
+  if [ -f "$pack_dest/scripts/allocate_manifest.py" ] && [ -f "$pack_dest/scripts/tfstate_monolith_decomposer.py" ] && [ -f "$pack_dest/scripts/stage-runner.sh" ] && [ -f "$pack_dest/scripts/azure_mapping_catalog.py" ] && [ -f "$pack_dest/scripts/mappings/aws-to-azure.json" ] && [ -f "$pack_dest/scripts/gcp_mapping_catalog.py" ] && [ -f "$pack_dest/scripts/mappings/aws-to-gcp.json" ] && [ -f "$pack_dest/scripts/gcp_iac_generate.py" ] && [ -f "$pack_dest/scripts/app_iam.py" ] && [ -f "$pack_dest/scripts/hcl_sanity.py" ] && [ -f "$pack_dest/scripts/destination_iac_harden.py" ] && [ -f "$pack_dest/scripts/governance_conform.py" ] && [ -f "$pack_dest/scripts/governance_opa_check.py" ]; then
     local actual decomposer_actual runner_actual catalog_py_actual catalog_json_actual gcp_catalog_py_actual gcp_catalog_json_actual
     actual="$(sha256sum "$pack_dest/scripts/allocate_manifest.py" | awk '{print $1}')"
     decomposer_actual="$(sha256sum "$pack_dest/scripts/tfstate_monolith_decomposer.py" | awk '{print $1}')"

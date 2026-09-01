@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "nile-codify-manifest/v1",
+  "title": "Codified governance rules manifest",
+  "description": "Maps source markdown paths to committed rule pack directories and content hashes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "repo", "ref", "updated_at", "entries"],
+  "properties": {
+    "schema": { "const": "nile-codify-manifest/v1" },
+    "repo": {
+      "type": "string",
+      "description": "Source repository URL (https://github.com/owner/repo.git)"
+    },
+    "ref": {
+      "type": "string",
+      "description": "Git ref (branch, tag, or SHA) the manifest was built from"
+    },
+    "commit_sha": {
+      "type": "string",
+      "description": "Resolved commit SHA at ref when manifest was updated"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC3339 timestamp of last manifest update"
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["doc_path", "pack_dir", "content_sha256"],
+        "properties": {
+          "doc_path": {
+            "type": "string",
+            "description": "Relative path to source markdown (e.g. governance/priority-controls.md)"
+          },
+          "pack_dir": {
+            "type": "string",
+            "description": "Relative path to rule pack directory under rules/"
+          },
+          "content_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "description": "SHA256 of markdown content at codify time"
+          },
+          "source_ref": {
+            "type": "string",
+            "description": "Git ref used when this entry was codified"
+          },
+          "codified_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
+    }
+  }
+}

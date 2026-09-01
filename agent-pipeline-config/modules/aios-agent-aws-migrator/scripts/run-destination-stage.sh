@@ -13,14 +13,23 @@ PACK_DIR="$(cd "$(dirname "$0")" && pwd)"
 mkdir -p "$WORK_ROOT/scripts/mappings" "$WORK_ROOT/.work" "$WORK_ROOT/gcp/artifacts" "$WORK_ROOT/azure/artifacts"
 for f in allocate_manifest.py tfstate_monolith_decomposer.py stage-runner.sh \
   azure_mapping_catalog.py azure_iac_generate.py gcp_mapping_catalog.py gcp_iac_generate.py \
-  app_iam.py hcl_sanity.py destination_iac_harden.py; do
+  app_iam.py hcl_sanity.py destination_iac_harden.py governance_conform.py governance_opa_check.py; do
   cp -f "${PACK_DIR}/${f}" "${WORK_ROOT}/scripts/${f}"
 done
-cp -f "${PACK_DIR}/mappings/"*.json "${WORK_ROOT}/scripts/mappings/" 2>/dev/null || true
+if ! compgen -G "${PACK_DIR}/mappings/"*.json >/dev/null; then
+  echo "script_pack_error=missing_mappings dir=${PACK_DIR}/mappings" >&2
+  exit 1
+fi
+cp -f "${PACK_DIR}/mappings/"*.json "${WORK_ROOT}/scripts/mappings/"
 
 export DBSPLIT_EMBEDDED=1
 export WORKFLOW_RUN_ID
 export IAC_REPOSITORY_URL="${IAC_REPOSITORY_URL:-https://github.com/Walmart-StackGen/Nile-Factory.git}"
+export NILE_RULES_REPO="${NILE_RULES_REPO:-$IAC_REPOSITORY_URL}"
+# Prefer the Nile rules pack branch used by walle/ai.dev (main has no rules/).
+export NILE_RULES_REF="${NILE_RULES_REF:-f8f6f171a0a15c195954c53c330e15df2af6aa99_20260827033726}"
+export NILE_GOVERNANCE_REPO="${NILE_GOVERNANCE_REPO:-https://github.com/Walmart-StackGen/Governance-and-Policy.git}"
+export NILE_GOVERNANCE_REF="${NILE_GOVERNANCE_REF:-main}"
 export SOURCE_IAC_REPOSITORY_URL="${SOURCE_IAC_REPOSITORY_URL:-$IAC_REPOSITORY_URL}"
 export DEFAULT_BRANCH="${DEFAULT_BRANCH:-main}"
 export REQUIRE_GCP_LIVE_PLAN="${REQUIRE_GCP_LIVE_PLAN:-1}"
@@ -96,7 +105,7 @@ run_logged_stage() {
   echo "--- stage_evidence ---"
   if [ -f "$WORK_ROOT/notes.json" ]; then
     jq -r 'to_entries[]
-      | select(.key | test("^(stage_summary:|pr_url$|iac_pr_url$|azure_pr_url$|gcp_pr_url$|working_branch$|azure_working_branch$|gcp_working_branch$|pr_blocker$|iac_push_status$|azure_iac_|azure_source_|azure_migration_|azure_plan_|gcp_iac_|gcp_source_|gcp_migration_|gcp_plan_|source_)"))
+      | select(.key | test("^(stage_summary:|pr_url$|iac_pr_url$|azure_pr_url$|gcp_pr_url$|working_branch$|azure_working_branch$|gcp_working_branch$|pr_blocker$|iac_push_status$|azure_iac_|azure_source_|azure_migration_|azure_plan_|azure_governance_|gcp_iac_|gcp_source_|gcp_migration_|gcp_plan_|gcp_governance_|source_)"))
       | "\(.key)=\(.value)"' "$WORK_ROOT/notes.json" 2>/dev/null || true
   fi
   echo "stage_exit_code=$rc"
@@ -118,6 +127,9 @@ case "$STAGE" in
   gcp-iac-harden)
     run_logged_stage gcp-iac-harden "$WORK_ROOT"
     ;;
+  gcp-iac-governance-conform)
+    run_logged_stage gcp-iac-governance-conform "$WORK_ROOT"
+    ;;
   gcp-iac-validate)
     run_logged_stage gcp-iac-validate "$WORK_ROOT"
     ;;
@@ -135,6 +147,9 @@ case "$STAGE" in
     ;;
   azure-iac-harden)
     run_logged_stage azure-iac-harden "$WORK_ROOT"
+    ;;
+  azure-iac-governance-conform)
+    run_logged_stage azure-iac-governance-conform "$WORK_ROOT"
     ;;
   azure-iac-validate)
     run_logged_stage azure-iac-validate "$WORK_ROOT"

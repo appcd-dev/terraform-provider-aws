@@ -55,13 +55,17 @@ if ! command -v tofu >/dev/null 2>&1 && ! command -v terraform >/dev/null 2>&1; 
   emit_blocked "blocked:remote_runner_tofu_missing" "tofu_missing"
 fi
 
+if ! command -v opa >/dev/null 2>&1; then
+  emit_blocked "blocked:remote_runner_opa_missing" "opa_missing"
+fi
+
 ${ensure_cloud2code_script}
 
 if ! ensure_cloud2code; then
   emit_blocked "blocked:remote_runner_cloud2code_missing" "cloud2code_install_failed"
 fi
 
-if [ ! -d "$SCRIPT_PACK_DIR" ] || [ ! -f "$SCRIPT_PACK_DIR/stage-runner.sh" ] || [ ! -f "$SCRIPT_PACK_DIR/ingest-bootstrap.sh" ]; then
+if [ ! -d "$SCRIPT_PACK_DIR" ] || [ ! -f "$SCRIPT_PACK_DIR/stage-runner.sh" ] || [ ! -f "$SCRIPT_PACK_DIR/ingest-bootstrap.sh" ] || [ ! -f "$SCRIPT_PACK_DIR/run-destination-stage.sh" ]; then
   emit_blocked "blocked:remote_runner_script_pack_missing" "script_pack_missing"
 fi
 

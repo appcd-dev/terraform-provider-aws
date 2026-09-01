@@ -4,7 +4,7 @@
 # Usage: DBSPLIT_EMBEDDED=1 bash -s <command> [args...] << 'DBSPLIT_STAGE_RUNNER' ... DBSPLIT_STAGE_RUNNER
 set -euo pipefail
 
-SCRIPT_PACK_VERSION="20260813.27"
+SCRIPT_PACK_VERSION="20260827.4"
 DBSPLIT_DEFAULT_STRATEGY="${DBSPLIT_DEFAULT_STRATEGY:-tfstate_monolith_decomposer}"
 DBSPLIT_DEFAULT_CAP="${DBSPLIT_DEFAULT_CAP:-0}"
 REQUIRED_ALLOCATE_MARKER="def merge_small_by_seed"
@@ -2072,9 +2072,10 @@ write_destination_todo_md() {
     echo "4. [How to review (shape vs permissions vs defer)](#how-to-review-shape-vs-permissions-vs-defer)"
     echo "5. [Review-needed index](#review-needed-index)"
     echo "6. [Lint / security harden](#lint--security-harden)"
-    echo "7. [Validation detail](#validation-detail)"
-    echo "8. [Artifact map](#artifact-map)"
-    echo "9. [Sign-off checklist](#sign-off-checklist)"
+    echo "7. [Nile governance](#nile-governance)"
+    echo "8. [Validation detail](#validation-detail)"
+    echo "9. [Artifact map](#artifact-map)"
+    echo "10. [Sign-off checklist](#sign-off-checklist)"
     echo
     echo "## Start here"
     echo
@@ -2249,6 +2250,29 @@ write_destination_todo_md() {
       echo "- Harden stage has not run yet (or report missing). After \`${cloud}-iac-harden\`, autofixes + scanner findings appear here."
       echo
     fi
+    echo "## Nile governance"
+    echo
+    echo "Agents refresh Governance-and-Policy each run and author a validator from **this-run** docs (not a frozen catalog)."
+    echo
+    local gov_report="${work_root}/${cloud}/artifacts/governance-conformance-report.json"
+    if [ -f "$gov_report" ]; then
+      echo "- Report: [\`governance-conformance-report.json\`](./governance-conformance-report.json)"
+      echo "- Source: [\`governance-source.json\`](./governance-source.json)"
+      echo "- Exceptions: [\`governance-exceptions.md\`](./governance-exceptions.md)"
+      echo
+      echo "| Item | Value |"
+      echo "| --- | --- |"
+      echo "| Governance SHA | \`$(jq -r '.governance_commit_sha // empty' "$gov_report" 2>/dev/null || echo unknown)\` |"
+      echo "| conformance_ok | \`$(jq -r '.conformance_ok // false' "$gov_report" 2>/dev/null || echo false)\` |"
+      echo "| Blocking findings | \`$(jq -r '.blocking_count // 0' "$gov_report" 2>/dev/null || echo 0)\` |"
+      echo "| Iteration | \`$(jq -r '.iteration // 0' "$gov_report" 2>/dev/null || echo 0)\` |"
+      echo
+      echo "- Validation evidence is **not** human approval."
+      echo
+    else
+      echo "- Governance conform has not run yet. After \`${cloud}-iac-governance-conform\`, SHA + findings appear here."
+      echo
+    fi
     echo "## Validation detail"
     echo
     echo "- Report file: [\`validation-report.json\`](./validation-report.json)"
@@ -2276,6 +2300,13 @@ write_destination_todo_md() {
     echo "| \`${cloud}/artifacts/review-needed.md\` | Per-group review reasons |"
     echo "| \`${cloud}/artifacts/harden-report.json\` | Lint/security autofix rollup |"
     echo "| \`${cloud}/artifacts/harden-findings.md\` | Residual harden findings |"
+    echo "| \`${cloud}/artifacts/governance-source.json\` | Living governance repo/ref/SHA used this run |"
+    echo "| \`${cloud}/artifacts/resource-inventory.json\` | Per-resource type/file inventory |"
+    echo "| \`${cloud}/artifacts/governance-decision-tree.json\` | This-run tree derived from current docs |"
+    echo "| \`${cloud}/artifacts/governance-validator.py\` | Agent-authored validator from that tree |"
+    echo "| \`${cloud}/artifacts/governance-findings.json\` | Per-resource control findings |"
+    echo "| \`${cloud}/artifacts/governance-conformance-report.json\` | Rollup + iteration + gov SHA |"
+    echo "| \`${cloud}/artifacts/governance-exceptions.md\` | Blocking residuals only |"
     echo "| \`${cloud}/artifacts/validation-report.json\` | Static + live plan matrix |"
     echo "| \`${cloud}/artifacts/generation-summary.json\` | Emission + conversion counters |"
     echo "| \`${cloud}/artifacts/mapping-decisions.json\` | Full mapping table by group |"
@@ -2287,6 +2318,7 @@ write_destination_todo_md() {
     echo "- [ ] Confirmed AWS source PR/branch matches this destination PR"
     echo "- [ ] Static validate failures resolved or explicitly accepted"
     echo "- [ ] Harden residual high findings reviewed (or accepted)"
+    echo "- [ ] Nile Priority-1 governance residuals cleared (see \`governance-exceptions.md\`); SHA in \`governance-source.json\`"
     echo "- [ ] Live plan sample reviewed (or credentials gap accepted with follow-up ticket)"
     echo "- [ ] Sampled plans show expected creates only (no deletes/replaces)"
     echo "- [ ] Ambiguous HITL groups resolved (or accepted with owner)"
@@ -2649,16 +2681,20 @@ cmd_azure_source_fetch() {
 
   if [ -n "$source_pr" ]; then
     local resolved_branch=""
-    if ! resolved_branch="$(resolve_source_pr_head_branch "$repo_full" "$source_pr")"; then
+    if resolved_branch="$(resolve_source_pr_head_branch "$repo_full" "$source_pr")"; then
+      source_branch="$resolved_branch"
+      mirror_note "$work_root" "source_pr" "$source_pr"
+      echo "source_pr=${source_pr}"
+    elif [ -n "$source_branch" ]; then
+      echo "source_pr_resolve_failed_fallback_branch=${source_branch}"
+      mirror_note "$work_root" "source_pr_resolve_fallback" "using SOURCE_IAC_BRANCH after source_pr=${source_pr} failed"
+    else
       mirror_note "$work_root" "blocked:azure_source_iac_fetch_failed" "source_pr_resolve_failed"
       mirror_note "$work_root" "stage_summary:azure-source-fetch" "blocked:source_pr_resolve_failed"
       echo "blocked:azure_source_iac_fetch_failed=source_pr_resolve_failed"
       echo "source_pr=${source_pr}"
       return 1
     fi
-    source_branch="$resolved_branch"
-    mirror_note "$work_root" "source_pr" "$source_pr"
-    echo "source_pr=${source_pr}"
   fi
   if [ -z "$source_branch" ]; then
     mirror_note "$work_root" "blocked:azure_source_iac_fetch_failed" "missing_source_iac_branch"
@@ -4393,6 +4429,156 @@ cmd_gcp_iac_harden() {
   cmd_destination_iac_harden "${1:?WORK_ROOT}" "gcp"
 }
 
+# Living-governance harness: refresh docs, inventory, run agent-authored validator.
+# Does not encode Nile Priority-1 rules — the validator is authored from this-run docs.
+cmd_destination_iac_governance_conform() {
+  local work_root="${1:?WORK_ROOT}"
+  local cloud="${2:?CLOUD}" # azure|gcp
+  require_embedded_invocation || return 1
+
+  local groups_dir="${work_root}/${cloud}/groups"
+  local artifacts_dir="${work_root}/${cloud}/artifacts"
+  local harness="${work_root}/scripts/governance_conform.py"
+  local opa_harness="${work_root}/scripts/governance_opa_check.py"
+  local ok_key="${cloud}_iac_governance_ok"
+  local stage_id="${cloud}-iac-governance-conform"
+
+  if [ ! -d "$groups_dir" ]; then
+    mirror_note "$work_root" "$ok_key" "false"
+    mirror_note "$work_root" "stage_summary:${stage_id}" "blocked:generation_missing"
+    echo "${ok_key}: \"false\""
+    echo "stage_summary:${stage_id}=blocked:generation_missing"
+    return 1
+  fi
+
+  mkdir -p "$artifacts_dir"
+  local script_dir
+  script_dir="$(dirname "${BASH_SOURCE[0]}")"
+  if [ ! -f "$harness" ]; then
+    if [ -f "${script_dir}/governance_conform.py" ]; then
+      mkdir -p "${work_root}/scripts"
+      cp "${script_dir}/governance_conform.py" "$harness"
+    else
+      mirror_note "$work_root" "$ok_key" "false"
+      mirror_note "$work_root" "stage_summary:${stage_id}" "blocked:missing_governance_harness"
+      echo "${ok_key}: \"false\""
+      echo "stage_summary:${stage_id}=blocked:missing_governance_harness"
+      return 1
+    fi
+  fi
+  if [ ! -f "$opa_harness" ]; then
+    if [ -f "${script_dir}/governance_opa_check.py" ]; then
+      mkdir -p "${work_root}/scripts"
+      cp "${script_dir}/governance_opa_check.py" "$opa_harness"
+    else
+      mirror_note "$work_root" "$ok_key" "false"
+      mirror_note "$work_root" "stage_summary:${stage_id}" "blocked:governance_opa_unavailable"
+      echo "${ok_key}: \"false\""
+      echo "stage_summary:${stage_id}=blocked:governance_opa_unavailable"
+      return 1
+    fi
+  fi
+
+  local rc=0
+  python3 "$harness" --work-root "$work_root" --cloud "$cloud" --all \
+    >"${artifacts_dir}/governance-conform.out" 2>"${artifacts_dir}/governance-conform.err" || rc=$?
+
+  local report="${artifacts_dir}/governance-conformance-report.json"
+  local opa_rc=0 opa_ok="true" opa_blocked="" opa_report="${artifacts_dir}/governance-opa-report.json"
+  if [ -f "$opa_harness" ]; then
+    python3 "$opa_harness" --work-root "$work_root" --cloud "$cloud" \
+      >"${artifacts_dir}/governance-opa-check.out" 2>"${artifacts_dir}/governance-opa-check.err" || opa_rc=$?
+    if [ -f "$opa_report" ] && command -v jq >/dev/null 2>&1; then
+      opa_ok="$(jq -r 'if .opa_ok == true then "true" else "false" end' "$opa_report" 2>/dev/null || echo false)"
+      opa_blocked="$(jq -r '.blocked // empty' "$opa_report" 2>/dev/null || true)"
+    fi
+    if [ "$opa_rc" -eq 2 ]; then
+      mirror_note "$work_root" "$ok_key" "false"
+      mirror_note "$work_root" "${cloud}_iac_governance_report" "$report"
+      mirror_note "$work_root" "${cloud}_iac_opa_report" "$opa_report"
+      mirror_note "$work_root" "${cloud}_iac_opa_findings" "${artifacts_dir}/governance-opa-findings.json"
+      mirror_note "$work_root" "stage_summary:${stage_id}" "blocked:governance_opa_unavailable"
+      echo "${ok_key}: \"false\""
+      echo "stage_summary:${stage_id}=blocked:governance_opa_unavailable"
+      return 1
+    fi
+  fi
+
+  local sha="" ok="false" blocked="" iteration="0"
+  if [ -f "$report" ] && command -v jq >/dev/null 2>&1; then
+    sha="$(jq -r '.governance_commit_sha // empty' "$report" 2>/dev/null || true)"
+    ok="$(jq -r 'if .conformance_ok == true then "true" else "false" end' "$report" 2>/dev/null || echo false)"
+    blocked="$(jq -r '.blocked // empty' "$report" 2>/dev/null || true)"
+    iteration="$(jq -r '.iteration // 0' "$report" 2>/dev/null || echo 0)"
+  fi
+
+  if [ "$cloud" = "azure" ] || [ "$cloud" = "gcp" ]; then
+    write_destination_todo_md "$work_root" "$cloud" 2>/dev/null || true
+  fi
+
+  if [ "$blocked" = "governance_docs_unavailable" ] || [ "$rc" -eq 2 ]; then
+    mirror_note "$work_root" "$ok_key" "false"
+    mirror_note "$work_root" "${cloud}_iac_governance_report" "$report"
+    mirror_note "$work_root" "${cloud}_governance_commit_sha" "$sha"
+    mirror_note "$work_root" "stage_summary:${stage_id}" "blocked:governance_docs_unavailable"
+    echo "${ok_key}: \"false\""
+    echo "stage_summary:${stage_id}=blocked:governance_docs_unavailable"
+    return 1
+  fi
+
+  if [ "$opa_ok" != "true" ]; then
+    ok="false"
+  fi
+
+  mirror_note "$work_root" "$ok_key" "$ok"
+  mirror_note "$work_root" "${cloud}_iac_governance_report" "$report"
+  mirror_note "$work_root" "${cloud}_iac_governance_findings" "${artifacts_dir}/governance-findings.json"
+  mirror_note "$work_root" "${cloud}_iac_opa_report" "$opa_report"
+  mirror_note "$work_root" "${cloud}_iac_opa_findings" "${artifacts_dir}/governance-opa-findings.json"
+  mirror_note "$work_root" "${cloud}_iac_opa_fix_hints" "${artifacts_dir}/governance-opa-fix-hints.md"
+  mirror_note "$work_root" "${cloud}_governance_commit_sha" "$sha"
+  mirror_note "$work_root" "${cloud}_iac_governance_iteration" "$iteration"
+  if [ -n "$opa_blocked" ]; then
+    mirror_note "$work_root" "${cloud}_iac_opa_blocked" "$opa_blocked"
+  fi
+  if [ "$ok" = "true" ]; then
+    mirror_note "$work_root" "stage_summary:${stage_id}" "ok"
+    echo "${ok_key}: \"true\""
+    echo "stage_summary:${stage_id}=ok"
+    echo "${cloud}_governance_commit_sha=${sha}"
+    return 0
+  fi
+
+  mirror_note "$work_root" "stage_summary:${stage_id}" "ok"
+  echo "${ok_key}: \"false\""
+  echo "stage_summary:${stage_id}=ok"
+  echo "${cloud}_governance_commit_sha=${sha}"
+  return 0
+}
+
+cmd_azure_iac_governance_conform() {
+  cmd_destination_iac_governance_conform "${1:?WORK_ROOT}" "azure"
+}
+
+cmd_gcp_iac_governance_conform() {
+  cmd_destination_iac_governance_conform "${1:?WORK_ROOT}" "gcp"
+}
+
+require_destination_governance_ok() {
+  local work_root="${1:?WORK_ROOT}"
+  local cloud="${2:?CLOUD}"
+  local ok
+  ok="$(read_note "$work_root" "${cloud}_iac_governance_ok" 2>/dev/null || true)"
+  if [ "$ok" = "true" ]; then
+    return 0
+  fi
+  mirror_note "$work_root" "pr_blocker" "governance_nonconformant"
+  mirror_note "$work_root" "stage_summary:${cloud}-pr" "blocked:governance_nonconformant"
+  echo "pr_blocker=governance_nonconformant"
+  echo "stage_summary:${cloud}-pr=blocked:governance_nonconformant"
+  return 1
+}
+
 cmd_azure_iac_validate() {
   local work_root="${1:?WORK_ROOT}"
   require_embedded_invocation || return 1
@@ -4798,6 +4984,7 @@ write_azure_pr_body() {
     echo
     echo "- Static validation runs \`tofu fmt\`, \`tofu validate\`, optional \`tofu test\`, and optional \`tflint\` on validated groups."
     echo "- Parallel \`azure-iac-harden\` applies mechanical security/lint autofixes into the same PR; see \`azure/artifacts/harden-findings.md\`."
+    echo "- \`azure-iac-governance-conform\` refreshes living Nile docs, derives a per-resource tree, and re-verifies until Priority-1-conformant. PR is gated on \`azure_iac_governance_ok=true\`. Pin SHA from \`azure/artifacts/governance-source.json\`. Validation evidence is not human approval."
     echo "- Live Azure plan runs only when Azure credentials are present on the runner (sampled when \`AZURE_LIVE_PLAN_MAX_GROUPS\` is set)."
     echo "- Live plan status is recorded as \`azure_plan_status\`. When credentials are required, missing ARM_* fails validate; this PR never applies Azure resources."
     echo "- When a live plan runs, sampled success requires expected creates and no deletes or replacements."
@@ -4816,6 +5003,8 @@ write_azure_pr_body() {
     echo "- Migration blueprint: \`azure/artifacts/migration-blueprint.json\`"
     echo "- Validation report: \`azure/artifacts/validation-report.json\`"
     echo "- Harden report: \`azure/artifacts/harden-report.json\`"
+    echo "- Governance source SHA: \`azure/artifacts/governance-source.json\`"
+    echo "- Governance conformance: \`azure/artifacts/governance-conformance-report.json\`"
     echo "- Generation summary (incl. conversion): \`azure/artifacts/generation-summary.json\`"
     echo
     if [ -n "$unsupported_excerpt" ]; then
@@ -4861,6 +5050,7 @@ cmd_azure_pr() {
   if [ ! -d "${work_root}/azure/groups" ]; then
     cmd_azure_iac_generate "$work_root"
   fi
+  require_destination_governance_ok "$work_root" "azure" || return 1
   ensure_destination_validation_report "$work_root" "azure" || return 1
   prune_destination_validation_temp_reports "${work_root}/azure/artifacts"
 
@@ -4972,6 +5162,38 @@ cmd_azure_pr() {
 }
 
 
+# normalize_gcp_source_groups copies alternate agent layouts into canonical $WORK_ROOT/groups/.
+# Without this, blueprint sees zero groups when fetch used source-iac/ instead of the runner script.
+normalize_gcp_source_groups() {
+  local work_root="${1:?WORK_ROOT}"
+  local groups_dir="${work_root}/groups"
+  local count candidate
+
+  count="$(find "${groups_dir}" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')"
+  if [ "${count:-0}" -gt 0 ]; then
+    return 0
+  fi
+
+  for candidate in \
+    "${work_root}/source_repo/aws/groups" \
+    "${work_root}/source-iac/aws/groups" \
+    "${work_root}/source_aws/groups"; do
+    if [ ! -d "$candidate" ]; then
+      continue
+    fi
+    count="$(find "$candidate" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')"
+    if [ "${count:-0}" -eq 0 ]; then
+      continue
+    fi
+    rm -rf "$groups_dir"
+    cp -a "$candidate" "$groups_dir"
+    echo "gcp_source_groups_normalized_from=${candidate}"
+    return 0
+  done
+
+  return 1
+}
+
 cmd_gcp_source_fetch() {
   local work_root="${1:?WORK_ROOT}"
   local repo_url="${2:-${SOURCE_IAC_REPOSITORY_URL:-}}"
@@ -5037,16 +5259,20 @@ cmd_gcp_source_fetch() {
 
   if [ -n "$source_pr" ]; then
     local resolved_branch=""
-    if ! resolved_branch="$(resolve_source_pr_head_branch "$repo_full" "$source_pr")"; then
+    if resolved_branch="$(resolve_source_pr_head_branch "$repo_full" "$source_pr")"; then
+      source_branch="$resolved_branch"
+      mirror_note "$work_root" "source_pr" "$source_pr"
+      echo "source_pr=${source_pr}"
+    elif [ -n "$source_branch" ]; then
+      echo "source_pr_resolve_failed_fallback_branch=${source_branch}"
+      mirror_note "$work_root" "source_pr_resolve_fallback" "using SOURCE_IAC_BRANCH after source_pr=${source_pr} failed"
+    else
       mirror_note "$work_root" "blocked:gcp_source_iac_fetch_failed" "source_pr_resolve_failed"
       mirror_note "$work_root" "stage_summary:gcp-source-fetch" "blocked:source_pr_resolve_failed"
       echo "blocked:gcp_source_iac_fetch_failed=source_pr_resolve_failed"
       echo "source_pr=${source_pr}"
       return 1
     fi
-    source_branch="$resolved_branch"
-    mirror_note "$work_root" "source_pr" "$source_pr"
-    echo "source_pr=${source_pr}"
   fi
   if [ -z "$source_branch" ]; then
     mirror_note "$work_root" "blocked:gcp_source_iac_fetch_failed" "missing_source_iac_branch"
@@ -5144,6 +5370,12 @@ PY
 
   local group_count
   group_count="$(find "${work_root}/groups" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')"
+  if [ ! -d "${work_root}/groups" ] || [ "${group_count:-0}" -eq 0 ]; then
+    mirror_note "$work_root" "blocked:gcp_source_iac_fetch_failed" "empty_groups_layout"
+    mirror_note "$work_root" "stage_summary:gcp-source-fetch" "blocked:empty_groups_layout"
+    echo "source_fetch_error=empty_groups_layout group_count=${group_count}"
+    return 1
+  fi
   mirror_note "$work_root" "gcp_source_iac_fetched" "true"
   mirror_note "$work_root" "gcp_source_iac_group_count" "$group_count"
   mirror_note "$work_root" "logical_group_count" "$group_count"
@@ -5161,6 +5393,8 @@ PY
 cmd_gcp_migration_blueprint() {
   local work_root="${1:?WORK_ROOT}"
   require_embedded_invocation || return 1
+
+  normalize_gcp_source_groups "$work_root" || true
 
   mkdir -p "${work_root}/gcp/artifacts"
 
@@ -5485,6 +5719,12 @@ PY
 
   local group_count
   group_count="$(jq -r '.group_count // 0' "${work_root}/gcp/artifacts/migration-blueprint.json")"
+  if [ "${group_count:-0}" -eq 0 ]; then
+    mirror_note "$work_root" "gcp_migration_blueprint_ok" "false"
+    mirror_note "$work_root" "stage_summary:gcp-migration-blueprint" "blocked:empty_blueprint"
+    echo "gcp_blueprint_error=empty_blueprint group_count=0"
+    return 1
+  fi
   mirror_note "$work_root" "gcp_migration_profile_path" "${work_root}/gcp/artifacts/migration-profile.json"
   mirror_note "$work_root" "gcp_migration_blueprint_path" "${work_root}/gcp/artifacts/migration-blueprint.json"
   mirror_note "$work_root" "gcp_review_needed_path" "${work_root}/gcp/artifacts/review-needed.md"
@@ -5514,6 +5754,13 @@ cmd_gcp_iac_generate() {
 
   local group_count
   group_count="$(jq -r '.generated_group_count // 0' "${work_root}/gcp/artifacts/generation-summary.json" 2>/dev/null || echo 0)"
+  if [ "${group_count:-0}" -eq 0 ]; then
+    mirror_note "$work_root" "gcp_iac_group_count" "0"
+    mirror_note "$work_root" "gcp_iac_generated" "false"
+    mirror_note "$work_root" "stage_summary:gcp-iac-generate" "blocked:empty_generation"
+    echo "gcp_iac_generate_error=empty_generation"
+    return 1
+  fi
   mirror_note "$work_root" "gcp_iac_group_count" "$group_count"
   mirror_note "$work_root" "gcp_iac_generated" "true"
   mirror_note "$work_root" "stage_summary:gcp-iac-generate" "ok"
@@ -5976,6 +6223,7 @@ write_gcp_pr_body() {
     echo
     echo "- Static validation runs \`tofu fmt\`, \`tofu validate\`, optional \`tofu test\`, and optional \`tflint\` on validated groups."
     echo "- Parallel \`gcp-iac-harden\` applies mechanical security/lint autofixes into the same PR; see \`gcp/artifacts/harden-findings.md\`."
+    echo "- \`gcp-iac-governance-conform\` refreshes living Nile docs, derives a per-resource tree, and re-verifies until Priority-1-conformant. PR is gated on \`gcp_iac_governance_ok=true\`. Pin SHA from \`gcp/artifacts/governance-source.json\`. Validation evidence is not human approval."
     echo "- Live GCP plan runs only when GCP credentials are present on the runner (sampled when \`GCP_LIVE_PLAN_MAX_GROUPS\` is set)."
     echo "- Live plan status is recorded as \`gcp_plan_status\`. When credentials are required, missing GOOGLE_*/GCP_* fails validate; this PR never applies GCP resources."
     echo "- When a live plan runs, sampled success requires expected creates and no deletes or replacements."
@@ -5995,6 +6243,8 @@ write_gcp_pr_body() {
     echo "- Generation summary (incl. conversion): \`gcp/artifacts/generation-summary.json\`"
     echo "- Validation report: \`gcp/artifacts/validation-report.json\`"
     echo "- Harden report: \`gcp/artifacts/harden-report.json\`"
+    echo "- Governance source SHA: \`gcp/artifacts/governance-source.json\`"
+    echo "- Governance conformance: \`gcp/artifacts/governance-conformance-report.json\`"
     echo
     if [ -n "$unsupported_excerpt" ]; then
       echo "## Unsupported or placeholder mappings"
@@ -6039,6 +6289,7 @@ cmd_gcp_pr() {
   if [ ! -d "${work_root}/gcp/groups" ]; then
     cmd_gcp_iac_generate "$work_root"
   fi
+  require_destination_governance_ok "$work_root" "gcp" || return 1
   ensure_destination_validation_report "$work_root" "gcp" || return 1
   prune_destination_validation_temp_reports "${work_root}/gcp/artifacts"
 
@@ -6469,16 +6720,18 @@ main() {
     azure-migration-blueprint) cmd_azure_migration_blueprint "$@" ;;
     azure-iac-generate) cmd_azure_iac_generate "$@" ;;
     azure-iac-harden) cmd_azure_iac_harden "$@" ;;
+    azure-iac-governance-conform) cmd_azure_iac_governance_conform "$@" ;;
     azure-iac-validate) cmd_azure_iac_validate "$@" ;;
     azure-pr) cmd_azure_pr "$@" ;;
     gcp-source-fetch) cmd_gcp_source_fetch "$@" ;;
     gcp-migration-blueprint) cmd_gcp_migration_blueprint "$@" ;;
     gcp-iac-generate) cmd_gcp_iac_generate "$@" ;;
     gcp-iac-harden) cmd_gcp_iac_harden "$@" ;;
+    gcp-iac-governance-conform) cmd_gcp_iac_governance_conform "$@" ;;
     gcp-iac-validate) cmd_gcp_iac_validate "$@" ;;
     gcp-pr) cmd_gcp_pr "$@" ;;
     *)
-      echo "usage: …|azure-iac-generate|azure-iac-harden|azure-iac-validate|azure-pr|gcp-source-fetch|gcp-migration-blueprint|gcp-iac-generate|gcp-iac-harden|gcp-iac-validate|gcp-pr WORK_ROOT ..." >&2
+      echo "usage: …|azure-iac-generate|azure-iac-harden|azure-iac-governance-conform|azure-iac-validate|azure-pr|gcp-source-fetch|gcp-migration-blueprint|gcp-iac-generate|gcp-iac-harden|gcp-iac-governance-conform|gcp-iac-validate|gcp-pr WORK_ROOT ..." >&2
       exit 2
       ;;
   esac

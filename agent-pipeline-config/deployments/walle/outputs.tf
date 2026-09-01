@@ -68,8 +68,28 @@ output "script_pack_preload_dir" {
   value       = module.aws_migrator.script_pack_preload_dir
 }
 
+output "remote_runner_image" {
+  description = "GHCR Nile-Factory runner image (script pack + opa CLI baked in)."
+  value       = module.aws_migrator.remote_runner_image
+}
+
+output "remote_runner_helm_image_sets" {
+  description = "Helm --set flags to point aiden-runner at the Nile-Factory image."
+  value       = module.aws_migrator.remote_runner_helm_image_sets
+}
+
 output "ingest_bootstrap_script" {
   description = "Rendered ingest-bootstrap.sh to preload alongside the script pack."
   value       = module.aws_migrator.ingest_bootstrap_script
   sensitive   = true
+}
+
+output "governance_codify_workflow_name" {
+  description = "On-demand governance-rules-codify workflow name."
+  value       = module.governance_codify.workflow_name
+}
+
+output "governance_codify_agent_name" {
+  description = "Governance codify architect agent name."
+  value       = module.governance_codify.agent_name
 }

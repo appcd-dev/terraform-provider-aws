@@ -9,19 +9,21 @@ resource "sg_workflow" "aws_migrator_gcp_only" {
     GCP migration PR workflow. Resolves a discovery handoff via `source_pr` (GitHub PR number) or
     `source_iac_branch` (head ref; default `${local.gcp_only_source_branch}`), clones that tip from
     `${trimspace(var.default_iac_repository_url)}`, materializes `aws/groups` + `aws/artifacts`, then runs
-    GCP blueprint → HCL generate → validate/live plan → sibling multi-commit GCP PR (`gcp/<run_id>`).
+    GCP blueprint → HCL generate → serial harden → validate → governance-conform → sibling multi-commit GCP PR (`gcp/<run_id>`) gated on living Nile Priority-1 conformance.
     Skips cloud2code, tfstate split, AWS reverse-HCL hydration, and orphan handling.
   EOT
   approve     = true
 
+  # 8 was starving blueprint→governance after source-fetch (empty ~3s stages,
+  # skipped:blueprint_missing cascade). Orphan workflow uses 40; GCP needs room
+  # for execute_series + discrete note() keys + OPA fix loop per stage.
   metadata = {
-    planner_max_tool_iterations = 8
+    planner_max_tool_iterations = 48
   }
 
   lifecycle {
-    ignore_changes = [
-      metadata,
-    ]
+    # metadata must apply — do not ignore planner_max_tool_iterations.
+    ignore_changes = []
   }
 
   required_inputs = []
@@ -45,6 +47,7 @@ resource "sg_workflow" "aws_migrator_gcp_only" {
 
   runbook_refs = [
     sg_runbook_sop.azure_demo_migration_profile.name,
+    sg_runbook_sop.nile_governance_learn_and_conform.name,
     sg_runbook_sop.aws_migrator_orchestration.name,
     sg_runbook_sop.terraform_substate_convergence.name,
   ]
@@ -72,9 +75,9 @@ resource "sg_workflow" "aws_migrator_gcp_only" {
 
   stage_bindings = [
     {
-      stage_id  = "gcp-source-fetch"
+      stage_id      = "gcp-source-fetch"
       action_config = {}
-      agent_ref = sg_agent.aws_migrator_architect.name
+      agent_ref     = sg_agent.aws_migrator_architect.name
       runbook_refs = [
         sg_runbook_sop.azure_demo_migration_profile.name,
         sg_runbook_sop.aws_migrator_orchestration.name,
@@ -83,13 +86,13 @@ resource "sg_workflow" "aws_migrator_gcp_only" {
         [local.sop_azure_migration_name, local.sop_orchestration_name],
         try(var.workflow_skill_refs["gcp-migration-pr::gcp-source-fetch"], [])
       )
-      spawn_contracts = local.spawn_contracts_gcp_source_fetch
-      note            = <<-EOT
+      note = <<-EOT
         **Purpose:** start from an already-generated AWS IaC split branch instead of rerunning cloud2code/decomposition.
         **Handoff:** prefer workflow input / note `source_pr` (GitHub PR number) → `gh pr view` head branch; else `source_iac_branch` (default `${local.gcp_only_source_branch}`). Optional `source_iac_repository_url` (default `${trimspace(var.default_iac_repository_url)}`).
-        **Incremental bring-up execution (mandatory):** this workspace runs stages in an execution mode that does not expose `create_agent`. Do **not** attempt `create_agent`. Your FIRST tool call must be ONE `${local.shell_tool_prefix}_execute_series` whose single command is the **one-line** body between `---BEGIN GCP_SOURCE_FETCH_EXECUTE_SERIES---` and `---END---` (it starts with `SOURCE_PR=` and ends with `run-destination-stage.sh gcp-source-fetch`). **WRONG:** `command="GCP_SOURCE_FETCH_EXECUTE_SERIES"` (session d6e915ee failed with `not found`). **RIGHT:** paste the full one-liner. **Required edit:** set `SOURCE_PR='<digits>'` from the user prompt (`source_pr=34` or `.../pull/34`) before calling — session 92506cc0 failed with `missing_source_iac_branch` when `SOURCE_PR` stayed empty. Do not rely on a separate `note(source_pr)` call.
-        **Hard evidence gate:** completion requires a successful runner result with `gcp_source_iac_fetched=true` and `gcp_source_iac_group_count` greater than zero. Absent those, record `stage_summary:gcp-source-fetch=blocked:missing_runner_evidence` and return blocked — and quote the runner stderr instead of inventing a silent block.
-        **Outputs:** `$WORK_ROOT/groups`, `$WORK_ROOT/logical_group_manifest.json`, `$WORK_ROOT/source_aws/`, notes `gcp_source_iac_fetched=true`, `gcp_source_iac_group_count`, `source_iac_repository_url`, `source_iac_branch`, and `stage_summary:gcp-source-fetch=ok`.
+        **Incremental bring-up execution (mandatory):** Do **not** call `create_agent`. Your FIRST tool call must be ONE `${local.shell_tool_prefix}_execute_series` with `commands[0].command` set to the **exact character-for-character** one-line body between `---BEGIN GCP_SOURCE_FETCH_EXECUTE_SERIES---` and `---END---` (it starts with `SOURCE_PR=` and contains `bash .../run-destination-stage.sh gcp-source-fetch`). That body already sets `SOURCE_PR`, `SOURCE_IAC_BRANCH`, `WORKFLOW_RUN_ID`, and `DBSPLIT_EMBEDDED=1`. **FORBIDDEN (all produce empty runner output):** (1) `command="GCP_SOURCE_FETCH_EXECUTE_SERIES"` (session d6e915ee); (2) `command="... $${GCP_SOURCE_FETCH_EXECUTE_SERIES}"` or any `$`/`$${` expansion of the label (session 93c7dc4d); (3) wrapping the label in env-prefix only. **RIGHT:** copy the BEGIN/END body into `commands[0].command` unchanged, except: if user input explicitly has `source_pr=<digits>` or `/pull/<digits>`, set only the `SOURCE_PR='…'` prefix to those digits; if user input has `source_iac_branch=…`, set only `SOURCE_IAC_BRANCH='…'` and keep `SOURCE_PR=''`. Never invent `SOURCE_PR` from examples (session eab54d0d hallucinated `34`).
+        **Hard evidence gate:** completion requires a successful runner result with `gcp_source_iac_fetched=true`, `gcp_source_iac_group_count` greater than zero, and runner transcript at `$WORK_ROOT/.work/logs/gcp-source-fetch.log`. Absent those, record `stage_summary:gcp-source-fetch=blocked:missing_runner_evidence` and return blocked — and quote the runner stderr instead of inventing a silent block.
+        **Discrete session notes (mandatory):** after a successful runner result you MUST `note()` each of these as its **own key** (not only an evidence blob): `gcp_source_iac_fetched`=`true`, `gcp_source_iac_group_count`=`<N>`, `source_iac_repository_url`, `source_iac_branch`, and `stage_summary:gcp-source-fetch`=`ok`. Downstream stages skip when these keys are missing (session 45b7206d).
+        **Outputs:** `$WORK_ROOT/groups`, `$WORK_ROOT/logical_group_manifest.json`, `$WORK_ROOT/source_aws/`, plus the discrete notes above.
         **Forbidden:** cloud2code, tfstate splitting, AWS reverse-HCL hydration, StackGen MCP tools, AppStacks, or asking for the branch path.
 
         The exact spawn/direct-fallback context follows. It is embedded here so
@@ -101,7 +104,7 @@ resource "sg_workflow" "aws_migrator_gcp_only" {
     },
     {
       stage_id         = "gcp-migration-blueprint"
-      action_config = {}
+      action_config    = {}
       agent_ref        = sg_agent.aws_migrator_architect.name
       stage_depends_on = ["gcp-source-fetch"]
       runbook_refs = [
@@ -112,20 +115,20 @@ resource "sg_workflow" "aws_migrator_gcp_only" {
         [local.sop_azure_migration_name, local.sop_orchestration_name],
         try(var.workflow_skill_refs["gcp-migration-pr::gcp-migration-blueprint"], [])
       )
-      spawn_contracts = local.spawn_contracts_gcp_only_blueprint
-      note            = <<-EOT
-        **Upstream guard:** if `gcp_source_iac_fetched` is not `"true"` or notes contain `blocked:gcp_source_iac_fetch_failed`, record `stage_summary:gcp-migration-blueprint=skipped:source_fetch_failed` and return.
+      note = <<-EOT
+        **Upstream guard:** skip only when notes clearly show fetch failure (`blocked:gcp_source_iac_fetch_failed` or `stage_summary:gcp-source-fetch=blocked:`). If any note content contains `gcp_source_iac_fetched=true` (including inside `gcp-source-fetch-evidence`), treat upstream as OK and run this stage — do not invent `skipped:source_fetch_failed`.
         **No-approval GCP profile:** use `${local.sop_azure_migration_name}`. Do not call StackGen MCP tools, do not create AppStacks, and do not ask clarifying questions for service choices.
-        **Incremental bring-up execution (mandatory):** this workspace runs stages in an execution mode that does not expose `create_agent`. Do **not** attempt `create_agent`, and never report this stage blocked because a subagent could not be spawned. Your FIRST tool call must be ONE `${local.shell_tool_prefix}_execute_series` whose single command is the ONE-LINE body between BEGIN/END GCP_BLUEPRINT_EXECUTE_SERIES (`WORKFLOW_RUN_ID=` … `run-destination-stage.sh gcp-migration-blueprint`). Never pass the marker name as the command.
+        **Incremental bring-up execution (mandatory):** Your FIRST tool call must be ONE `${local.shell_tool_prefix}_execute_series` with `commands[0].command` set to the **exact character-for-character** one-line body between `---BEGIN GCP_BLUEPRINT_EXECUTE_SERIES---` and `---END---` (starts with `WORKFLOW_RUN_ID=` and contains `run-destination-stage.sh gcp-migration-blueprint`). **FORBIDDEN:** `command="GCP_BLUEPRINT_EXECUTE_SERIES"` or any `$`/`$${` expansion of the label. If the lead agent cannot call the runner tool directly, spawn one subagent whose sole goal is to paste that BEGIN/END body once — never skip the runner.
         **Hard evidence gate:** completion requires a successful runner result with `gcp_migration_blueprint_ok=true` and `gcp_blueprint_group_count` greater than zero. Absent those, record `stage_summary:gcp-migration-blueprint=blocked:missing_runner_evidence` and return blocked.
-        **Outputs:** `gcp/artifacts/migration-profile.json`, `gcp/artifacts/migration-blueprint.json`, `gcp/artifacts/review-needed.md`, notes `gcp_migration_blueprint_ok=true`, `gcp_blueprint_group_count`, and `stage_summary:gcp-migration-blueprint=ok`.
+        **Discrete session notes (mandatory):** `note()` keys `gcp_migration_blueprint_ok`=`true`, `gcp_blueprint_group_count`=`<N>`, `stage_summary:gcp-migration-blueprint`=`ok`.
+        **Outputs:** `gcp/artifacts/migration-profile.json`, `gcp/artifacts/migration-blueprint.json`, `gcp/artifacts/review-needed.md`, plus the discrete notes above.
 
         ${local.dbsplit_spawn_context_gcp_blueprint}
       EOT
     },
     {
       stage_id         = "gcp-iac-generate"
-      action_config = {}
+      action_config    = {}
       agent_ref        = sg_agent.aws_migrator_architect.name
       stage_depends_on = ["gcp-migration-blueprint"]
       runbook_refs = [
@@ -136,22 +139,23 @@ resource "sg_workflow" "aws_migrator_gcp_only" {
         [local.sop_azure_migration_name, local.sop_orchestration_name],
         try(var.workflow_skill_refs["gcp-migration-pr::gcp-iac-generate"], [])
       )
-      spawn_contracts = local.spawn_contracts_gcp_only_generate
-      note            = <<-EOT
-        **Upstream guard:** if `gcp_migration_blueprint_ok` is not `"true"`, record `stage_summary:gcp-iac-generate=skipped:blueprint_missing` and return.
-        **Incremental bring-up execution (mandatory):** this workspace runs stages in an execution mode that does not expose `create_agent`. Do **not** attempt `create_agent`. Your FIRST tool call must be ONE `${local.shell_tool_prefix}_execute_series` whose single command is the ONE-LINE body between BEGIN/END GCP_GENERATE_EXECUTE_SERIES (`run-destination-stage.sh gcp-iac-generate`). Never pass the marker name as the command.
+      note = <<-EOT
+        **Upstream guard:** Prefer notes showing `gcp_migration_blueprint_ok=true` / `stage_summary:gcp-migration-blueprint=ok`. Guild `read_notes` may mask those keys when blueprint/generate overlap on the same runner — do **not** invent `skipped:blueprint_missing` from an incomplete note snapshot. If blueprint already ran this workflow (or workdir `gcp/artifacts/migration-blueprint.json` exists with `group_count` > 0), you MUST run execute_series.
+        **Incremental bring-up execution (mandatory):** Your FIRST tool call must be ONE `${local.shell_tool_prefix}_execute_series` pasting the **exact** one-line body between `---BEGIN GCP_GENERATE_EXECUTE_SERIES---` and `---END---` (`run-destination-stage.sh gcp-iac-generate`). **FORBIDDEN:** label-as-command or `$`/`$${` expansion. Spawn a one-shot subagent if needed; never return without runner evidence.
         **Mapping rule:** make best-effort GCP equivalents using the default profile. Generate a valid scaffold when exact equivalence is uncertain and document it in `gcp/artifacts/review-needed.md`; never block on human approval. Generate HCL only under `$WORK_ROOT/gcp/groups/<group_id>/`.
         **Hard evidence gate:** completion requires a successful runner result with `gcp_iac_generated=true` and `gcp_iac_group_count` greater than zero. Absent those, record `stage_summary:gcp-iac-generate=blocked:missing_runner_evidence` and return blocked.
-        **Outputs:** note `gcp_iac_generated=true`, `gcp_iac_group_count`, `gcp_generation_summary_path`, `gcp_mapping_decisions_path`, and `stage_summary:gcp-iac-generate=ok`.
+        **Discrete session notes (mandatory):** `note()` keys `gcp_iac_generated`=`true`, `gcp_iac_group_count`=`<N>`, `stage_summary:gcp-iac-generate`=`ok`.
+        **Outputs:** discrete notes above plus `gcp_generation_summary_path`, `gcp_mapping_decisions_path`.
 
         ${local.dbsplit_spawn_context_gcp_generate}
       EOT
     },
     {
       stage_id         = "gcp-iac-validate"
-      action_config = {}
+      action_config    = {}
       agent_ref        = sg_agent.aws_migrator_architect.name
-      stage_depends_on = ["gcp-iac-generate"]
+      # Serial chain: generate → harden → validate → governance (fan-out was no-op on ai.dev).
+      stage_depends_on = ["gcp-iac-harden"]
       runbook_refs = [
         sg_runbook_sop.azure_demo_migration_profile.name,
         sg_runbook_sop.terraform_substate_convergence.name,
@@ -161,14 +165,14 @@ resource "sg_workflow" "aws_migrator_gcp_only" {
         [local.sop_azure_migration_name, local.sop_substate_converge_name, local.sop_orchestration_name],
         try(var.workflow_skill_refs["gcp-migration-pr::gcp-iac-validate"], [])
       )
-      spawn_contracts = local.spawn_contracts_gcp_only_validate
-      note            = <<-EOT
-        **Upstream guard:** if `gcp_iac_generated` is not `"true"`, record `stage_summary:gcp-iac-validate=skipped:generation_missing` and return.
-        **Incremental bring-up execution (mandatory):** this workspace runs stages in an execution mode that does not expose `create_agent`. Do **not** attempt `create_agent`. Your FIRST tool call must be ONE `${local.shell_tool_prefix}_execute_series` whose single command is the ONE-LINE body between BEGIN/END GCP_VALIDATE_EXECUTE_SERIES (`run-destination-stage.sh gcp-iac-validate`). Never pass the marker name as the command. Set `timeout_seconds=7200` on that execute_series call — live GCP plan across hundreds of groups routinely exceeds 30 minutes.
+      note = <<-EOT
+        **Upstream guard:** Prefer notes showing `gcp_iac_generated=true` / `stage_summary:gcp-iac-generate=ok`. Guild `read_notes` may mask those keys after busy generate stages — do **not** invent `skipped:generation_missing` from an incomplete note snapshot. If generate already ran this workflow (or workdir `gcp/groups/` exists), you MUST run execute_series; the runner emits `blocked:generation_missing` only when artifacts are truly absent.
+        **Incremental bring-up execution (mandatory):** Your FIRST tool call must be ONE `${local.shell_tool_prefix}_execute_series` pasting the **exact** one-line body between `---BEGIN GCP_VALIDATE_EXECUTE_SERIES---` and `---END---` (`run-destination-stage.sh gcp-iac-validate`). **FORBIDDEN:** label-as-command or `$`/`$${` expansion. Set `timeout_seconds=7200`. Spawn a one-shot subagent if needed.
         **Validation contract:** when `REQUIRE_GCP_LIVE_PLAN=1`, `gcp_plan_status` must start with `success` (exact `success` or `success:sample:N/M`); missing credentials is a hard fail. Never run `tofu apply` on migrated GCP resources.
         **Validation contract:** run `tofu fmt`, `tofu validate`, optional `tofu test`, optional `tflint`, and live `tofu plan` (never apply). When `REQUIRE_GCP_LIVE_PLAN=1`, missing credentials fail the stage.
         **Hard evidence gate:** completion requires a successful runner result carrying `gcp_iac_validation_ok` and a non-empty `gcp_iac_validation_report`. Absent those, record `stage_summary:gcp-iac-validate=blocked:missing_runner_evidence` and return blocked.
-        **Outputs:** note `gcp_iac_validation_ok`, `gcp_plan_status`, `gcp_iac_validation_report`, and `stage_summary:gcp-iac-validate`.
+        **Discrete session notes (mandatory):** `note()` keys `gcp_iac_validation_ok`, `gcp_plan_status`, `gcp_iac_validation_report`, `stage_summary:gcp-iac-validate`.
+        **Outputs:** discrete notes above.
 
         ${local.dbsplit_spawn_context_gcp_validate}
       EOT
@@ -177,11 +181,7 @@ resource "sg_workflow" "aws_migrator_gcp_only" {
       stage_id         = "gcp-iac-harden"
       agent_ref        = sg_agent.aws_migrator_architect.name
       stage_depends_on = ["gcp-iac-generate"]
-      # Explicit empty clears a prior Guild merge-by-index bleed: inserting this
-      # stage shifted gcp-iac-loop down one slot and left action_type=loop_stage
-      # + validate exit_match on harden (0ms GO_BACK, no agent/runner work).
-      action_type   = ""
-      action_config = {}
+      action_config    = {}
       runbook_refs = [
         sg_runbook_sop.azure_demo_migration_profile.name,
         sg_runbook_sop.aws_migrator_orchestration.name,
@@ -190,16 +190,41 @@ resource "sg_workflow" "aws_migrator_gcp_only" {
         [local.sop_azure_migration_name, local.sop_orchestration_name],
         try(var.workflow_skill_refs["gcp-migration-pr::gcp-iac-harden"], [])
       )
-      spawn_contracts = local.spawn_contracts_gcp_only_harden
-      note            = <<-EOT
-        **Upstream guard:** if `gcp_iac_generated` is not `"true"`, record `stage_summary:gcp-iac-harden=skipped:generation_missing` and return.
-        **Parallel with validate:** this stage shares `stage_depends_on=gcp-iac-generate` with `gcp-iac-validate` (Guild DAG fan-out). Do not wait for validate.
-        **Incremental bring-up execution (mandatory):** this workspace runs stages in an execution mode that does not expose `create_agent`. Do **not** attempt `create_agent`. Your FIRST tool call must be ONE `${local.shell_tool_prefix}_execute_series` whose single command is the ONE-LINE body between BEGIN/END GCP_HARDEN_EXECUTE_SERIES (`run-destination-stage.sh gcp-iac-harden`). Never pass the marker name as the command. Set `timeout_seconds=3600`.
+      note = <<-EOT
+        **Upstream guard:** Prefer notes showing `gcp_iac_generated=true` / `stage_summary:gcp-iac-generate=ok`. Guild `read_notes` may mask those keys after busy generate stages — do **not** invent `skipped:generation_missing` from an incomplete note snapshot. If generate already ran this workflow (or workdir `gcp/groups/` exists), you MUST run execute_series; the runner emits `blocked:generation_missing` only when artifacts are truly absent.
+        **Serial before validate:** runs immediately after generate; validate waits on this stage.
+        **Incremental bring-up execution (mandatory):** Your FIRST tool call must be ONE `${local.shell_tool_prefix}_execute_series` pasting the **exact** one-line body between `---BEGIN GCP_HARDEN_EXECUTE_SERIES---` and `---END---` (`run-destination-stage.sh gcp-iac-harden`). **FORBIDDEN:** label-as-command or `$`/`$${` expansion. Set `timeout_seconds=3600`. Spawn a one-shot subagent if needed.
         **Harden contract:** run mechanical autofix (`destination_iac_harden.py`), `tofu fmt`, optional `tflint --fix`, and checkov/tfsec/trivy when installed. Apply fixes under `gcp/groups/` so they ship in the same PR. Do **not** invent IAM translations or network redesigns.
         **Hard evidence gate:** completion requires `gcp_iac_harden_ok=true` and a non-empty `gcp_iac_harden_report`. Absent those, record `stage_summary:gcp-iac-harden=blocked:missing_runner_evidence` and return blocked.
-        **Outputs:** note `gcp_iac_harden_ok`, `gcp_iac_harden_report`, `gcp_iac_harden_findings`, `gcp_iac_harden_autofix_count`, and `stage_summary:gcp-iac-harden=ok`.
+        **Discrete session notes (mandatory):** `note()` keys `gcp_iac_harden_ok`, `gcp_iac_harden_report`, `stage_summary:gcp-iac-harden`=`ok`.
+        **Outputs:** discrete notes above plus `gcp_iac_harden_findings`, `gcp_iac_harden_autofix_count`.
 
         ${local.dbsplit_spawn_context_gcp_harden}
+      EOT
+    },
+    {
+      stage_id         = "gcp-iac-governance-conform"
+      agent_ref        = sg_agent.aws_migrator_architect.name
+      stage_depends_on = ["gcp-iac-validate"]
+      action_config    = {}
+      runbook_refs = [
+        sg_runbook_sop.nile_governance_learn_and_conform.name,
+        sg_runbook_sop.azure_demo_migration_profile.name,
+        sg_runbook_sop.aws_migrator_orchestration.name,
+      ]
+      skill_refs = concat(
+        [local.sop_governance_conform_name, local.sop_azure_migration_name, local.sop_orchestration_name],
+        try(var.workflow_skill_refs["gcp-migration-pr::gcp-iac-governance-conform"], [])
+      )
+      note = <<-EOT
+        **Upstream guard:** Prefer notes showing `gcp_iac_generated=true` / `stage_summary:gcp-iac-generate=ok`. Guild `read_notes` may mask those keys after busy generate stages — do **not** invent `skipped:generation_missing` from an incomplete note snapshot. If generate already ran this workflow (or workdir `gcp/groups/` exists), you MUST run OPA governance via execute_series; the runner emits `blocked:generation_missing` only when artifacts are truly absent.
+        **Serial after validate:** prior DAG fan-out completed harden/validate/governance in ~1–2s with zero tools (trace e861d081). You MUST call execute_series; never return without OPA runner evidence.
+        **Living docs + OPA:** first tool call is ONE `${local.shell_tool_prefix}_execute_series` pasting the **exact** one-line body between `---BEGIN GCP_GOVERNANCE_CONFORM_EXECUTE_SERIES---` and `---END---` (`run-destination-stage.sh gcp-iac-governance-conform`, `timeout_seconds=3600`). **FORBIDDEN:** label-as-command or `$`/`$${` expansion. Harness refreshes Governance-and-Policy, inventories resources, seeds/runs the validator, and runs Nile-Factory `rules/` OPA against `tofu plan` JSON (or HCL-synthesized plan JSON when GCP ADC is missing). Then **continue** (not paste-only): load `${local.sop_governance_conform_name}`, rebuild `gcp/artifacts/governance-decision-tree.json` from **this-run** docs, `${local.shell_tool_prefix}_create_files` the validator (drop `NILE_GOVERNANCE_VALIDATOR_SCAFFOLD`), read `gcp/artifacts/governance-opa-fix-hints.md` when OPA denies, fix mechanical HCL under `gcp/groups/` (tags, labels, security flags named in deny messages), re-run the series until `gcp_iac_governance_ok=true`. Do not invent controls absent from refreshed docs. Validation evidence is not human approval.
+        **Hard evidence gate:** require notes `gcp_iac_governance_ok` (`true` or `false`) plus `gcp_governance_commit_sha` / `gcp/artifacts/governance-source.json`. Docs-unavailable → `blocked:governance_docs_unavailable`. OPA/rules unavailable → `blocked:governance_opa_unavailable`. Nonconformant-but-conclusive visits still note `stage_summary:gcp-iac-governance-conform=ok` so the loop can exit; PR remains gated on `gcp_iac_governance_ok=true`.
+        **Discrete session notes (mandatory):** `note()` keys `gcp_iac_governance_ok`, `gcp_iac_governance_report`, `gcp_iac_opa_report` (when present), `gcp_governance_commit_sha`, `stage_summary:gcp-iac-governance-conform`.
+        **Outputs:** discrete notes above plus `gcp_iac_opa_fix_hints` when OPA denies.
+
+        ${local.dbsplit_spawn_context_gcp_governance_conform}
       EOT
     },
     {
@@ -207,12 +232,10 @@ resource "sg_workflow" "aws_migrator_gcp_only" {
       action_type      = "loop_stage"
       agent_ref        = ""
       stage_depends_on = ["gcp-iac-validate"]
-      # Clear residuals left when harden was inserted ahead of this slot (old
-      # gcp-pr note/spawn_contracts otherwise stick on the loop binding).
-      runbook_refs    = []
-      skill_refs      = []
-      spawn_contracts = []
-      note            = "Deterministic validate→generate loop gate. No agent."
+      # Clear residuals left when harden/governance were inserted ahead of this slot.
+      runbook_refs = []
+      skill_refs   = []
+      note         = "Deterministic validate→generate loop gate. No agent."
       action_config = {
         loop_to        = "gcp-iac-generate"
         max_iterations = var.max_convergence_iterations
@@ -225,10 +248,27 @@ resource "sg_workflow" "aws_migrator_gcp_only" {
       }
     },
     {
+      stage_id         = "gcp-iac-governance-loop"
+      action_type      = "loop_stage"
+      agent_ref        = ""
+      stage_depends_on = ["gcp-iac-governance-conform"]
+      runbook_refs     = []
+      skill_refs       = []
+      note             = "Deterministic governance-conform loop gate. No agent."
+      action_config = {
+        loop_to        = "gcp-iac-governance-conform"
+        max_iterations = var.max_governance_iterations
+        exit_condition = "output_matches_regex"
+        # Exit on conclusive ok true|false or terminal fetch/generation blockers so PR is
+        # reached; gcp-pr still refuses to open unless gcp_iac_governance_ok=true.
+        exit_match = "gcp_iac_governance_ok[^\\n]{0,40}\"true\"|gcp_iac_governance_ok[^\\n]{0,40}\"false\"|stage_summary:gcp-iac-governance-conform=ok|stage_summary:gcp-iac-governance-conform=blocked:|blocked:governance_docs_unavailable|blocked:governance_opa_unavailable|blocked:generation_missing"
+      }
+    },
+    {
       stage_id         = "gcp-pr"
-      action_config = {}
+      action_config    = {}
       agent_ref        = sg_agent.aws_migrator_architect.name
-      stage_depends_on = ["gcp-iac-loop", "gcp-iac-harden"]
+      stage_depends_on = ["gcp-iac-loop", "gcp-iac-harden", "gcp-iac-governance-loop"]
       runbook_refs = [
         sg_runbook_sop.azure_demo_migration_profile.name,
         sg_runbook_sop.aws_migrator_orchestration.name,
@@ -237,9 +277,8 @@ resource "sg_workflow" "aws_migrator_gcp_only" {
         [local.sop_azure_migration_name, local.sop_orchestration_name],
         try(var.workflow_skill_refs["gcp-migration-pr::gcp-pr"], [])
       )
-      spawn_contracts = local.spawn_contracts_gcp_only_pr
-      note            = <<-EOT
-        **Fan-in:** waits for `gcp-iac-loop` (validate path) and `gcp-iac-harden` so lint/security autofixes are included in the same PR tree.
+      note = <<-EOT
+        **Fan-in:** waits for `gcp-iac-loop` (validate path), `gcp-iac-harden`, and `gcp-iac-governance-loop` so lint/security autofixes and Nile-conformant HCL are included in the same PR tree. The runner refuses to open a PR unless `gcp_iac_governance_ok=true`.
         **Incremental bring-up execution (mandatory):** this workspace runs stages in an execution mode that does not expose `create_agent`. Do **not** attempt `create_agent`. Your FIRST tool call must be ONE `${local.shell_tool_prefix}_execute_series` whose single command is the ONE-LINE body between BEGIN/END GCP_PR_EXECUTE_SERIES (`run-destination-stage.sh gcp-pr`). Never pass the marker name as the command.
         **Repo contract:** sync `$WORK_ROOT/gcp/` to `${trimspace(var.default_iac_repository_url)}` under `gcp/`, create a fresh branch starting with `gcp/<workflow_run_id>`, and open a new PR against `${trimspace(var.default_branch)}`. If that branch already exists locally/remotely or has any PR history, append a timestamp/PID suffix; never reuse or update an existing PR for a new execution.
         **Hard evidence gate:** read `--- stage_evidence ---` from the execute_series stdout (emitted before the noisy transcript tail). If it contains `gcp_pr_url=https://` or `stage_summary:gcp-pr=ok`, you MUST `note()` those values and complete successfully — never emit `missing_runner_evidence` when those lines are present. Only emit `stage_summary:gcp-pr=blocked:missing_runner_evidence` when neither `gcp_pr_url=` / `pr_url=` nor `pr_blocker=` appears in stage_evidence. An explicit `pr_blocker=` is also a conclusive result (note it and return blocked with that reason).
@@ -250,7 +289,7 @@ resource "sg_workflow" "aws_migrator_gcp_only" {
     },
     {
       stage_id         = "gcp-only-final"
-      action_config = {}
+      action_config    = {}
       agent_ref        = sg_agent.aws_migrator_architect.name
       stage_depends_on = ["gcp-pr"]
       runbook_refs = [
@@ -263,9 +302,9 @@ resource "sg_workflow" "aws_migrator_gcp_only" {
       )
       note = <<-EOT
         **Blocked guards:** if notes or prior stage outputs contain `blocked:gcp_source_iac_fetch_failed`, `blocked:remote_runner_shell_unavailable`, `blocked:remote_runner_tofu_missing`, or `stage_summary:gcp-pr=blocked:` → `notify` + `stage_summary:gcp-only-final=blocked:<reason>` and return. Do **not** treat `stage_summary:gcp-iac-validate=blocked:` alone as a final blocker when a non-empty `gcp_pr_url` / `pr_url` exists — destination generate is deterministic and the PR documents review-needed.
-        **Completion guards:** require evidence that each prior stage concluded. Prefer workflow notes when present; when a note key is absent, accept a prior-stage summary that already carried the same fact (`gcp_source_iac_fetched=true`, `gcp_migration_blueprint_ok=true`, `gcp_iac_generated=true`, a conclusive `gcp_iac_validation_ok` of `"true"` or `"false"` / `stage_summary:gcp-iac-validate=ok|blocked:…`, `gcp_iac_harden_ok=true` / `stage_summary:gcp-iac-harden=ok|blocked:…`, and a non-empty `gcp_pr_url` or `pr_url`). Do **not** block solely because `read_notes` is missing keys that earlier stages already reported in their outputs. Destination generate is deterministic — `validation_ok=false` with an open PR that documents review-needed is a valid finish, not a reason to re-enter generate. When GCP credentials are wired and validation passed, prefer `gcp_plan_status` starting with `success` (including `success:sample:N/M`); when validation failed, report plan_status as recorded.
-        **Evidence gate:** submit evidence for `gcp_source_iac_fetched`, `gcp_migration_blueprint_recorded`, `gcp_iac_generated`, `gcp_iac_validation_evidence`, `gcp_iac_harden_evidence`, and `gcp_pr_url_recorded` using those facts.
-        **Final message:** include source repo/branch, generated group count, validation status, harden autofix/finding counts, plan status, PR URL, and review-needed artifact path. Note `stage_summary:gcp-only-final=ok`.
+        **Completion guards:** require evidence that each prior stage concluded. Prefer workflow notes when present; when a note key is absent, accept a prior-stage summary that already carried the same fact (`gcp_source_iac_fetched=true`, `gcp_migration_blueprint_ok=true`, `gcp_iac_generated=true`, a conclusive `gcp_iac_validation_ok` of `"true"` or `"false"` / `stage_summary:gcp-iac-validate=ok|blocked:…`, `gcp_iac_harden_ok=true` / `stage_summary:gcp-iac-harden=ok|blocked:…`, a conclusive `gcp_iac_governance_ok` of `"true"` or `"false"` / `stage_summary:gcp-iac-governance-conform=ok|blocked:…`, and a non-empty `gcp_pr_url` or `pr_url`). Do **not** block solely because `read_notes` is missing keys that earlier stages already reported in their outputs. Destination generate is deterministic — `validation_ok=false` with an open PR that documents review-needed is a valid finish, not a reason to re-enter generate. When GCP credentials are wired and validation passed, prefer `gcp_plan_status` starting with `success` (including `success:sample:N/M`); when validation failed, report plan_status as recorded.
+        **Evidence gate:** submit evidence for `gcp_source_iac_fetched`, `gcp_migration_blueprint_recorded`, `gcp_iac_generated`, `gcp_iac_validation_evidence`, `gcp_iac_harden_evidence`, `gcp_iac_governance_evidence`, and `gcp_pr_url_recorded` using those facts.
+        **Final message:** include source repo/branch, generated group count, validation status, harden autofix/finding counts, governance SHA + conformance, plan status, PR URL, and review-needed artifact path. Note `stage_summary:gcp-only-final=ok`.
       EOT
     },
   ]

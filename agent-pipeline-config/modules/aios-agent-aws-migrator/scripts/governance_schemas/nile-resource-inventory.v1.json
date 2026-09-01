@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "nile-resource-inventory/v1",
+  "title": "Inventoried Terraform resources",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema", "cloud", "resources"],
+  "properties": {
+    "schema": { "const": "nile-resource-inventory/v1" },
+    "cloud": { "enum": ["azure", "gcp"] },
+    "groups_dir": { "type": "string" },
+    "resource_count": { "type": "integer" },
+    "resources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["address", "type", "file"],
+        "properties": {
+          "address": { "type": "string" },
+          "type": { "type": "string" },
+          "name": { "type": "string" },
+          "file": { "type": "string" },
+          "suggested_category": { "type": "string" }
+        }
+      }
+    }
+  }
+}

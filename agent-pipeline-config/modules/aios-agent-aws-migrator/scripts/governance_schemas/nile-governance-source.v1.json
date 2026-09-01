@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "nile-governance-source/v1",
+  "title": "Governance source provenance",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema", "repo", "ref", "commit_sha", "paths_read"],
+  "properties": {
+    "schema": { "const": "nile-governance-source/v1" },
+    "repo": { "type": "string" },
+    "ref": { "type": "string" },
+    "commit_sha": { "type": "string" },
+    "fetched_at": { "type": "string" },
+    "work_path": { "type": "string" },
+    "paths_read": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "required_missing": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}
