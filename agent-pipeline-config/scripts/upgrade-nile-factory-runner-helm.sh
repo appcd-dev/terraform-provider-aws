@@ -10,7 +10,7 @@
 # Example (tramlaw on developer-eks):
 #   kubectl config use-context arn:aws:eks:...:cluster/developer-eks
 #   agent-pipeline-config/scripts/upgrade-nile-factory-runner-helm.sh \
-#     agent-pipeline-config/deployments/walle tramlaw-runner aiden-runner ghcr-pkg
+#     agent-pipeline-config/deployments/greenfield tramlaw-runner aiden-runner ghcr-pkg
 set -euo pipefail
 
 DEPLOYMENT_DIR="${1:?usage: upgrade-nile-factory-runner-helm.sh <deployment-dir> <helm-release> [namespace] [image-pull-secret]}"

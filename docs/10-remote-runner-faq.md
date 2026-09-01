@@ -4,7 +4,7 @@ Answers for running **Aiden 2.0 / Guild `aiden-runner`** with this repo. This is
 
 Checked against Nile-Factory image **`ghcr.io/walmart-stackgen/nile-factory-runner`** (`runner/Dockerfile`, `aiden-runner` 0.2.13, pack `20260827.4`) on 2026-08-28.
 
-How Nile-Factory actually starts the process: after `tofu apply` on `deployments/walle`, run `tofu output -raw remote_runner_cli_start_command` (or the Helm output). That string is the source of truth for mothership URL and runner token.
+How Nile-Factory actually starts the process: after `tofu apply` on `deployments/greenfield`, run `tofu output -raw remote_runner_cli_start_command` (or the Helm output). That string is the source of truth for mothership URL and runner token. For `deployments/walmart`, the customer starts the runner they registered in StackGen UI.
 
 ## Quick answers
 
@@ -58,7 +58,7 @@ Also published: `aiden-0.2.13`, `sha-<git>`, `latest` on `main`. Do not pin `lat
 Copy-paste from a fresh apply:
 
 ```bash
-cd agent-pipeline-config/deployments/walle
+cd agent-pipeline-config/deployments/greenfield
 tofu output -raw remote_runner_cli_start_command
 tofu output -raw remote_runner_helm_install_command
 ```
@@ -143,7 +143,7 @@ Practical starting point for this repo:
 | Workload | CPU |
 | --- | --- |
 | Online, idle | 0.5–1 vCPU |
-| Typical `walle` discovery + destination generate | **2 vCPU** request, **4 vCPU** limit |
+| Typical `greenfield` discovery + destination generate | **2 vCPU** request, **4 vCPU** limit |
 | Large monolith tfstate / many groups | **4 vCPU** |
 
 ## 10. Memory recommendation?
@@ -216,7 +216,7 @@ High availability means a supervisor that **restarts the same identity** (Kubern
 ## Nile-Factory install reminder
 
 ```bash
-cd agent-pipeline-config/deployments/walle
+cd agent-pipeline-config/deployments/greenfield
 tofu output -raw remote_runner_cli_start_command
 # run on a host that can reach walmart.cloud.stackgen.com outbound
 # wait until Guild shows online

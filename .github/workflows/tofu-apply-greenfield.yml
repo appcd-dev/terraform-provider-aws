@@ -1,6 +1,6 @@
-# Apply the walle OpenTofu root against the Guild (StackGen) workspace.
+# Apply the greenfield OpenTofu root against the Guild (StackGen) workspace.
 # Secrets/vars live in the GitHub Environment `guild` (STACKGEN_TOKEN, AWS OIDC role, etc.).
-name: Tofu apply (walle / Guild)
+name: Tofu apply (greenfield / Guild)
 
 on:
   workflow_dispatch:
@@ -15,7 +15,7 @@ on:
       - feat/aws-azure-mapping-catalog
     paths:
       - "agent-pipeline-config/**"
-      - ".github/workflows/tofu-apply-walle.yml"
+      - ".github/workflows/tofu-apply-greenfield.yml"
       - ".opentofu-version"
 
 permissions:
@@ -23,17 +23,17 @@ permissions:
   id-token: write # AWS OIDC
 
 concurrency:
-  group: tofu-apply-walle
+  group: tofu-apply-greenfield
   cancel-in-progress: false
 
 env:
-  TF_ROOT: agent-pipeline-config/deployments/walle
+  TF_ROOT: agent-pipeline-config/deployments/greenfield
   # Empty profile → default credential chain (OIDC in Actions; AWS_PROFILE locally).
   TF_VAR_aws_profile: ""
 
 jobs:
   apply:
-    name: OpenTofu apply (walle)
+    name: OpenTofu apply (greenfield)
     runs-on: ubuntu-latest
     environment: guild
     defaults:
@@ -94,7 +94,7 @@ jobs:
               printf '%s\n' "${GCP_CREDENTIALS_JSON}"
               echo "EOT"
             fi
-          } > /tmp/walle.ci.tfvars
+          } > /tmp/greenfield.ci.tfvars
 
           # GitHub PAT for Guild GitHub integration + runner git push (not Actions GITHUB_TOKEN).
           echo "TF_VAR_github_token is set (${#TF_GITHUB_TOKEN} chars)"
@@ -143,16 +143,16 @@ jobs:
         id: plan
         run: |
           set -euo pipefail
-          tofu plan -input=false -var-file=/tmp/walle.ci.tfvars -out=/tmp/walle.tfplan
-          tofu show -no-color /tmp/walle.tfplan | tee /tmp/walle.plan.txt
+          tofu plan -input=false -var-file=/tmp/greenfield.ci.tfvars -out=/tmp/greenfield.tfplan
+          tofu show -no-color /tmp/greenfield.tfplan | tee /tmp/greenfield.plan.txt
           # Summarize for the job summary (no secrets — plan is resource ops only).
           {
-            echo "## OpenTofu plan (walle)"
+            echo "## OpenTofu plan (greenfield)"
             echo '```'
-            tail -n 40 /tmp/walle.plan.txt
+            tail -n 40 /tmp/greenfield.plan.txt
             echo '```'
           } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: tofu apply
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.plan_only != true }}
-        run: tofu apply -input=false -auto-approve /tmp/walle.tfplan
+        run: tofu apply -input=false -auto-approve /tmp/greenfield.tfplan

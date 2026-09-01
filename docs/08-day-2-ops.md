@@ -8,17 +8,23 @@
 - AWS + GitHub credentials in vault as the module expects  
 - Optional but recommended: Azure Reader SP (`ARM_*`) and/or GCP SA ADC for live plan  
 
-## Bring-up (empty workspace) — `walle`
+## Bring-up — `walmart` (customer-managed)
 
-1. Copy example tfvars → local gitignored `walle.tfvars`.  
+1. Phase 1: apply `deployments/walmart/` with `enable_agent_stack = false` (StackGen PAT only).  
+2. Customer creates integrations + runner in UI — [walmart-customer-handoff.md](walmart-customer-handoff.md).  
+3. Phase 2: set integration/runner names, `enable_agent_stack = true`, re-apply.
+
+## Bring-up (empty workspace) — `greenfield`
+
+1. Copy example tfvars → local gitignored `greenfield.tfvars`.  
 2. Fill `stackgen_url`, `stackgen_token`, `stackgen_project_id`, LLM keys, integration secrets.  
    For GCP live plan also set `gcp_credentials_json` + `gcp_project_id` (optional `gcp_region`).  
-3. From `agent-pipeline-config/deployments/walle/`:
+3. From `agent-pipeline-config/deployments/greenfield/`:
 
 ```bash
-tofu init
-tofu plan  -var-file=walle.tfvars
-tofu apply -var-file=walle.tfvars
+tofu init -backend-config=backend.hcl
+tofu plan  -var-file=../../tfvars/greenfield.tfvars
+tofu apply -var-file=../../tfvars/greenfield.tfvars
 ```
 
 4. Start / confirm the remote runner using this repo's image (`runner/README.md`) plus the module CLI/Helm token output.  
@@ -27,7 +33,7 @@ tofu apply -var-file=walle.tfvars
 ## Trigger a run
 
 - Guild UI: start `aws-cloud-discovery`, `azure-migration-pr`, or `gcp-migration-pr` with required inputs.
-- Or SE demo scripts if your org uses `solutions` playbooks — this repo’s deployments README is the source of truth for **walle**.
+- Or SE demo scripts if your org uses `solutions` playbooks — this repo's deployments README is the source of truth for **greenfield** and **walmart**.
 
 ## After you change pack files
 

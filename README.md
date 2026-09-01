@@ -12,38 +12,34 @@ Private repository for StackGen AWS → Azure / GCP IaC migration: the agent pip
 | [`runner/`](runner/) | Dockerfile + GHCR publish for the Nile-Factory `aiden-runner` image |
 | [`docs/nile-governance`](docs/nile-governance) | Optional pin of [Governance-and-Policy](https://github.com/Walmart-StackGen/Governance-and-Policy) for humans — **not** the runtime source (each conform run refreshes latest docs) |
 | [`agent-pipeline-config/`](agent-pipeline-config/) | OpenTofu modules, runner script pack, and deployment roots that install the agent into a StackGen workspace |
-| [`agent-pipeline-config/deployments/`](agent-pipeline-config/deployments/) | **Empty-workspace bring-up** — creates IAM role, integrations, policy, remote runner, agent, and workflows |
+| [`agent-pipeline-config/deployments/`](agent-pipeline-config/deployments/) | Deployment roots — **`walmart`** (customer-managed) and **`greenfield`** (TF creates IAM + integrations + runner) |
 | [`agent-pipeline-config/examples/scenarios/aws-migrator/`](agent-pipeline-config/examples/scenarios/aws-migrator/) | Demo Workspace root that **reuses** existing integrations/runner/policy |
 | [`aws/`](aws/) | Source-cloud Terraform and split artifacts written by workflow PRs |
 | [`azure/`](azure/) | Destination-cloud IaC written by the Azure migration phase |
 | [`gcp/`](gcp/) | Destination-cloud IaC written by the GCP migration phase |
 
-## Quick start (empty StackGen workspace)
+## Quick start
 
-Use a deployment root when the target workspace has no integrations, remote runner, or models yet. The stock path is `walle`:
+**Nile-Staging / customer-managed:** [`deployments/walmart/`](agent-pipeline-config/deployments/walmart/) — phase 1 needs only a StackGen PAT. See [walmart-customer-handoff.md](docs/walmart-customer-handoff.md).
+
+**Empty workspace you own:** [`deployments/greenfield/`](agent-pipeline-config/deployments/greenfield/) — TF creates IAM role, integrations, policy, remote runner, agent, and workflows:
 
 ```bash
-cd agent-pipeline-config/deployments/walle
+cd agent-pipeline-config/deployments/greenfield
 
-# 1. Credentials (tfvars are gitignored — copy from a local template, never commit tokens)
-cat > ../../tfvars/walle.tfvars <<'EOF'
+cat > ../../tfvars/greenfield.tfvars <<'EOF'
 stackgen_url        = "https://walmart.cloud.stackgen.com"
 stackgen_token      = "<STACKGEN_PAT>"
 stackgen_project_id = "<WORKSPACE_UUID>"
 aws_account_id      = "<AWS_ACCOUNT_ID>"
 EOF
 
-# 2. Apply (AWS profile must reach the account that owns the S3 state bucket + IAM role)
 export AWS_PROFILE="<AWS_PROFILE>"
-export TF_VAR_github_token="$(gh auth token)"   # needs repo + read:org
-cp backend.hcl.example backend.hcl              # gitignored; edit placeholders for your account
+export TF_VAR_github_token="$(gh auth token)"
+cp backend.hcl.example backend.hcl
 tofu init -backend-config=backend.hcl
-tofu apply -input=false -var-file=../../tfvars/walle.tfvars
-
-# 3. Start the remote runner (required before any workflow run)
-# Image: ghcr.io/walmart-stackgen/nile-factory-runner (see runner/README.md)
+tofu apply -input=false -var-file=../../tfvars/greenfield.tfvars
 tofu output -raw remote_runner_cli_start_command
-# run with this repo's image + the printed mothership URL and token
 ```
 
 Full prerequisites, troubleshooting (including stale state locks), and how to clone the deployment for another workspace: **[deployments README](agent-pipeline-config/deployments/README.md)**.
@@ -69,7 +65,8 @@ Module behavior, script-pack preload, and workflow inputs: [`aios-agent-aws-migr
 
 | Root | When to use |
 | --- | --- |
-| [`deployments/<name>/`](agent-pipeline-config/deployments/) | Empty workspace — creates AWS IAM role, Guild AWS + GitHub integrations, `dangerous-ops` policy, self-registered remote runner, agent + workflows. Uses Guild’s **built-in default model** (no model registry required). |
+| [`deployments/walmart/`](agent-pipeline-config/deployments/walmart/) | Customer creates integrations + runner in StackGen UI. Two-phase apply. |
+| [`deployments/greenfield/`](agent-pipeline-config/deployments/greenfield/) | Empty workspace — TF creates AWS IAM role, Guild integrations, policy, remote runner, agent + workflows. |
 | [`examples/scenarios/aws-migrator/`](agent-pipeline-config/examples/scenarios/aws-migrator/) | Workspace that already has a runner, GitHub/AWS integrations, and a `dangerous-ops` policy (Demo Workspace pattern). |
 
 ## Requirements (summary)

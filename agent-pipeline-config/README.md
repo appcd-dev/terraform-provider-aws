@@ -6,11 +6,11 @@ Terraform/OpenTofu configuration for the StackGen **AWS migrator** agent pipelin
 
 **Docs:** [docs hub](../docs/README.md) — architecture, workflows, LLM vs scripts, ops.
 
-## Module dependency (typical `walle` deployment)
+## Module dependency (typical `greenfield` deployment)
 
 ```mermaid
 flowchart TB
-  walle["deployments/walle"]
+  greenfield["deployments/greenfield"]
   aws_iam["AWS IAM role\n(inline)"]
   github["aios-integration-github"]
   azure["aios-integration-azure"]
@@ -20,13 +20,13 @@ flowchart TB
   codify["aios-agent-governance-codify"]
   policy["dangerous-ops policy"]
 
-  walle --> aws_iam
-  walle --> github
-  walle --> azure
-  walle --> gcp
-  walle --> policy
-  walle --> migrator
-  walle --> codify
+  greenfield --> aws_iam
+  greenfield --> github
+  greenfield --> azure
+  greenfield --> gcp
+  greenfield --> policy
+  greenfield --> migrator
+  greenfield --> codify
   migrator --> runner
   migrator --> github
   codify --> github

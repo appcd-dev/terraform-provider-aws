@@ -27,7 +27,8 @@ cloud-migrator/
   docs/                      ← you are here (human guides)
   agent-pipeline-config/     ← how we *install* the agent into StackGen
     modules/                 ← reusable OpenTofu modules
-    deployments/walle/       ← greenfield workspace bring-up
+    deployments/walmart/     ← customer-managed (Nile-Staging)
+    deployments/greenfield/    ← TF creates IAM + integrations + runner
     examples/scenarios/…     ← reuse existing Demo Workspace assets
   aws/                       ← PR output: reverse-engineered AWS IaC
   azure/                     ← PR output: generated Azure IaC + artifacts

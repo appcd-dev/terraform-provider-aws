@@ -1,5 +1,5 @@
 # =============================================================================
-# Deployment: walle (empty workspace bring-up)
+# Deployment: greenfield (empty workspace bring-up)
 # =============================================================================
 # Stands up the AWS migrator agent in an empty StackGen workspace:
 #   - Creates the customer IAM role (ReadOnlyAccess + Deny for workforce IAM/Athena/

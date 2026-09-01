@@ -6,14 +6,15 @@ Task-oriented navigation. Pick your goal, not a folder name.
 | --- | --- | --- |
 | Understand what this repo does | [01. Mental model](01-mental-model.md) | `docs/`, `aws/`, `azure/`, `gcp/` |
 | Learn StackGen / Nile jargon | [02. Glossary](02-glossary.md) | especially execute_series, script pack, emission |
-| See who talks to whom | [03. Architecture](03-architecture.md) | `deployments/walle/` |
+| See who talks to whom | [03. Architecture](03-architecture.md) | `deployments/walmart/` or `deployments/greenfield/` |
 | Trace why a workflow stage failed | [11. Script and stage catalog](11-script-and-stage-catalog.md) → stage row → log | `$HOME/.<run_id>/.work/logs/<stage>.log` on runner |
 | Know what the LLM does vs scripts | [05. LLM vs scripts](05-llm-vs-scripts.md) | `stage-runner.sh`, `*_iac_generate.py` |
 | Change AWS→Azure mapping | [09. How to change things](09-how-to-change-things.md) | `mappings/aws-to-azure.json`, `azure_iac_generate.py` |
 | Change AWS→GCP mapping | [09. How to change things](09-how-to-change-things.md) | `mappings/aws-to-gcp.json`, `gcp_iac_generate.py` |
 | Bump the script pack after editing scripts | [09. How to change things](09-how-to-change-things.md) | `main.tf` `script_pack_version`, `preload-script-pack.sh`, then `make catalog` |
 | Run script unit tests locally | `make test` from repo root | `scripts/test_*.py` |
-| Bring up a greenfield StackGen workspace | [00. Quickstart](00-quickstart.md) | `agent-pipeline-config/deployments/walle/` |
+| Bring up Nile-Staging (customer integrations) | [Walmart handoff](walmart-customer-handoff.md) | `agent-pipeline-config/deployments/walmart/` |
+| Bring up a greenfield StackGen workspace | [00. Quickstart](00-quickstart.md) | `agent-pipeline-config/deployments/greenfield/` |
 | Start the remote runner | [08. Day-2 ops](08-day-2-ops.md), [runner/README](../runner/README.md) | `tofu output -raw remote_runner_cli_start_command` |
 | Trigger a migration workflow | [08. Day-2 ops](08-day-2-ops.md) | intents: `aws-cloud-discovery`, `azure-migration-pr`, `gcp-migration-pr` |
 | Review an Azure migration PR | [07. Reading Azure PRs](07-reading-azure-prs.md) | `azure/groups/`, `azure/artifacts/` |

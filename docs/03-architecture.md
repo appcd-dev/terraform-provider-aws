@@ -20,7 +20,7 @@ flowchart TB
   Runner -->|"git, gh PRs"| GitHub
 ```
 
-## Config composition (`deployments/walle`)
+## Config composition (`deployments/walmart` and `deployments/greenfield`)
 
 Typical empty-workspace stack (order matters):
 

@@ -1,0 +1,8 @@
+# Optional S3 backend for CI or team-shared state (gitignored as backend.hcl).
+# Copy: cp backend.hcl.example backend.hcl
+# Then: tofu init -migrate-state -backend-config=backend.hcl
+
+bucket  = "cloud-migrator-tfstate-<AWS_ACCOUNT_ID>"
+key     = "walmart/nile-staging/aws-migrator.tfstate"
+region  = "us-east-1"
+profile = "<AWS_PROFILE>"

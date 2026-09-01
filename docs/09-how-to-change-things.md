@@ -60,5 +60,5 @@
 
 - Do not “fix” bad Azure HCL by lengthening the agent persona.  
 - Do not claim full live plan when sample caps are enabled.  
-- Do not commit `walle.tfvars`, tokens, or `init.out`/`plan.out`.  
+- Do not commit `walmart.tfvars`, `greenfield.tfvars`, tokens, or `init.out`/`plan.out`.  
 - Do not raise `AZURE_LIVE_PLAN_MAX_GROUPS` to “all” in demos without checking runtime cost.

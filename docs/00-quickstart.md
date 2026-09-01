@@ -4,76 +4,82 @@ Get from a fresh clone to a **first migration PR** in this repo. For deeper back
 
 ## What you will have when done
 
-1. OpenTofu applied the `walle` deployment into a StackGen workspace.  
+1. OpenTofu applied into a StackGen workspace (`walmart` or `greenfield` deployment).  
 2. An `aiden-runner` online with the aws-migrator script pack.  
 3. A workflow run that opens PRs under `aws/`, `azure/`, and/or `gcp/`.
 
 The agent **never applies** destination Terraform. Destination PRs open only after living Nile governance re-verification (`*_iac_governance_ok=true`). PRs are for human review.
 
-## Prerequisites (checklist)
+## Which deployment?
 
-| Need | Notes |
+| Path | When |
 | --- | --- |
-| OpenTofu ≥ 1.6 | Provider downloads from `releases.stackgen.com` |
-| StackGen URL + PAT + workspace UUID | Put in **gitignored** `*.tfvars` only |
-| AWS credentials | Create IAM role + read/write the deployment S3 state bucket |
-| GitHub PAT (`repo` + `read:org`) | `export TF_VAR_github_token="$(gh auth token)"` |
-| Docker (or Helm) | Start this repo's image `ghcr.io/walmart-stackgen/nile-factory-runner` after apply ([runner README](../runner/README.md)) |
-| Optional: Azure Reader rights | Live `tofu plan` on generated Azure roots |
-| Optional: GCP SA JSON | Live `tofu plan` on generated GCP roots |
-| Optional: Azure OpenAI URL + key + models | Custom LLM provider; omit for Guild built-in default |
+| [`deployments/walmart/`](../agent-pipeline-config/deployments/walmart/) | Customer creates integrations + runner in StackGen UI (Nile-Staging). Start here for Walmart. |
+| [`deployments/greenfield/`](../agent-pipeline-config/deployments/greenfield/) | You own AWS/Azure creds and TF creates IAM, integrations, and runner. |
+| [`examples/scenarios/aws-migrator/`](../agent-pipeline-config/examples/scenarios/aws-migrator/) | Reuse existing Demo Workspace assets. |
 
-Never commit tokens, SA JSON, `backend.hcl`, or Helm values that embed runner tokens.
+## Walmart path (customer-managed integrations)
 
-## 15-minute path (empty StackGen workspace)
+Phase 1 — StackGen policy only (no AWS/Azure CLI):
 
 ```bash
-cd agent-pipeline-config/deployments/walle
+cd agent-pipeline-config/deployments/walmart
 
-# 1. Local secrets (gitignored)
 mkdir -p ../../tfvars
-cat > ../../tfvars/walle.tfvars <<'EOF'
+cat > ../../tfvars/walmart.tfvars <<'EOF'
+stackgen_url        = "https://walmart.cloud.stackgen.com"
+stackgen_token      = "<STACKGEN_PAT>"
+stackgen_project_id = "<WORKSPACE_UUID>"
+enable_agent_stack  = false
+EOF
+
+tofu init
+tofu apply -input=false -var-file=../../tfvars/walmart.tfvars
+```
+
+Phase 2 — after customer creates GitHub + AWS integrations and a remote runner, fill exact names in tfvars, set `enable_agent_stack = true`, re-apply. Full checklist: [walmart-customer-handoff.md](walmart-customer-handoff.md).
+
+## Greenfield path (empty workspace you own)
+
+```bash
+cd agent-pipeline-config/deployments/greenfield
+
+mkdir -p ../../tfvars
+cat > ../../tfvars/greenfield.tfvars <<'EOF'
 stackgen_url        = "https://walmart.cloud.stackgen.com"
 stackgen_token      = "<STACKGEN_PAT>"
 stackgen_project_id = "<WORKSPACE_UUID>"
 aws_account_id      = "<AWS_ACCOUNT_ID>"
-# Optional GCP live plan:
-# gcp_project_id       = "<GCP_PROJECT_ID>"
-# gcp_credentials_json = <<-EOT
-# { ... service account JSON ... }
-# EOT
-# Optional Azure OpenAI (list deployments explicitly — no defaults):
-# azure_openai_api_url = "https://<resource>.openai.azure.com"
-# azure_openai_api_key = "<AZURE_OPENAI_KEY>"
-# azure_openai_models = [
-#   { name = "azure-gpt-4o", model_id = "gpt-4o", good_for_task = "tool_calling" },
-# ]
 EOF
 
-# 2. Local S3 backend (gitignored) — copy example and replace placeholders
 cp backend.hcl.example backend.hcl
-# edit: bucket, key, region, profile for YOUR account
-
 export AWS_PROFILE="<AWS_PROFILE>"
 export TF_VAR_github_token="$(gh auth token)"
 
 tofu init -backend-config=backend.hcl
-tofu apply -input=false -var-file=../../tfvars/walle.tfvars
-
-# 3. Start the remote runner (required)
-# Prefer this repo's image (tools + script pack baked in):
-#   ghcr.io/walmart-stackgen/nile-factory-runner:pack-20260827.4
-# See runner/README.md. tofu output still has mothership URL + runner token.
+tofu apply -input=false -var-file=../../tfvars/greenfield.tfvars
 tofu output -raw remote_runner_cli_start_command
-# run that command with the Nile-Factory image; wait until the runner is online in StackGen UI
 ```
 
 Full bring-up, CI wiring, and troubleshooting: [deployments README](../agent-pipeline-config/deployments/README.md).
 
+## Prerequisites (checklist)
+
+| Need | Walmart | Greenfield |
+| --- | --- | --- |
+| OpenTofu ≥ 1.6 | Yes | Yes |
+| StackGen PAT + workspace UUID | Yes | Yes |
+| AWS credentials | No (phase 1) | Yes (IAM + S3 state) |
+| GitHub PAT | Customer (UI) | `TF_VAR_github_token` |
+| Azure CLI | Customer (optional) | Yes (Reader SP) |
+| Docker / runner image | Customer starts runner | `tofu output` start command |
+
+Never commit tokens, SA JSON, `backend.hcl`, or Helm values that embed runner tokens.
+
 ## After apply — run a workflow
 
 1. Confirm the remote runner is **online**.  
-2. Confirm the runner image tag matches `script_pack_version` (rebuild after pack bumps). `kubectl cp` preload is only a hot-fix.  
+2. Confirm the runner image tag matches `script_pack_version` (rebuild after pack bumps).  
 3. In StackGen, start one of:
 
 | Workflow (intent) | Use when |
@@ -99,10 +105,6 @@ Discovery needs at least `aws_region` (for example `us-east-1`).
 
 How to review those PRs: [Azure](07-reading-azure-prs.md) · [GCP](07b-reading-gcp-prs.md).
 
-## Already have a Demo Workspace?
-
-Use [`examples/scenarios/aws-migrator`](../agent-pipeline-config/examples/scenarios/aws-migrator/) instead of `deployments/walle` — it **reuses** an existing runner, integrations, and policy instead of creating them.
-
 ## Security (do not skip)
 
 - Keep `*.tfvars`, `backend.hcl`, and local Helm/runner value files out of git.  
@@ -114,4 +116,4 @@ Use [`examples/scenarios/aws-migrator`](../agent-pipeline-config/examples/scenar
 
 1. [Mental model](01-mental-model.md) — what the pipeline is doing  
 2. [Workflows & stages](04-workflows-and-stages.md) — discovery vs destination-only DAG  
-3. [Day-2 ops](08-day-2-ops.md) — pack preload, triggers, troubleshooting  
+3. [Day-2 ops](08-day-2-ops.md) — pack preload, triggers, troubleshooting

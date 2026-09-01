@@ -4,7 +4,7 @@ These guides explain **cloud-migrator** for engineers working with StackGen, Gui
 
 | # | Doc | When you need it |
 | --- | --- | --- |
-| 0 | [Quickstart](00-quickstart.md) | Clone → apply `walle` → start runner → first workflow |
+| 0 | [Quickstart](00-quickstart.md) | Clone → apply `walmart` or `greenfield` → start runner → first workflow |
 | 1 | [Mental model](01-mental-model.md) | “What is this repo actually doing?” |
 | 2 | [Glossary](02-glossary.md) | Acronyms and StackGen jargon |
 | 3 | [Architecture](03-architecture.md) | Who talks to whom (StackGen, runner, GitHub, clouds) |
@@ -27,7 +27,8 @@ These guides explain **cloud-migrator** for engineers working with StackGen, Gui
 | [AGENTS.md](../AGENTS.md) | Guide for AI assistants and new contributors |
 | [Runner image](../runner/README.md) | Nile-Factory Dockerfile, GHCR tags, `docker run` |
 | [agent-pipeline-config](../agent-pipeline-config/README.md) | Config layout |
-| [deployments](../agent-pipeline-config/deployments/README.md) | Empty-workspace bring-up (`walle`) |
+| [deployments](../agent-pipeline-config/deployments/README.md) | `walmart` (customer-managed) and `greenfield` (TF-owned bring-up) |
+| [Walmart handoff](walmart-customer-handoff.md) | Nile-Staging two-phase apply checklist |
 | [aios-agent-aws-migrator](../agent-pipeline-config/modules/aios-agent-aws-migrator/README.md) | Module contract, stages, evidence |
 | [mappings](../agent-pipeline-config/modules/aios-agent-aws-migrator/mappings/README.md) | Azure catalog schema + emission |
 | [mappings GCP](../agent-pipeline-config/modules/aios-agent-aws-migrator/mappings/README-gcp.md) | GCP catalog notes |

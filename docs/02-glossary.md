@@ -46,7 +46,8 @@ Full definitions below. Task navigation: [12. I want to…](12-i-want-to.md).
 | **dangerous-ops policy** | Rego that forces HITL on destructive/off-hours shell |
 | **Evidence** | Checklist items the final stage must prove (`azure_pr_url_recorded`, …) |
 | **Notes** | Key/value facts the agent records between stages (`azure_iac_generated=true`) |
-| **walle** | Example empty-workspace deployment root under `deployments/walle/` |
+| **walmart** | Customer-managed deployment root under `deployments/walmart/` (Nile-Staging) |
+| **greenfield** | TF-owned empty-workspace bring-up under `deployments/greenfield/` (formerly `walle`) |
 
 ## Emission cheat sheet
 
