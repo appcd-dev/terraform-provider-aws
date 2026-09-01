@@ -26,7 +26,7 @@ tofu apply -var-file=walle.tfvars
 
 ## Trigger a run
 
-- Guild UI: start azure-only, gcp-only, or discovery with required inputs (e.g. AWS split branch).  
+- Guild UI: start `aws-cloud-discovery`, `azure-migration-pr`, or `gcp-migration-pr` with required inputs.
 - Or SE demo scripts if your org uses `solutions` playbooks — this repo’s deployments README is the source of truth for **walle**.
 
 ## After you change pack files

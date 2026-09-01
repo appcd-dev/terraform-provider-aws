@@ -2,29 +2,22 @@
 
 ## Big picture
 
-```text
-┌─────────────────────┐         ┌──────────────────────────┐
-│  You / SE           │  tofu   │  StackGen (Aiden OS)     │
-│  laptop             │ ──────► │  agents, workflows,      │
-│  agent-pipeline-…   │  apply  │  vault, policies         │
-└─────────────────────┘         └───────────┬──────────────┘
-                                            │ stage: run shell
-                                            ▼
-                                ┌──────────────────────────┐
-                                │  Remote runner           │
-                                │  aiden-runner + AWS CLI  │
-                                │  cloud2code, tofu, gh    │
-                                │  script-pack (sha256)    │
-                                └─────┬───────────┬────────┘
-                    AWS APIs ◄────────┘           └────────► Azure APIs (Reader)
-                                                          └────────► GCP APIs (SA Viewer)
-                                            │
-                                            ▼
-                                ┌──────────────────────────┐
-                                │  GitHub                  │
-                                │  cloud-migrator repo     │
-                                │  PRs → aws/, azure/, gcp/│
-                                └──────────────────────────┘
+```mermaid
+flowchart TB
+  You["You / SE laptop"]
+  StackGen["StackGen / Aiden OS\nagents, workflows, vault"]
+  Runner["Remote runner\naiden-runner + script pack"]
+  GitHub["GitHub\ncloud-migrator PRs"]
+  AWS["AWS account"]
+  Azure["Azure subscription\nReader SP"]
+  GCP["GCP project\nViewer SA"]
+
+  You -->|"tofu apply pipeline config"| StackGen
+  StackGen -->|"stage: execute_series"| Runner
+  Runner -->|"cloud2code, tofu"| AWS
+  Runner -->|"live plan"| Azure
+  Runner -->|"live plan"| GCP
+  Runner -->|"git, gh PRs"| GitHub
 ```
 
 ## Config composition (`deployments/walle`)
@@ -41,13 +34,13 @@ Scenario roots under `examples/scenarios/` reuse **existing** Demo Workspace int
 
 ## Data flow of one migration (happy path)
 
-1. Trigger **discovery** workflow (or start from an existing AWS split branch).  
-2. Runner scans AWS → writes monolith state under a workdir.  
-3. Split + reverse-IaC → branch/PR updating `aws/`.  
-4. In parallel (or via azure-only / gcp-only): destination phases fetch that branch.  
-5. Runner loads catalogs → blueprints → `azure_iac_generate.py` / `gcp_iac_generate.py` → `azure|gcp/groups/...`.  
-6. Validate: fmt/validate + optional **sampled** live destination plan.  
-7. Open PRs updating `azure/` and/or `gcp/` + artifacts; record evidence notes.
+1. Trigger **`aws-cloud-discovery`** with `aws_region` (or start from an existing AWS split branch for destination-only retests).
+2. Runner scans AWS → writes monolith state under a workdir.
+3. Split + reverse-IaC → discovery PR updating `aws/`.
+4. Trigger **`azure-migration-pr`** and/or **`gcp-migration-pr`** with `source_pr` from the discovery PR.
+5. Runner loads catalogs → blueprints → `azure_iac_generate.py` / `gcp_iac_generate.py` → `azure|gcp/groups/...`.
+6. Validate: fmt/validate + optional **sampled** live destination plan.
+7. Open sibling destination PRs updating `azure/` and/or `gcp/` + artifacts.
 
 ## Secrets (never commit)
 

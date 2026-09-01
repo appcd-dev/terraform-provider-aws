@@ -12,23 +12,12 @@ This is the most common source of confusion when reading the pipeline.
 
 ## Picture
 
-```text
-┌─────────────────────────────────────────────────────────┐
-│  LLM agent (Guild stage)                                │
-│  • Reads stage instructions                             │
-│  • Calls shell / GitHub tools                           │
-│  • Pastes AZURE_*_EXECUTE_SERIES blocks                 │
-│  • Records notes / evidence                             │
-└───────────────────────────┬─────────────────────────────┘
-                            │ runs on remote runner
-                            ▼
-┌─────────────────────────────────────────────────────────┐
-│  Deterministic pack                                     │
-│  stage-runner.sh                                        │
-│  azure_mapping_catalog.py  ←── mappings/aws-to-azure.json│
-│  azure_iac_generate.py     ←── blueprint → HCL files    │
-│  (tofu fmt / validate / plan)                           │
-└─────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+  LLM["LLM agent Guild stage\nreads instructions, paste execute_series\nrecords notes / evidence"]
+  Pack["Deterministic script pack\nstage-runner.sh\nmapping catalogs + Python generators\ntofu fmt / validate / plan"]
+
+  LLM -->|"runs on remote runner"| Pack
 ```
 
 ## Why this design?

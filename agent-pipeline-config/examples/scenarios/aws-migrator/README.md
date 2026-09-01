@@ -12,10 +12,9 @@ This root reuses:
 
 It creates:
 
-- `aws-migrator-architect`
-- `aws-migrator-discovery`
-- `aws-migrator-azure-only` / `aws-migrator-gcp-only` (destination half by intent)
-- `aws-migrator-orphan-iac-module-authoring`
+- `aws-migrator-architect` (agent)
+- `aws-cloud-discovery`, `azure-migration-pr`, `gcp-migration-pr` (workflows)
+- `aws-migrator-orphan-iac-module-authoring` (secondary workflow)
 - the module's runbooks, evidence checklists, policy, and runner script-pack secret binding
 
 It does not create AppStacks or attach a StackGen MCP integration; validation is standard Terraform/OpenTofu fmt, validate, optional tests, available lint, and zero-change plan evidence.

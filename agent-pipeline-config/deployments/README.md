@@ -137,8 +137,8 @@ The module binds a script-pack secret to the runner. Do not try to stuff the pac
 
 1. Open the workspace in StackGen (`stackgen_url` + project from tfvars).
 2. Confirm integrations are enabled and the remote runner is **online**.
-3. Start **`aws-migrator-discovery`** with input `aws_region` (required). Optional: `cloud2code_include` / `exclude` / `tags`.
-4. Or start **`aws-migrator-azure-only`** to retest Azure stages from an existing `split/...` branch in this repo.
+3. Start **`aws-cloud-discovery`** with input `aws_region` (required). Optional: `cloud2code_include` / `exclude` / `tags`.
+4. Or start **`azure-migration-pr`** / **`gcp-migration-pr`** with `source_pr` from the discovery PR to generate destination IaC.
 
 Generated PRs update `aws/` and `azure/` in [cloud-migrator](https://github.com/Walmart-StackGen/Nile-Factory).
 

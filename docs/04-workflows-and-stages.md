@@ -19,28 +19,39 @@ The optional submodule `docs/nile-governance` is a **human browse / pin**, not t
 
 | Workflow | Purpose |
 | --- | --- |
-| **Discovery / full pipeline** | Scan AWS → split → reverse-IaC → AWS PR → Azure destination + GCP destination (parallel) → final gate |
-| **Azure-only** | Start from an existing AWS split branch → generate Azure → validate / harden / living-gov conform → Azure PR (gated on conformance) |
-| **GCP-only** | Start from an existing AWS split branch → generate GCP → validate / harden / living-gov conform → GCP PR (gated on conformance) |
-| **Governance rules codify** | On-demand: Governance-and-Policy markdown → `rules/` Rego + conftest → PR → GHA `rules-validate` (GitHub integration only, no runner) |
+| **`aws-cloud-discovery`** | Scan AWS → split → reverse-IaC → **one AWS discovery PR** → optional orphan handoff |
+| **`azure-migration-pr`** | From discovery PR/branch (`source_pr`) → generate Azure → validate / harden / living-gov conform → Azure PR |
+| **`gcp-migration-pr`** | From discovery PR/branch (`source_pr`) → generate GCP → validate / harden / living-gov conform → GCP PR |
+| **`governance-rules-codify`** | On-demand: Governance-and-Policy markdown → `rules/` Rego + conftest → PR → GHA `rules-validate` |
 
 Exact resource names live in the module TF (`workflows_discovery.tf`, `workflows_azure_only.tf`, `workflows_gcp_only.tf`, `workflows_orphan.tf`, and `modules/aios-agent-governance-codify/workflows_governance_codify.tf`). Names can include a `name_prefix` from the deployment.
 
-## Destination-only stage story (simplified)
+## Destination-only stage flow
 
-```text
-start
-  → source-fetch            # clone AWS split branch into work root
-  → migration-blueprint     # catalog decisions + review-needed
-  → iac-generate            # write azure/ or gcp/ groups
-  → parallel:
-        iac-validate        # fmt/validate + sampled live plan
-        iac-harden          # mechanical lint/security autofix
-        iac-governance-conform  # refresh Nile docs → tree → validator → remediate
-  → iac-loop                # retry generate/validate until ok or terminal blocker
-  → iac-governance-loop     # retry conform until governance_ok true|false or docs blocked
-  → pr                      # opens only if *_iac_governance_ok=true; SHA in artifacts
-  → *-only-final            # evidence
+```mermaid
+flowchart TD
+  start([start])
+  fetch[source-fetch]
+  blueprint[migration-blueprint]
+  generate[iac-generate]
+  validate[iac-validate]
+  harden[iac-harden]
+  conform[iac-governance-conform]
+  loop[iac-loop]
+  govloop[iac-governance-loop]
+  pr[pr]
+  final["*-only-final evidence"]
+
+  start --> fetch --> blueprint --> generate
+  generate --> validate
+  generate --> harden
+  generate --> conform
+  validate --> loop
+  harden --> loop
+  conform --> govloop
+  loop --> pr
+  govloop --> pr
+  pr --> final
 ```
 
 Loops exist when generate/validate fail **or** Priority-1 residuals remain. If governance docs cannot be fetched, the run fail-closes (`blocked:governance_docs_unavailable`) and no destination PR opens.
@@ -76,21 +87,55 @@ rules-intake   # dual-clone: Governance-and-Policy (read md) + Nile-Factory (man
 
 **Target:** [Nile-Factory](https://github.com/Walmart-StackGen/Nile-Factory) `rules/` tree + PR.
 
+## Discovery high-level DAG
+
+`aws-cloud-discovery` is AWS-only. Destination Azure/GCP PRs are **separate workflow runs** after discovery.
+
+```mermaid
+flowchart LR
+  preflight[runner-capability-preflight]
+  scan[cloud2code-scan-aws]
+  split[ingest-and-split]
+  registry[registry-and-import-codegen]
+  converge[shell-converge-matrix]
+  awspr[AWS discovery PR]
+  orphan[orphans-secondary]
+  final[final-gate-and-memory]
+
+  preflight --> scan --> split --> registry --> converge --> awspr
+  awspr --> orphan --> final
+```
+
+After the discovery PR merges or is ready for handoff, run destination workflows separately:
+
+```mermaid
+flowchart LR
+  discoveryPR[discovery PR / branch]
+  azureWF[azure-migration-pr]
+  gcpWF[gcp-migration-pr]
+  azurePR[Azure PR]
+  gcpPR[GCP PR]
+
+  discoveryPR --> azureWF --> azurePR
+  discoveryPR --> gcpWF --> gcpPR
+```
+
 ## Discovery stages (high level)
 
 1. **Discover** — `cloud2code` / AWS inventory → monolith state
 2. **Split** — logical groups + registry
 3. **Reverse-IaC** — HCL per group; AWS plan ≈ no drift
-4. **AWS PR** — push `aws/` tree
-5. **Azure path** (parallel with GCP + orphans) — fetch → blueprint → generate → validate / harden / living-gov → PR
-6. **GCP path** (parallel) — same shape under `gcp/`
-7. **Final gate** — waits on Azure final + GCP final + orphans secondary
+4. **AWS PR** — push `aws/` tree on `discovery/<run_id>`
+5. **Orphan handoff** — optional secondary workflow for ungrouped resources
+6. **Final gate** — discovery evidence checklist (AWS proof only)
+
+Destination Azure/GCP paths run under `azure-migration-pr` / `gcp-migration-pr` with `source_pr` or `source_iac_branch`.
 
 ## Where stages are defined
 
 | File | Contents |
 | --- | --- |
-| `workflows_discovery.tf` | Discovery / full AWS + destination paths |
+| `workflows_discovery.tf` | AWS cloud discovery only |
 | `workflows_azure_only.tf` | Azure-only path |
 | `workflows_gcp_only.tf` | GCP-only path |
 | `workflows_orphan.tf` | Orphan / cleanup style flows |

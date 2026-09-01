@@ -2,7 +2,7 @@
 
 Private repository for StackGen AWS → Azure / GCP IaC migration: the agent pipeline that discovers AWS, reverse-engineers Terraform, maps resources to destination clouds, and opens PRs back into this repo.
 
-**New to this repo?** Start with **[docs/00-quickstart.md](docs/00-quickstart.md)**, then the guide hub: **[docs/](docs/README.md)** (mental model, glossary, LLM vs scripts, how to read destination PRs, day-2 ops).
+**New to this repo?** Start with **[docs/00-quickstart.md](docs/00-quickstart.md)**, then the guide hub: **[docs/](docs/README.md)** (mental model, glossary, LLM vs scripts, how to read destination PRs, day-2 ops). For task-oriented navigation see **[docs/12-i-want-to.md](docs/12-i-want-to.md)** and **[AGENTS.md](AGENTS.md)**.
 
 ## What lives where
 
@@ -51,8 +51,10 @@ Full prerequisites, troubleshooting (including stale state locks), and how to cl
 ## After apply — run a migration
 
 1. Confirm the remote runner is **online** in the StackGen UI.
-2. Start workflow `aws-migrator-discovery` with at least `aws_region` (for example `us-east-1`).
-3. For faster destination-only retests (skips AWS discovery/split), use `aws-migrator-azure-only` or `aws-migrator-gcp-only`.
+2. Start workflow **`aws-cloud-discovery`** with at least `aws_region` (for example `us-east-1`).
+3. For faster destination-only retests (skips AWS discovery/split), use **`azure-migration-pr`** or **`gcp-migration-pr`**.
+
+**Names you may see elsewhere:** older docs and scripts sometimes say `aws-migrator-discovery`, `aws-migrator-azure-only`, or `aws-migrator-gcp-only`. The StackGen workflow intents are `aws-cloud-discovery`, `azure-migration-pr`, and `gcp-migration-pr` (see [12. I want to…](docs/12-i-want-to.md)).
 
 Workflow PRs land here:
 

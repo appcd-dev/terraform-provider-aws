@@ -102,7 +102,7 @@ The default split path is `tfstate_monolith_decomposer.py`. The runner scores ea
 
 Runner work is namespaced under `$HOME/.<workflow_run_id>/` so one remote runner can support concurrent runs. `stage-runner.sh preflight` writes `.active` / `.last_touch` sentinels and runs TTL cleanup for old sibling run directories (`DBSPLIT_RUN_TTL_HOURS`, default `48`). Set `DBSPLIT_RUN_CLEANUP_ON_PREFLIGHT=0` to disable or `DBSPLIT_CLEANUP_DRY_RUN=true` to audit candidates.
 
-Stage shape:
+Stage shape (`aws-cloud-discovery`):
 
 ```text
 runner-capability-preflight
@@ -117,36 +117,39 @@ runner-capability-preflight
  -> shell-converge-matrix
  -> shell-converge-loop
  -> converge-blocked-gate
- -> parallel:
-      azure-source-fetch … azure-pr → azure-only-final
-      gcp-source-fetch … gcp-pr → gcp-only-final
-      orphans-secondary-pipeline
+ -> orphans-secondary-pipeline
  -> final-gate-and-memory
 ```
 
-Blocked gates are platform `conditional_skip` stages (no LLM). When a terminal `blocked:*` sentinel matches, the gate jumps to `final-gate-and-memory` so cold-start or upstream failure does not fan into Azure/GCP/orphan stages.
-In the primary workflow, destination source-fetch stages read the AWS IaC branch emitted by the same run (`iac_push_branch` / `working_branch`, falling back to `split/<workflow_run_id>`). Source and destination PR stages allocate fresh branches for each execution (`split/`, `azure/`, `gcp/` prefixes with timestamp/PID suffix when needed). The separate azure-only / gcp-only test workflows keep static default split branches for fast replay.
+Blocked gates are platform `conditional_skip` stages (no LLM). When a terminal `blocked:*` sentinel matches, the gate jumps to `final-gate-and-memory`.
 
-Azure-only / GCP-only stage shape:
+Destination Azure/GCP PRs are **not** stages of this workflow. Run `azure-migration-pr` / `gcp-migration-pr` separately with `source_pr` or `source_iac_branch` from the discovery PR.
+
+Azure / GCP destination stage shape (`azure-migration-pr` / `gcp-migration-pr`):
 
 ```text
 *-source-fetch
  -> *-migration-blueprint
  -> *-iac-generate
- -> *-iac-validate
- -> *-iac-loop
+ -> parallel: *-iac-validate, *-iac-harden, *-iac-governance-conform
+ -> *-iac-loop / *-iac-governance-loop
  -> *-pr
  -> *-only-final
 ```
 
 ## Evidence
 
-The primary workflow checklist requires AWS reverse-IaC proof plus Azure and GCP destination proof-of-work keys (`azure_*` and `gcp_*` fetch / blueprint / generate / validate / PR items).
+The discovery workflow checklist requires AWS reverse-IaC proof only (`cloud2code_tfstate_recorded`, `iac_pr_url_recorded`, plan zero-diff evidence, etc.). See `sg_evidence_checklist.aws_migrator_discovery_evidence` in `main.tf`.
 
-When `iac_repository_url` is supplied, the workflow opens source and destination PR handoffs:
+Azure and GCP destination workflows have separate evidence checklists (`azure-migration-pr-evidence`, `gcp-migration-pr-evidence`) covering fetch, blueprint, generate, validate, harden, governance conform, and PR URL.
+
+When `iac_repository_url` is supplied, discovery opens an AWS PR with:
 
 - `aws/groups/<group_id>/` - per-group source Terraform roots and split state shards
 - `aws/artifacts/` - manifests, split quality/tuning reports, review/layer summaries, orphan bundle, registry mapping, sample payloads, and handoff notes
+
+Destination workflows (`azure-migration-pr` / `gcp-migration-pr`) write:
+
 - `azure/groups/<group_id>/` - best-effort Azure Terraform roots (each with a `mapping-decisions.json`)
 - `azure/artifacts/` - migration profile, blueprint, aggregated mapping decisions, generation summary, validation report, PR body, and review-needed notes
 - `gcp/groups/<group_id>/` - best-effort GCP Terraform roots (same honesty contract via `emission`)

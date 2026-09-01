@@ -76,11 +76,13 @@ Full bring-up, CI wiring, and troubleshooting: [deployments README](../agent-pip
 2. Confirm the runner image tag matches `script_pack_version` (rebuild after pack bumps). `kubectl cp` preload is only a hot-fix.  
 3. In StackGen, start one of:
 
-| Workflow | Use when |
+| Workflow (intent) | Use when |
 | --- | --- |
-| `aws-migrator-discovery` | Full path: discover AWS → split → reverse HCL → destination PRs |
-| `aws-migrator-azure-only` | Retest Azure from an existing AWS split branch |
-| `aws-migrator-gcp-only` | Retest GCP from an existing AWS split branch |
+| `aws-cloud-discovery` | Discover AWS → split → reverse HCL → **AWS discovery PR** |
+| `azure-migration-pr` | Generate Azure IaC from an existing discovery PR/branch (`source_pr`) |
+| `gcp-migration-pr` | Generate GCP IaC from an existing discovery PR/branch (`source_pr`) |
+
+Legacy names: `aws-migrator-discovery`, `aws-migrator-azure-only`, `aws-migrator-gcp-only` (see [12. I want to…](12-i-want-to.md)).
 
 Discovery needs at least `aws_region` (for example `us-east-1`).
 

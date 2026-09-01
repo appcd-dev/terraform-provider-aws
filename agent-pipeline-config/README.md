@@ -6,6 +6,32 @@ Terraform/OpenTofu configuration for the StackGen **AWS migrator** agent pipelin
 
 **Docs:** [docs hub](../docs/README.md) — architecture, workflows, LLM vs scripts, ops.
 
+## Module dependency (typical `walle` deployment)
+
+```mermaid
+flowchart TB
+  walle["deployments/walle"]
+  aws_iam["AWS IAM role\n(inline)"]
+  github["aios-integration-github"]
+  azure["aios-integration-azure"]
+  gcp["aios-integration-gcp\noptional"]
+  runner["aios-remote-runner"]
+  migrator["aios-agent-aws-migrator"]
+  codify["aios-agent-governance-codify"]
+  policy["dangerous-ops policy"]
+
+  walle --> aws_iam
+  walle --> github
+  walle --> azure
+  walle --> gcp
+  walle --> policy
+  walle --> migrator
+  walle --> codify
+  migrator --> runner
+  migrator --> github
+  codify --> github
+```
+
 ## Layout
 
 - `modules/aios-agent-aws-migrator/` - reusable StackGen workflow module, runner scripts, personas, runbooks, and stage spawn contracts.
@@ -15,9 +41,7 @@ Terraform/OpenTofu configuration for the StackGen **AWS migrator** agent pipelin
 
 ## Included workflows
 
-- `aws-migrator-discovery` - full AWS scan, tfstate split, AWS reverse-IaC validation, then Azure and/or GCP generation, validation, and PRs.
-- `aws-migrator-azure-only` - destination-half test from an existing `split/…` AWS branch → Azure blueprint → generate → validate → PR.
-- `aws-migrator-gcp-only` - destination-half test from an existing `split/…` AWS branch → GCP blueprint → generate → validate → PR.
+Workflow intents: `aws-cloud-discovery`, `azure-migration-pr`, `gcp-migration-pr`. Legacy name mapping: [docs/12-i-want-to.md](../docs/12-i-want-to.md).
 
 ## Not included
 

@@ -1,5 +1,23 @@
 # 2. Glossary
 
+## Jargon → plain English (quick reference)
+
+| When you see… | Think… |
+| --- | --- |
+| `execute_series` | Shell the LLM pastes; runs preloaded script-pack commands on the runner |
+| `script pack` | Versioned copy of `stage-runner.sh` + Python on the runner |
+| `aios-*` | OpenTofu module prefix for StackGen pipeline config |
+| `AppStack` | StackGen resource grouping; destination-only runs must not create these |
+| `codify` | Offline workflow: governance markdown → Rego rules in `rules/` |
+| `conform` | Per-run check against live Governance-and-Policy docs |
+| `DBSPLIT_EMBEDDED` | Env flag required to invoke `stage-runner.sh` (work-dir isolation) |
+| `living Nile governance` | Each run refreshes external docs and builds a run-specific validator |
+| `docs/nile-governance/` | Human browse pin only; runtime conform fetches live from GitHub |
+
+Full definitions below. Task navigation: [12. I want to…](12-i-want-to.md).
+
+## Terms
+
 | Term | Meaning |
 | --- | --- |
 | **StackGen / Aiden OS / Guild** | Product that hosts agents, workflows, integrations, vault secrets, and remote runners |

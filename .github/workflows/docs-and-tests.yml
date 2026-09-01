@@ -1,0 +1,31 @@
+name: Docs and script tests
+
+on:
+  pull_request:
+    paths:
+      - 'agent-pipeline-config/**'
+      - 'docs/**'
+      - 'Makefile'
+      - 'AGENTS.md'
+      - '.github/workflows/docs-and-tests.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'agent-pipeline-config/**'
+      - 'docs/**'
+      - 'Makefile'
+      - 'AGENTS.md'
+      - '.github/workflows/docs-and-tests.yml'
+
+jobs:
+  test-and-catalog:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run script pack unit tests
+        run: make test
+
+      - name: Check script catalog is up to date
+        run: make catalog-check

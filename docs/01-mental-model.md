@@ -34,6 +34,8 @@ cloud-migrator/
   gcp/                       ← PR output: generated GCP IaC + artifacts
 ```
 
+**Governance docs:** runtime conform fetches live from [Governance-and-Policy](https://github.com/Walmart-StackGen/Governance-and-Policy) on GitHub. The optional `docs/nile-governance/` folder is a human browse pin only (see [glossary](02-glossary.md)).
+
 ## Two different “Terraform” worlds (easy to confuse)
 
 | World | Purpose |
@@ -53,3 +55,18 @@ You `tofu apply` the **pipeline config**. You **review** (and a human later may 
 | **LLM agent** | Orchestrates stages: paste the right `execute_series`, read notes, submit evidence — **does not invent AWS→destination mappings** |
 
 Details: [LLM vs scripts](05-llm-vs-scripts.md).
+
+## Invocation flow (4 layers)
+
+```mermaid
+flowchart LR
+  WF["workflows_*.tf\nstage note"]
+  CTX["stage_context.tf\n+ *.tftpl"]
+  RDS["run-destination-stage.sh"]
+  SR["stage-runner.sh\ncmd_*"]
+  PY["Python helpers"]
+
+  WF --> CTX --> RDS --> SR --> PY
+```
+
+Full stage index: [11. Script and stage catalog](11-script-and-stage-catalog.md).

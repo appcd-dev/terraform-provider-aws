@@ -8,7 +8,7 @@ These guides explain **cloud-migrator** for engineers working with StackGen, Gui
 | 1 | [Mental model](01-mental-model.md) | “What is this repo actually doing?” |
 | 2 | [Glossary](02-glossary.md) | Acronyms and StackGen jargon |
 | 3 | [Architecture](03-architecture.md) | Who talks to whom (StackGen, runner, GitHub, clouds) |
-| 4 | [Workflows & stages](04-workflows-and-stages.md) | Discovery vs azure-only vs gcp-only; living Nile gov loop; stage DAG |
+| 4 | [Workflows & stages](04-workflows-and-stages.md) | Discovery vs destination workflows; living Nile gov loop; stage DAG |
 | 5 | [LLM vs scripts](05-llm-vs-scripts.md) | What the model does vs what Python/bash does |
 | 6 | [Catalog & generation](06-mapping-catalog-and-generation.md) | How AWS types become Azure/GCP HCL |
 | 7 | [Reading Azure PRs](07-reading-azure-prs.md) | How to review an Azure migration PR |
@@ -16,12 +16,15 @@ These guides explain **cloud-migrator** for engineers working with StackGen, Gui
 | 8 | [Day-2 ops](08-day-2-ops.md) | Apply, runner, script pack, trigger a run |
 | 9 | [How to change things](09-how-to-change-things.md) | Safe edit checklist for catalog, pack, and workflow changes |
 | 10 | [Remote runner FAQ](10-remote-runner-faq.md) | Image, registry, tags, K8s vs Docker, `--auto-discover`, ACA, sizing, FQDNs, tokens |
+| 11 | [Script and stage catalog](11-script-and-stage-catalog.md) | Stage → template → script traceability (auto-generated; run `make catalog`) |
+| 12 | [I want to…](12-i-want-to.md) | Task-oriented navigation by goal |
 
 ## Related READMEs (deeper / machine-facing)
 
 | Path | Audience |
 | --- | --- |
 | [Root README](../README.md) | Quick start + path map |
+| [AGENTS.md](../AGENTS.md) | Guide for AI assistants and new contributors |
 | [Runner image](../runner/README.md) | Nile-Factory Dockerfile, GHCR tags, `docker run` |
 | [agent-pipeline-config](../agent-pipeline-config/README.md) | Config layout |
 | [deployments](../agent-pipeline-config/deployments/README.md) | Empty-workspace bring-up (`walle`) |

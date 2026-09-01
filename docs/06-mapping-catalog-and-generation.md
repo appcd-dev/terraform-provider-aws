@@ -76,6 +76,6 @@ Confidence ≥ **0.7** on identity means the scaffold includes RBAC *shape*, not
 3. Bump catalog `version`.  
 4. Bump **`script_pack_version`** in module + `SCRIPT_PACK_VERSION` in `stage-runner.sh` (keep them identical).  
 5. Re-apply deployment + **preload** pack on the runner.  
-6. Run azure-only / gcp-only on a small fixture group before a large demo.
+6. Run `azure-migration-pr` / `gcp-migration-pr` on a small fixture group before a large demo.
 
 Checklist: [How to change things](09-how-to-change-things.md).

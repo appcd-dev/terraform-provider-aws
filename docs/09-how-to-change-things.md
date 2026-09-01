@@ -13,7 +13,7 @@
 1. Edit `mappings/aws-to-azure.json` and/or `mappings/aws-to-gcp.json`.  
 2. Update the matching mappings README if schema/behavior docs need it.  
 3. Bump pack version + apply + preload.  
-4. Run azure-only / gcp-only on a branch that contains that type.
+4. Run `azure-migration-pr` / `gcp-migration-pr` on a branch that contains that type.
 
 ### B. Generator HCL shapes
 
@@ -50,8 +50,9 @@
 
 - [ ] Docs/README updated if behavior changed for humans  
 - [ ] Pack version bumped when runner files changed  
+- [ ] `make test` passes; run `make catalog` and commit if scripts or stages changed  
 - [ ] Apply + preload done on a real runner  
-- [ ] One azure-only run on a small PR  
+- [ ] One `azure-migration-pr` run on a small PR  
 - [ ] PR review checklist in [doc 07](07-reading-azure-prs.md) passes for that run  
 - [ ] No secrets in git  
 
