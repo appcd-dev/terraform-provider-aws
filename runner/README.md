@@ -76,6 +76,6 @@ Helm: use the tofu `helm_install_command`, then `--set image.repository=ghcr.io/
 
 ## Publish
 
-Workflow [`.github/workflows/publish-runner.yml`](../.github/workflows/publish-runner.yml) builds `linux/amd64` and `linux/arm64` on pushes to `main` that touch `runner/` or the script pack, and on `workflow_dispatch`. Pull requests build `linux/amd64` only and do not push.
+Workflow [`.github/workflows/publish-runner.yml`](../.github/workflows/publish-runner.yml) builds `linux/amd64` and `linux/arm64` on every run (push to `main`, pull requests, and `workflow_dispatch`). Only non-PR runs push to GHCR.
 
 Versions and checksums live in [`versions.env`](versions.env).
