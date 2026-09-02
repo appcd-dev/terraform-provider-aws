@@ -1,0 +1,42 @@
+{
+  "schema": "nile-governance-controls/v1",
+  "source_paths": [
+    "governance/priority-controls.md"
+  ],
+  "summary": "Classifies Nile priority controls and enforces the Priority 1 metadata requirement that planned Azure resources carry required tags and planned GCP resources carry required labels as defined by the Tagging and Labeling Standard.",
+  "input_schema": {
+    "description": "Terraform plan JSON (terraform show -json). Policies read resource_changes[].change.after tags and labels.",
+    "required_fields": [
+      "resource_changes"
+    ]
+  },
+  "controls": [
+    {
+      "id": "PRIO-001",
+      "title": "Priority 1 metadata must be present on planned Azure and GCP resources",
+      "source_section": "Section 5 – Priority 1 Controls; Section 9 – Priority by Cloud",
+      "severity": "blocker",
+      "obligation": "Production-priority metadata controls require Nile-managed resources to carry the required Azure tags or GCP labels defined in the Tagging and Labeling Standard.",
+      "enforce": true,
+      "iac_check": "For azurerm_* create/update resources, require all mandatory tags in change.after.tags. For google_* create/update resources, require all mandatory labels in change.after.labels."
+    },
+    {
+      "id": "PRIO-002",
+      "title": "Priority controls guide approval, exception, and validation emphasis",
+      "source_section": "Section 3 – Relationship to Project Nile; Section 10 – Priority and Exceptions; Section 11 – Priority and Validation",
+      "severity": "informational",
+      "obligation": "Priority affects human review, exception risk weighting, and validation emphasis but does not itself prove implementation or replace required approval workflows.",
+      "enforce": false,
+      "iac_check": "Not directly checkable from Terraform plan JSON because it describes governance process and human decision authority."
+    },
+    {
+      "id": "PRIO-003",
+      "title": "Candidate and TBD priority controls are informational until promoted",
+      "source_section": "Section 8 – Priority 4 Controls; Section 12 – Governance Agent Guidance; Section 13 – Validation Agent Guidance",
+      "severity": "informational",
+      "obligation": "Priority 4 and TBD controls must not be treated as active enforcement requirements unless documented elsewhere as promoted or implemented.",
+      "enforce": false,
+      "iac_check": "Not checkable from Terraform plan JSON because promotion and implementation status are governance-state decisions outside the plan."
+    }
+  ]
+}

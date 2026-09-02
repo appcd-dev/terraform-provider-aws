@@ -1,0 +1,78 @@
+{
+  "schema": "nile-governance-controls/v1",
+  "source_paths": [
+    "architecture/factory-lifecycle.md"
+  ],
+  "summary": "Documents the Nile factory lifecycle, promotion gates, approvals, and audit expectations. Obligations in this document are process and workflow oriented rather than directly enforceable from Terraform plan JSON.",
+  "input_schema": {
+    "description": "Terraform plan JSON (terraform show -json). No controls from this document can be reliably evaluated from plan fields alone.",
+    "required_fields": [
+      "resource_changes"
+    ]
+  },
+  "controls": [
+    {
+      "id": "FFL-001",
+      "title": "Factory proposals document required intake information",
+      "source_section": "Stage 1 — Proposal",
+      "severity": "moderate",
+      "obligation": "A factory proposal must document business justification, cloud provider scope, resource types, governance alignment, and tagging coverage.",
+      "enforce": false,
+      "reason": "Proposal documentation requirements are not represented in Terraform plan JSON."
+    },
+    {
+      "id": "FFL-002",
+      "title": "Input schemas define and constrain all exposed inputs",
+      "source_section": "Stage 2 — Authoring / Input Schema Design",
+      "severity": "high",
+      "obligation": "All inputs must have types, descriptions, and validation constraints, and inputs mapping to mandatory tags are required fields.",
+      "enforce": false,
+      "reason": "Schema metadata and required-input design are factory authoring concerns, not Terraform plan JSON attributes."
+    },
+    {
+      "id": "FFL-003",
+      "title": "Security-sensitive options require explicit approval",
+      "source_section": "Stage 2 — Authoring / Input Schema Design",
+      "severity": "high",
+      "obligation": "Inputs exposing security-sensitive options such as public exposure or encryption bypass are prohibited unless explicitly approved by Security.",
+      "enforce": false,
+      "reason": "Approval state and schema exposure are process inputs unavailable in Terraform plan JSON."
+    },
+    {
+      "id": "FFL-004",
+      "title": "Factory validation gate blocks promotion until all checks and reviews pass",
+      "source_section": "Stage 3 — Validation",
+      "severity": "blocker",
+      "obligation": "All automated checks and manual reviews must pass before a factory is promoted to Alpha, and production-impacting promotion and deployment decisions require human review and approval.",
+      "enforce": false,
+      "reason": "Promotion workflow, manual reviews, and approval evidence are not encoded in Terraform plan JSON."
+    },
+    {
+      "id": "FFL-005",
+      "title": "Lifecycle promotions require deployment evidence and sign-off",
+      "source_section": "Stage 4 — Alpha; Stage 5 — Beta; Stage 6 — Stable",
+      "severity": "high",
+      "obligation": "Promotion between lifecycle stages requires successful deployments, issue thresholds, and formal sign-off or review depending on stage.",
+      "enforce": false,
+      "reason": "Deployment history, open issue state, and sign-off decisions are external process data, not plan fields."
+    },
+    {
+      "id": "FFL-006",
+      "title": "Breaking changes and deprecation timelines follow governance rules",
+      "source_section": "Stage 5 — Beta; Stage 6 — Stable; Stage 7 — Deprecated",
+      "severity": "moderate",
+      "obligation": "Breaking changes require deprecation notices or new major versions, and deprecation must include minimum migration windows and consumer notification.",
+      "enforce": false,
+      "reason": "Versioning policy, notices, and migration windows are release-management process requirements outside Terraform plan JSON."
+    },
+    {
+      "id": "FFL-007",
+      "title": "Provisioning records are retained for audit",
+      "source_section": "Compliance and Audit",
+      "severity": "moderate",
+      "obligation": "Every factory execution generates a provisioning record with execution metadata, validation results, provisioned resources, applied tags, and retention for audit.",
+      "enforce": false,
+      "reason": "Audit record generation and retention are operational controls not observable in Terraform plan JSON."
+    }
+  ]
+}

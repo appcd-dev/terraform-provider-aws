@@ -1,0 +1,63 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.5.0",
+  "resource_changes": [
+    {
+      "address": "azurerm_storage_account.example",
+      "mode": "managed",
+      "type": "azurerm_storage_account",
+      "name": "example",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": {
+        "actions": ["create"],
+        "after": {
+          "name": "stexample",
+          "location": "eastus2",
+          "tags": {
+            "owner": "unknown",
+            "created-by": "pipeline-sp",
+            "cost-center": "cc-100",
+            "environment": "qa",
+            "function": "storage",
+            "service": "nile",
+            "repo": "",
+            "applicationname": "projectnile",
+            "name": "stexample",
+            "notificationdistlist": "ops@example.com",
+            "ssp": "ssp-001",
+            "trproductid": "tr-001"
+          }
+        }
+      }
+    },
+    {
+      "address": "google_storage_bucket.example",
+      "mode": "managed",
+      "type": "google_storage_bucket",
+      "name": "example",
+      "provider_name": "registry.terraform.io/hashicorp/google",
+      "change": {
+        "actions": ["update"],
+        "after": {
+          "name": "bucket-example",
+          "location": "US",
+          "labels": {
+            "owner": "platformengineering",
+            "created_by": "changeme",
+            "cost_center": "cc-200",
+            "environment": "production",
+            "function": "data",
+            "service": "nile",
+            "repo": "walmart-stackgen/nile-factory",
+            "application_name": "projectnile",
+            "name": "bucket-example",
+            "notification_distlist": "ops-team",
+            "ssp": "ssp-002",
+            "tr_product_id": "tr-002",
+            "apm_id": ""
+          }
+        }
+      }
+    }
+  ]
+}

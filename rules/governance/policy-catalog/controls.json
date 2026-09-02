@@ -1,0 +1,137 @@
+{
+  "schema": "nile-governance-controls/v1",
+  "source_paths": ["governance/policy-catalog.md"],
+  "summary": "Terraform plan checks derived from the Nile Governance Policy Catalog for required metadata, public exposure, selected identity and data-protection settings, and approved GCP regions.",
+  "input_schema": {
+    "description": "Terraform plan JSON (terraform show -json). Policies read resource_changes[].change.after.",
+    "required_fields": ["resource_changes"]
+  },
+  "controls": [
+    {
+      "id": "NPC-001",
+      "title": "Azure required tags present",
+      "source_section": "Section 6.10 – Tagging",
+      "severity": "blocker",
+      "obligation": "Azure resources subject to the tagging policy must include all required Azure tags.",
+      "enforce": true,
+      "iac_check": "For azurerm_* create/update resource_changes, change.after.tags must contain non-empty required keys."
+    },
+    {
+      "id": "NPC-002",
+      "title": "GCP required labels present",
+      "source_section": "Section 8 – Cross-Cloud Governance Intent; Section 11 – StackGen Validation Guidance",
+      "severity": "blocker",
+      "obligation": "GCP resources must include required labels mapped from the Nile tagging and labeling standard.",
+      "enforce": true,
+      "iac_check": "For google_* create/update resource_changes that support labels, change.after.labels must contain non-empty required keys."
+    },
+    {
+      "id": "NPC-003",
+      "title": "No public IPs on Azure network interfaces",
+      "source_section": "Section 6.7 – Network Security",
+      "severity": "high",
+      "obligation": "Azure network interfaces must not expose public IP addresses.",
+      "enforce": true,
+      "iac_check": "For azurerm_network_interface create/update resource_changes, ip_configuration entries must not set public_ip_address_id."
+    },
+    {
+      "id": "NPC-004",
+      "title": "GCP compute instances deny external IP access",
+      "source_section": "Section 7.3 – Network Security Controls",
+      "severity": "high",
+      "obligation": "GCP compute instances must not configure external IP access.",
+      "enforce": true,
+      "iac_check": "For google_compute_instance create/update resource_changes, network_interface.access_config must be absent or empty."
+    },
+    {
+      "id": "NPC-005",
+      "title": "Azure App Service HTTPS only",
+      "source_section": "Section 6.3 – Data Protection",
+      "severity": "high",
+      "obligation": "Azure App Service and Function App resources must enforce HTTPS-only access.",
+      "enforce": true,
+      "iac_check": "For azurerm_app_service, azurerm_linux_web_app, azurerm_windows_web_app, azurerm_function_app, azurerm_linux_function_app, and azurerm_windows_function_app create/update resource_changes, https_only must be true when present."
+    },
+    {
+      "id": "NPC-006",
+      "title": "Azure storage secure transfer required",
+      "source_section": "Section 6.3 – Data Protection",
+      "severity": "high",
+      "obligation": "Azure storage accounts must require secure transfer.",
+      "enforce": true,
+      "iac_check": "For azurerm_storage_account create/update resource_changes, enable_https_traffic_only or https_traffic_only_enabled must be true."
+    },
+    {
+      "id": "NPC-007",
+      "title": "Azure Key Vault soft delete and purge protection enabled",
+      "source_section": "Section 6.3 – Data Protection",
+      "severity": "high",
+      "obligation": "Azure Key Vault resources must enable soft delete and deletion protection.",
+      "enforce": true,
+      "iac_check": "For azurerm_key_vault create/update resource_changes, soft_delete_retention_days must be greater than 0 and purge_protection_enabled must be true."
+    },
+    {
+      "id": "NPC-008",
+      "title": "Azure managed identity required on app services",
+      "source_section": "Section 6.4 – Identity Management",
+      "severity": "high",
+      "obligation": "Azure App Service and Function App resources must use managed identity.",
+      "enforce": true,
+      "iac_check": "For supported azurerm app/function resources, identity.type must be present and non-empty."
+    },
+    {
+      "id": "NPC-009",
+      "title": "GCP approved resource regions only",
+      "source_section": "Section 7.5 – Compliance and Governance Controls",
+      "severity": "high",
+      "obligation": "GCP resources with regional or zonal locations must use approved regions.",
+      "enforce": true,
+      "iac_check": "For google_* create/update resource_changes with location, region, or zone, values must match the approved region set encoded in policy."
+    },
+    {
+      "id": "NPC-010",
+      "title": "Active vs candidate/deferred control classification",
+      "source_section": "Sections 7, 9, 10, 11",
+      "severity": "medium",
+      "obligation": "Candidate, deferred, higher-scope, approval, review, exception, evidence, and maturity statements must not be represented as Terraform plan denials unless a concrete resource attribute is defined.",
+      "enforce": false,
+      "iac_check": "Process-only classification note."
+    },
+    {
+      "id": "NPC-011",
+      "title": "Human approval and GitHub pull request requirements",
+      "source_section": "Sections 4, 11, 12",
+      "severity": "medium",
+      "obligation": "Production-impacting changes require GitHub pull requests, human review evidence, and approval by designated reviewers.",
+      "enforce": false,
+      "iac_check": "Process-only requirement not present in Terraform plan JSON."
+    },
+    {
+      "id": "NPC-012",
+      "title": "Exception documentation requirements",
+      "source_section": "Sections 8, 11, 12",
+      "severity": "medium",
+      "obligation": "Policy exceptions must be documented with owner, rationale, approval reference, and expiration date.",
+      "enforce": false,
+      "iac_check": "Process-only requirement not present in Terraform plan JSON."
+    },
+    {
+      "id": "NPC-013",
+      "title": "Production readiness review obligations",
+      "source_section": "Sections 6.2, 6.5, 6.6, 6.8, 12",
+      "severity": "medium",
+      "obligation": "Backup posture review, logging architecture approval, Defender posture review, and other production readiness checks require human review and supporting evidence beyond Terraform plan shape.",
+      "enforce": false,
+      "iac_check": "Review/evidence workflow requirement."
+    },
+    {
+      "id": "NPC-014",
+      "title": "Open questions and TBD items",
+      "source_section": "Section 13",
+      "severity": "low",
+      "obligation": "Unresolved governance decisions must remain marked TBD and not be treated as enforced controls.",
+      "enforce": false,
+      "iac_check": "Documentation-state requirement, not plan-checkable."
+    }
+  ]
+}

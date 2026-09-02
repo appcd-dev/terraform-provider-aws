@@ -1,0 +1,53 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.5.0",
+  "resource_changes": [
+    {
+      "address": "azurerm_resource_group.example",
+      "mode": "managed",
+      "type": "azurerm_resource_group",
+      "name": "example",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": {
+        "actions": ["create"],
+        "after": {
+          "name": "rg-example",
+          "location": "eastus",
+          "tags": {
+            "owner": "changeme",
+            "created-by": "pipeline",
+            "cost-center": "cc-123"
+          }
+        }
+      }
+    },
+    {
+      "address": "google_compute_network.example",
+      "mode": "managed",
+      "type": "google_compute_network",
+      "name": "example",
+      "provider_name": "registry.terraform.io/hashicorp/google",
+      "change": {
+        "actions": ["update"],
+        "after": {
+          "name": "vpc-example",
+          "labels": {
+            "owner": "platform-team",
+            "created_by": "pipeline",
+            "cost_center": "cc-123",
+            "environment": "unknown",
+            "function": "shared-services",
+            "service": "nile",
+            "repo": "",
+            "application_name": "nile-core",
+            "name": "vpc-example",
+            "notification_distlist": "ops@example.com",
+            "ssp": "ssp-001",
+            "tr_product_id": "tr-001",
+            "apm_id": "apm-001"
+          }
+        }
+      }
+    }
+  ]
+}

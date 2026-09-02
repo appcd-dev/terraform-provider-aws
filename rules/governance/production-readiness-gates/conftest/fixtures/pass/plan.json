@@ -1,0 +1,63 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.5.0",
+  "resource_changes": [
+    {
+      "address": "azurerm_resource_group.example",
+      "mode": "managed",
+      "type": "azurerm_resource_group",
+      "name": "example",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": {
+        "actions": ["create"],
+        "after": {
+          "name": "rg-example",
+          "location": "eastus",
+          "tags": {
+            "owner": "platform-team",
+            "created-by": "pipeline",
+            "cost-center": "cc-123",
+            "environment": "prod",
+            "function": "shared-services",
+            "service": "nile",
+            "repo": "Walmart-StackGen/Nile-Factory",
+            "applicationname": "nile-core",
+            "name": "rg-example",
+            "notificationdistlist": "ops@example.com",
+            "ssp": "ssp-001",
+            "trproductid": "tr-001",
+            "apmid": "apm-001"
+          }
+        }
+      }
+    },
+    {
+      "address": "google_compute_network.example",
+      "mode": "managed",
+      "type": "google_compute_network",
+      "name": "example",
+      "provider_name": "registry.terraform.io/hashicorp/google",
+      "change": {
+        "actions": ["create"],
+        "after": {
+          "name": "vpc-example",
+          "labels": {
+            "owner": "platform-team",
+            "created_by": "pipeline",
+            "cost_center": "cc-123",
+            "environment": "prod",
+            "function": "shared-services",
+            "service": "nile",
+            "repo": "Walmart-StackGen/Nile-Factory",
+            "application_name": "nile-core",
+            "name": "vpc-example",
+            "notification_distlist": "ops@example.com",
+            "ssp": "ssp-001",
+            "tr_product_id": "tr-001",
+            "apm_id": "apm-001"
+          }
+        }
+      }
+    }
+  ]
+}

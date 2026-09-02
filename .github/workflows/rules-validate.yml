@@ -1,0 +1,26 @@
+name: rules-validate
+
+on:
+  pull_request:
+    paths:
+      - 'rules/**'
+      - '.github/workflows/rules-validate.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'rules/**'
+      - '.github/workflows/rules-validate.yml'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Ensure test runner is executable
+        run: chmod +x rules/run-tests.sh
+
+      - name: Run rules validation
+        run: ./rules/run-tests.sh

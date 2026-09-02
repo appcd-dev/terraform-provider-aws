@@ -1,0 +1,70 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.5.0",
+  "resource_changes": [
+    {
+      "address": "azurerm_linux_web_app.example",
+      "mode": "managed",
+      "type": "azurerm_linux_web_app",
+      "name": "example",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": {
+        "actions": ["create"],
+        "after": {
+          "tags": {
+            "owner": "platform",
+            "created-by": "pipeline",
+            "cost-center": "cc-1",
+            "environment": "dev",
+            "function": "app",
+            "service": "nile",
+            "repo": "org/repo",
+            "applicationname": "demo",
+            "name": "app-example",
+            "notificationdistlist": "ops@example.com",
+            "ssp": "ssp-1",
+            "trproductid": "tr-1",
+            "apmid": "apm-1"
+          },
+          "https_only": true,
+          "identity": {
+            "type": "SystemAssigned"
+          }
+        }
+      }
+    },
+    {
+      "address": "google_compute_instance.example",
+      "mode": "managed",
+      "type": "google_compute_instance",
+      "name": "example",
+      "provider_name": "registry.terraform.io/hashicorp/google",
+      "change": {
+        "actions": ["create"],
+        "after": {
+          "zone": "us-central1-a",
+          "labels": {
+            "owner": "platform",
+            "created-by": "pipeline",
+            "cost-center": "cc-1",
+            "environment": "dev",
+            "function": "app",
+            "service": "nile",
+            "repo": "org-repo",
+            "applicationname": "demo",
+            "name": "vm-example",
+            "notificationdistlist": "ops",
+            "ssp": "ssp-1",
+            "trproductid": "tr-1",
+            "apmid": "apm-1"
+          },
+          "network_interface": [
+            {
+              "subnetwork": "default"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

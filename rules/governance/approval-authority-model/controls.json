@@ -1,0 +1,105 @@
+{
+  "schema": "nile-governance-controls/v1",
+  "source_paths": [
+    "governance/approval-authority-model.md"
+  ],
+  "summary": "Documents approval authority and evidence-traceability governance expectations for Project Nile. The document is process-only and not directly enforceable from Terraform plan JSON.",
+  "input_schema": {
+    "description": "Terraform plan JSON (terraform show -json). This approval authority model does not define resource-attribute obligations that can be evaluated from resource_changes.",
+    "required_fields": [
+      "resource_changes"
+    ]
+  },
+  "controls": [
+    {
+      "id": "AAM-001",
+      "title": "Human approval required for production-impacting changes",
+      "source_section": "Section 2 – Approval Principles",
+      "severity": "blocker",
+      "obligation": "Human approval remains mandatory for production-impacting changes; automation and StackGen do not approve production changes.",
+      "enforce": false,
+      "iac_check": "Not enforceable from Terraform plan JSON because approval actors and approval decisions are not represented in resource_changes."
+    },
+    {
+      "id": "AAM-002",
+      "title": "Approval requires reviewable evidence linked in GitHub",
+      "source_section": "Section 2 – Approval Principles",
+      "severity": "high",
+      "obligation": "Approval requires evidence that is reviewable and linked in GitHub.",
+      "enforce": false,
+      "iac_check": "Not enforceable from Terraform plan JSON because evidence links and review records are process artifacts outside plan data."
+    },
+    {
+      "id": "AAM-003",
+      "title": "Governance review before promotion",
+      "source_section": "Section 2 – Approval Principles",
+      "severity": "blocker",
+      "obligation": "Governance review must occur before promotion or production-impacting progression.",
+      "enforce": false,
+      "iac_check": "Not enforceable from Terraform plan JSON because review workflow state is not present in planned resource attributes."
+    },
+    {
+      "id": "AAM-004",
+      "title": "GitHub is the approval system of record",
+      "source_section": "Section 2 – Approval Principles",
+      "severity": "medium",
+      "obligation": "GitHub is the system of record for approval evidence, review history, and decision traceability.",
+      "enforce": false,
+      "iac_check": "Not enforceable from Terraform plan JSON because traceability records live in GitHub workflows and reviews, not resource_changes."
+    },
+    {
+      "id": "AAM-005",
+      "title": "Approvals must be reviewable, evidence-backed, and traceable",
+      "source_section": "Section 3 – Relationship To Project Nile",
+      "severity": "high",
+      "obligation": "Approvals are governance artifacts and must be reviewable, evidence-backed, and traceable through GitHub.",
+      "enforce": false,
+      "iac_check": "Not enforceable from Terraform plan JSON because reviewability and traceability are governance process requirements rather than plan attributes."
+    },
+    {
+      "id": "AAM-006",
+      "title": "Production readiness approval requires evidence and human review",
+      "source_section": "Section 8 – Production Readiness Approval",
+      "severity": "blocker",
+      "obligation": "Production readiness approval requires evidence, gate review, exception review, metadata review, validation review, and human review.",
+      "enforce": false,
+      "iac_check": "Not enforceable from Terraform plan JSON because the required reviews and evidence types are not represented in terraform show -json output."
+    },
+    {
+      "id": "AAM-007",
+      "title": "Approval evidence artifacts are required where applicable",
+      "source_section": "Section 9 – Approval Evidence Requirements",
+      "severity": "high",
+      "obligation": "PR review, governance review, validation results, exception records, metadata review, architecture review, control review, graduation evidence, and approval record are required where applicable.",
+      "enforce": false,
+      "iac_check": "Not enforceable from Terraform plan JSON because required evidence artifacts are external approval records, not planned infrastructure fields."
+    },
+    {
+      "id": "AAM-008",
+      "title": "Approval rationale and history must be documented and reviewable",
+      "source_section": "Section 10 – Approval Traceability",
+      "severity": "medium",
+      "obligation": "Evidence should be linked, approval rationale should be documented, and decision history should be reviewable.",
+      "enforce": false,
+      "iac_check": "Not enforceable from Terraform plan JSON because rationale and history are documentation artifacts outside resource_changes."
+    },
+    {
+      "id": "AAM-009",
+      "title": "Validation supports review but does not approve changes",
+      "source_section": "Section 12 – Relationship To Validation",
+      "severity": "medium",
+      "obligation": "Validation informs approval, but validation results do not replace accountable human review and do not equal approval.",
+      "enforce": false,
+      "iac_check": "Not enforceable from Terraform plan JSON because separation of validation and approval is a human governance responsibility, not a resource attribute check."
+    },
+    {
+      "id": "AAM-010",
+      "title": "Validation agents must not approve changes or exceptions",
+      "source_section": "Section 14 – Validation Agent Guidance",
+      "severity": "medium",
+      "obligation": "Validation agents must not approve changes, production, governance exceptions, or graduation.",
+      "enforce": false,
+      "iac_check": "Not enforceable from Terraform plan JSON because agent authorization boundaries are not modeled in terraform plan data."
+    }
+  ]
+}

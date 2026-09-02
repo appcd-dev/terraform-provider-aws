@@ -1,0 +1,83 @@
+{
+  "schema": "nile-codify-manifest/v1",
+  "entries": [
+    {
+      "doc_path": "architecture/factory-lifecycle.md",
+      "pack_dir": "rules/architecture/factory-lifecycle",
+      "content_sha256": "53d62f16aafb1993dd9edadaecca94c496bd04177a7b386850cf7d6924b73743",
+      "policy_written": false
+    },
+    {
+      "doc_path": "architecture/nile-overview.md",
+      "pack_dir": "rules/architecture/nile-overview",
+      "content_sha256": "e0e23c3570156d832bb15d506767936209072687339427a732c6c3a820d9f6cc",
+      "policy_written": false
+    },
+    {
+      "doc_path": "architecture/platform-roles.md",
+      "pack_dir": "rules/architecture/platform-roles",
+      "content_sha256": "1a2fe350ee345458ea9338d2bf179b0b7f5dbf8b73639e3a65b8bb6fe135cc10",
+      "policy_written": false
+    },
+    {
+      "doc_path": "governance/approval-authority-model.md",
+      "pack_dir": "rules/governance/approval-authority-model",
+      "content_sha256": "28191fb0016f2f392a57aefb9c76e65e67fba7823c2ce7119974f7f09b9628b1",
+      "policy_written": false
+    },
+    {
+      "doc_path": "governance/control-matrix.md",
+      "pack_dir": "rules/governance/control-matrix",
+      "content_sha256": "914fecba2456599a7fc95d9ee9b5a2f0b80104b5e8c8b28c3b7901c162168935",
+      "policy_written": true
+    },
+    {
+      "doc_path": "governance/evidence-schema.md",
+      "pack_dir": "rules/governance/evidence-schema",
+      "content_sha256": "6806f3ee3ee8ff402443540d9932258451669efdab45e5c533c38afbd83a3133",
+      "policy_written": false
+    },
+    {
+      "doc_path": "governance/exception-authority-model.md",
+      "pack_dir": "rules/governance/exception-authority-model",
+      "content_sha256": "cf5b097089272f3dbab20d03819ced3b8360dff34fb24b333d6a20f5b2c562e2",
+      "policy_written": false
+    },
+    {
+      "doc_path": "governance/exception-management.md",
+      "pack_dir": "rules/governance/exception-management",
+      "content_sha256": "0d714d1139ff6bc71334ba8b184da7de6b9657f9f2821da6cb0ebf80681cf90a",
+      "policy_written": false
+    },
+    {
+      "doc_path": "governance/gcp-organization-policy-standard.md",
+      "pack_dir": "rules/governance/gcp-organization-policy-standard",
+      "content_sha256": "21a5369d354b659b1fc3fce5e94d23d5940fe582fb6c17ba609187aea6d413d0",
+      "policy_written": false
+    },
+    {
+      "doc_path": "governance/policy-catalog.md",
+      "pack_dir": "rules/governance/policy-catalog",
+      "content_sha256": "8ba00650a1aa2e2b86af319480c31cdb1b51f1c5f6ed3c6df8168b1a15fb6de0",
+      "policy_written": true
+    },
+    {
+      "doc_path": "governance/priority-controls.md",
+      "pack_dir": "rules/governance/priority-controls",
+      "content_sha256": "293fdda93dbb8865e12d9c341984488198edd8a657ec05e04764bb20a833b0f5",
+      "policy_written": true
+    },
+    {
+      "doc_path": "governance/production-readiness-gates.md",
+      "pack_dir": "rules/governance/production-readiness-gates",
+      "content_sha256": "38fed0528b9f3275a8450b1de12ec19196d589de2fa1084c65d91e951780eec7",
+      "policy_written": true
+    },
+    {
+      "doc_path": "governance/tagging-labeling-standard.md",
+      "pack_dir": "rules/governance/tagging-labeling-standard",
+      "content_sha256": "e1e074f3dac962f64318fee6488a1ef10979001c2bbd4ba53c651c4739d8e16c",
+      "policy_written": true
+    }
+  ]
+}

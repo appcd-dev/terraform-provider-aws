@@ -1,0 +1,119 @@
+{
+  "schema": "nile-governance-controls/v1",
+  "source_paths": ["governance/evidence-schema.md"],
+  "summary": "Captures process-oriented evidence governance requirements, quality expectations, ownership, traceability, approval evidence, exception evidence, and graduation evidence expectations for Project Nile.",
+  "input_schema": {
+    "description": "Terraform plan JSON (terraform show -json). This document does not define obligations directly enforceable from resource_changes or other Terraform plan fields.",
+    "required_fields": ["resource_changes"]
+  },
+  "controls": [
+    {
+      "id": "EVS-001",
+      "title": "Evidence must be collected before approval",
+      "source_section": "Section 2 – Evidence Before Approval",
+      "severity": "blocker",
+      "obligation": "Evidence must be collected, linked, and reviewable before an approval decision is made.",
+      "enforce": false,
+      "rationale": "Requires evidence collection state, linkage, and human approval workflow context not present in Terraform plan JSON."
+    },
+    {
+      "id": "EVS-002",
+      "title": "Evidence must be traceable to a source",
+      "source_section": "Section 2 – Evidence Must Be Traceable",
+      "severity": "blocker",
+      "obligation": "Every evidence item must be traceable to a source such as a pull request, document, review record, or GitHub reference.",
+      "enforce": false,
+      "rationale": "Traceability to review records and GitHub references is a governance record concern, not a Terraform resource attribute."
+    },
+    {
+      "id": "EVS-003",
+      "title": "Evidence must be reviewable",
+      "source_section": "Section 2 – Evidence Must Be Reviewable",
+      "severity": "high",
+      "obligation": "Evidence must be accessible to reviewers in a form that permits human evaluation.",
+      "enforce": false,
+      "rationale": "Human accessibility and reviewability cannot be determined from a Terraform plan."
+    },
+    {
+      "id": "EVS-004",
+      "title": "GitHub is the system of record for evidence",
+      "source_section": "Section 2 – GitHub As System Of Record",
+      "severity": "high",
+      "obligation": "Pull requests, review comments, approval records, and linked documents in GitHub constitute the evidence trace for governance review.",
+      "enforce": false,
+      "rationale": "Requires repository workflow and review-history data outside Terraform plan JSON."
+    },
+    {
+      "id": "EVS-005",
+      "title": "Exceptions require supporting evidence",
+      "source_section": "Section 2 – Exceptions Require Evidence",
+      "severity": "blocker",
+      "obligation": "Exception requests must include business justification, technical justification, risk assessment, and compensating controls evidence.",
+      "enforce": false,
+      "rationale": "Exception request completeness is process evidence, not plan-inspectable infrastructure state."
+    },
+    {
+      "id": "EVS-006",
+      "title": "Evidence quality requirements must be satisfied",
+      "source_section": "Section 5 – Evidence Quality Model",
+      "severity": "high",
+      "obligation": "Evidence should be traceable, reviewable, linked, current, relevant, complete, versioned, and auditable.",
+      "enforce": false,
+      "rationale": "Quality attributes apply to evidence artifacts and governance records rather than Terraform resource configuration."
+    },
+    {
+      "id": "EVS-007",
+      "title": "Approval evidence must be traceable to a named human reviewer",
+      "source_section": "Section 7 – Required Evidence Categories; Section 10 – Approval Evidence Model",
+      "severity": "blocker",
+      "obligation": "Approval records for production-impacting changes must be traceable to a named human reviewer and linked to supporting evidence.",
+      "enforce": false,
+      "rationale": "Human approval identity and review trace are not expressed in Terraform plan resource_changes."
+    },
+    {
+      "id": "EVS-008",
+      "title": "Gate evaluations require category-specific evidence packages",
+      "source_section": "Section 8 – Production Readiness Evidence",
+      "severity": "high",
+      "obligation": "Each production readiness gate requires specified evidence categories such as IaC references, validation findings, exceptions, metadata validation, and approval records.",
+      "enforce": false,
+      "rationale": "Gate evidence packages span documents, reviews, approvals, and findings outside Terraform plan content."
+    },
+    {
+      "id": "EVS-009",
+      "title": "Graduation evidence must span prior lifecycle stages",
+      "source_section": "Section 11 – Graduation Evidence Model",
+      "severity": "high",
+      "obligation": "The graduation evidence package must assemble traceable, reviewable evidence across all applicable prior gates and lifecycle stages.",
+      "enforce": false,
+      "rationale": "Cross-stage evidence assembly is a governance process requirement, not a plan-time resource property."
+    },
+    {
+      "id": "EVS-010",
+      "title": "Evidence must remain GitHub-indexed and auditable over time",
+      "source_section": "Section 12 – Evidence Traceability Requirements",
+      "severity": "high",
+      "obligation": "Evidence should be linked, discoverable, traceable to source and decision, GitHub-indexed, revision-stable, and auditable over time.",
+      "enforce": false,
+      "rationale": "Indexing, discoverability, and long-term auditability depend on external records and repositories, not Terraform plan fields."
+    },
+    {
+      "id": "EVS-011",
+      "title": "Evidence status is informational and human-governed",
+      "source_section": "Section 13 – Evidence Status Model",
+      "severity": "medium",
+      "obligation": "Evidence items may be Draft, Collected, Under Review, Accepted, Rejected, Expired, or Archived, and status does not imply approval authority.",
+      "enforce": false,
+      "rationale": "Evidence lifecycle status is a governance workflow state absent from Terraform plans."
+    },
+    {
+      "id": "EVS-012",
+      "title": "Validation agents evaluate evidence but do not approve",
+      "source_section": "Section 15 – Validation Agent Guidance",
+      "severity": "medium",
+      "obligation": "Validation agents may verify evidence existence and quality gaps but must not approve readiness, exceptions, or production-impacting changes.",
+      "enforce": false,
+      "rationale": "Agent authority boundaries are procedural guidance, not infrastructure attributes in plan JSON."
+    }
+  ]
+}

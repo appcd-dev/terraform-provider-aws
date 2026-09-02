@@ -1,0 +1,101 @@
+{
+  "schema": "nile-governance-controls/v1",
+  "source_paths": ["architecture/platform-roles.md"],
+  "summary": "Defines Nile platform roles, approval boundaries, and governance responsibilities. This document is process- and authority-oriented and does not define Terraform-plan-checkable resource requirements.",
+  "input_schema": {
+    "description": "Terraform plan JSON (terraform show -json). This pack records process-only controls from the platform roles document; no policy evaluates plan fields.",
+    "required_fields": ["resource_changes"]
+  },
+  "controls": [
+    {
+      "id": "PR-001",
+      "title": "Platform Engineer responsibilities and access boundaries are documented",
+      "source_section": "Platform Engineer",
+      "severity": "moderate",
+      "obligation": "Platform Engineers design and maintain factories and validation rules while production changes occur only through factory executions and CI/CD workflows.",
+      "enforce": false,
+      "reason": "Role responsibilities and human access pathways are organizational process requirements, not Terraform plan attributes."
+    },
+    {
+      "id": "PR-002",
+      "title": "Policy ownership and approval authority are assigned",
+      "source_section": "Policy Owner",
+      "severity": "moderate",
+      "obligation": "Policy Owners maintain the policy catalog and approve policy and control-matrix changes.",
+      "enforce": false,
+      "reason": "Approval authority and stewardship assignments are governance workflow requirements, not resource configuration in a plan."
+    },
+    {
+      "id": "PR-003",
+      "title": "Platform Consumers provide mandatory workload metadata",
+      "source_section": "Platform Consumer / Tag Ownership",
+      "severity": "moderate",
+      "obligation": "Platform Consumers provide accurate mandatory tagging values such as workload id, team, environment, cost center, and data classification when requesting infrastructure.",
+      "enforce": false,
+      "reason": "The document assigns responsibility for supplying metadata, but the enforceable tagging requirements belong to the separate tagging standard; this roles document does not itself define plan-level validation criteria."
+    },
+    {
+      "id": "PR-004",
+      "title": "Architectural deviation and promotion approval roles are assigned",
+      "source_section": "Platform Architect",
+      "severity": "moderate",
+      "obligation": "Platform Architects approve architectural deviations and provide sign-off for Beta to Stable promotions.",
+      "enforce": false,
+      "reason": "Human review and approval responsibilities cannot be derived from Terraform plan JSON."
+    },
+    {
+      "id": "PR-005",
+      "title": "Security review ownership is assigned",
+      "source_section": "Security Engineer",
+      "severity": "high",
+      "obligation": "Security Engineers own security-domain controls and review factories for alignment to security requirements.",
+      "enforce": false,
+      "reason": "Security governance ownership is process-only. Specific security resource requirements must come from separate policy documents to be plan-enforceable."
+    },
+    {
+      "id": "PR-006",
+      "title": "Compliance reporting ownership is assigned",
+      "source_section": "Compliance Analyst",
+      "severity": "moderate",
+      "obligation": "Compliance Analysts map controls to frameworks and provide audit evidence from provisioning and monitoring records.",
+      "enforce": false,
+      "reason": "Audit evidence and reporting duties are organizational processes, not Terraform resource attributes."
+    },
+    {
+      "id": "PR-007",
+      "title": "FinOps tagging oversight is assigned",
+      "source_section": "FinOps Analyst",
+      "severity": "moderate",
+      "obligation": "FinOps Analysts monitor tag coverage and use cost-center and team tags for chargeback reporting.",
+      "enforce": false,
+      "reason": "Monitoring and reporting responsibilities are process controls. Enforceable tag presence belongs in the tagging standard pack, not this roles document."
+    },
+    {
+      "id": "PR-008",
+      "title": "Platform operations authority is bounded",
+      "source_section": "Platform Operations",
+      "severity": "high",
+      "obligation": "Platform Operations manages runtime infrastructure and break-glass production access through approved change and incident processes.",
+      "enforce": false,
+      "reason": "Operational authority, incident handling, and break-glass processes are not represented in Terraform plan JSON."
+    },
+    {
+      "id": "PR-009",
+      "title": "Decision and exception authority boundaries are documented",
+      "source_section": "Decision Authority Boundaries",
+      "severity": "high",
+      "obligation": "Governance stewardship, human approver authority, approval authority, and exception authority must follow the designated governance models.",
+      "enforce": false,
+      "reason": "Authority boundaries and escalation rules are human governance requirements and cannot be validated from planned resources."
+    },
+    {
+      "id": "PR-010",
+      "title": "RACI assignments for governance activities are defined",
+      "source_section": "RACI Summary",
+      "severity": "low",
+      "obligation": "Key Nile governance activities must have documented responsible, accountable, consulted, and informed roles.",
+      "enforce": false,
+      "reason": "RACI assignments are documentation and process constructs with no direct Terraform plan representation."
+    }
+  ]
+}

@@ -1,0 +1,78 @@
+{
+  "schema": "nile-governance-controls/v1",
+  "source_paths": [
+    "governance/tagging-labeling-standard.md"
+  ],
+  "summary": "Enforces required Azure tags and GCP labels, non-empty metadata values, placeholder rejection, and standardized environment values on Terraform planned resources.",
+  "input_schema": {
+    "description": "Terraform plan JSON (terraform show -json). Policies read resource_changes[].change.after tags and labels.",
+    "required_fields": [
+      "resource_changes"
+    ]
+  },
+  "controls": [
+    {
+      "id": "TAG-001",
+      "title": "Azure required tags present",
+      "source_section": "Section 5 – Azure Required Tags; Section 6.2 – Resources",
+      "severity": "blocker",
+      "obligation": "All Nile-managed Azure resources must contain the required Azure tags defined by the standard.",
+      "enforce": true,
+      "iac_check": "For azurerm_* create/update resources except azurerm_route_table, require change.after.tags to include owner, created-by, cost-center, environment, function, service, repo, applicationname, name, notificationdistlist, ssp, trproductid, and apmid with non-empty values."
+    },
+    {
+      "id": "TAG-002",
+      "title": "GCP required labels present",
+      "source_section": "Section 7 – GCP Label Standard",
+      "severity": "blocker",
+      "obligation": "All Nile-managed GCP resources must contain the required GCP labels defined by the standard.",
+      "enforce": true,
+      "iac_check": "For google_* create/update resources, require change.after.labels to include owner, created_by, cost_center, environment, function, service, repo, application_name, name, notification_distlist, ssp, tr_product_id, and apm_id with non-empty values."
+    },
+    {
+      "id": "TAG-003",
+      "title": "Metadata values must not use placeholders",
+      "source_section": "Section 9 – Metadata Quality Rules, Rule 1 – No Placeholder Values; Section 10 – Metadata Validation Expectations",
+      "severity": "blocker",
+      "obligation": "Required metadata values must not be placeholders such as TBD, test, unknown, placeholder, changeme, or none.",
+      "enforce": true,
+      "iac_check": "For required Azure tags and GCP labels on create/update resources, reject values that normalize to placeholder strings or are empty."
+    },
+    {
+      "id": "TAG-004",
+      "title": "Environment values must use the expected standard set",
+      "source_section": "Section 9 – Metadata Quality Rules, Rule 3 – Environment Values Must Be Standardized",
+      "severity": "warning",
+      "obligation": "Environment metadata should use one of dev, test, stage, prod, or sandbox until a final approved list is published.",
+      "enforce": true,
+      "iac_check": "For azurerm_* and google_* create/update resources, require the environment tag or label value to be one of dev, test, stage, prod, or sandbox."
+    },
+    {
+      "id": "TAG-005",
+      "title": "AVNM route table exception documentation",
+      "source_section": "Section 6.4 – Route Table Exception; Section 10 – Metadata Validation Expectations",
+      "severity": "info",
+      "obligation": "Any AVNM-created Azure route table exception usage must be documented in governance review records.",
+      "enforce": false,
+      "iac_check": "Documentation requirement not directly inferable from Terraform plan JSON."
+    },
+    {
+      "id": "TAG-006",
+      "title": "Protected identifiers align to authoritative systems",
+      "source_section": "Section 6.3 – Protected Values; Section 9 Rule 6 – Portfolio and Product Identifiers Must Align to Authoritative Systems",
+      "severity": "info",
+      "obligation": "ssp, trproductid/tr_product_id, and apmid/apm_id should align to authoritative systems when available.",
+      "enforce": false,
+      "iac_check": "Authoritative-system lookup is out of scope for Terraform plan JSON and the source marks those systems TBD."
+    },
+    {
+      "id": "TAG-007",
+      "title": "Metadata exceptions require documentation",
+      "source_section": "Section 9 Rule 7 – Metadata Exceptions Require Documentation",
+      "severity": "info",
+      "obligation": "Where a required tag or label cannot be applied, an exception must be documented with owner, rationale, impact, and expiration.",
+      "enforce": false,
+      "iac_check": "Exception workflow and documentation fields are process controls, not Terraform plan attributes."
+    }
+  ]
+}

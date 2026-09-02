@@ -1,0 +1,159 @@
+{
+  "schema": "nile-governance-controls/v1",
+  "source_paths": [
+    "governance/control-matrix.md"
+  ],
+  "summary": "Maps Nile control domains across Azure and GCP. This pack enforces only the metadata-presence obligation that can be checked from Terraform plan JSON; remaining governance intent and review-stage requirements are process-only in this document.",
+  "input_schema": {
+    "description": "Terraform plan JSON (terraform show -json). Policies read resource_changes[].change.after tags/labels.",
+    "required_fields": [
+      "resource_changes"
+    ]
+  },
+  "controls": [
+    {
+      "id": "CM-001",
+      "title": "Metadata present on planned resources",
+      "source_section": "Section 4 \u2013 Control Matrix \u2013 Metadata; Section 9 \u2013 StackGen Validation Guidance \u2013 Metadata",
+      "severity": "blocker",
+      "obligation": "Ownership, cost, repo, service, and APM metadata must be present and validated on governed resources.",
+      "enforce": true,
+      "iac_check": "For create/update resource_changes, require non-empty after.tags or after.labels keys owner, cost-center, repo, service, apmid when tag/label maps exist."
+    },
+    {
+      "id": "CM-002",
+      "title": "Source of truth is GitHub-reviewed IaC",
+      "source_section": "Section 4 \u2013 Control Matrix \u2013 Source of Truth; Section 9 \u2013 Source control",
+      "severity": "important",
+      "obligation": "IaC must be reviewable through GitHub.",
+      "enforce": false,
+      "iac_check": "Repository review workflow is not inferable from Terraform plan JSON."
+    },
+    {
+      "id": "CM-003",
+      "title": "Controls applied at highest practical scope",
+      "source_section": "Section 4 \u2013 Control Matrix \u2013 Policy Scope",
+      "severity": "important",
+      "obligation": "Controls are applied at the highest practical scope and inheritance is documented.",
+      "enforce": false,
+      "iac_check": "Highest practical scope and documentation requirements are architectural/process concerns not determinable from a single plan."
+    },
+    {
+      "id": "CM-004",
+      "title": "Avoid local/shared credentials",
+      "source_section": "Section 4 \u2013 Control Matrix \u2013 Identity",
+      "severity": "important",
+      "obligation": "Identity posture should avoid local/shared credentials.",
+      "enforce": false,
+      "iac_check": "Credential-sharing posture is not generically derivable from this document via Terraform plan JSON alone."
+    },
+    {
+      "id": "CM-005",
+      "title": "Least privilege and auditable access reviewed",
+      "source_section": "Section 4 \u2013 Control Matrix \u2013 Privileged Access",
+      "severity": "important",
+      "obligation": "Least privilege and auditable access must be reviewed.",
+      "enforce": false,
+      "iac_check": "Review and audit completeness are process outcomes, not generic plan-only checks for this matrix."
+    },
+    {
+      "id": "CM-006",
+      "title": "Reduce compute exposure and control admin access",
+      "source_section": "Section 4 \u2013 Control Matrix \u2013 Compute Security",
+      "severity": "important",
+      "obligation": "Compute posture should reduce exposure and control admin access.",
+      "enforce": false,
+      "iac_check": "This matrix lists exemplars but not a concrete universal resource-attribute requirement to enforce from this doc alone."
+    },
+    {
+      "id": "CM-007",
+      "title": "Private-first networking posture",
+      "source_section": "Section 4 \u2013 Control Matrix \u2013 Network Security",
+      "severity": "blocker",
+      "obligation": "Public exposure must be reviewed and unintended public access avoided.",
+      "enforce": false,
+      "iac_check": "The matrix expresses intent across many services but does not define a single portable Terraform-plan rule in this document."
+    },
+    {
+      "id": "CM-008",
+      "title": "Protect data from public exposure and enforce encryption",
+      "source_section": "Section 4 \u2013 Control Matrix \u2013 Data Protection",
+      "severity": "blocker",
+      "obligation": "Encryption and public-exposure posture must be reviewed.",
+      "enforce": false,
+      "iac_check": "This matrix references multiple downstream standards; concrete encryption/TLS checks belong in service-specific packs."
+    },
+    {
+      "id": "CM-009",
+      "title": "Centralized telemetry operational",
+      "source_section": "Section 4 \u2013 Control Matrix \u2013 Logging",
+      "severity": "important",
+      "obligation": "Logging and monitoring posture must be reviewed.",
+      "enforce": false,
+      "iac_check": "Operational telemetry completeness is not inferable from a generic Terraform plan in this matrix pack."
+    },
+    {
+      "id": "CM-010",
+      "title": "Security findings routed and monitored",
+      "source_section": "Section 4 \u2013 Control Matrix \u2013 Threat Detection",
+      "severity": "important",
+      "obligation": "Threat detection must be reviewed.",
+      "enforce": false,
+      "iac_check": "Monitoring and response routing are operational/process controls, not plan-only checks here."
+    },
+    {
+      "id": "CM-011",
+      "title": "Recoverability within objectives",
+      "source_section": "Section 4 \u2013 Control Matrix \u2013 Backup and Recovery",
+      "severity": "important",
+      "obligation": "Backup review must be completed.",
+      "enforce": false,
+      "iac_check": "Recovery objectives and backup review status are not directly testable from this matrix via Terraform plan JSON."
+    },
+    {
+      "id": "CM-012",
+      "title": "Security posture reviewed before production",
+      "source_section": "Section 4 \u2013 Control Matrix \u2013 Vulnerability Management",
+      "severity": "important",
+      "obligation": "Vulnerability review must be completed before production.",
+      "enforce": false,
+      "iac_check": "Review completion is process-only and this document does not define plan-level attributes."
+    },
+    {
+      "id": "CM-013",
+      "title": "Kubernetes guardrails required",
+      "source_section": "Section 4 \u2013 Control Matrix \u2013 Kubernetes",
+      "severity": "important",
+      "obligation": "Kubernetes review is required.",
+      "enforce": false,
+      "iac_check": "This matrix does not specify concrete Kubernetes plan fields to evaluate in a portable way."
+    },
+    {
+      "id": "CM-014",
+      "title": "Approved regions only",
+      "source_section": "Section 4 \u2013 Control Matrix \u2013 Region Governance",
+      "severity": "important",
+      "obligation": "Region restrictions must be reviewed.",
+      "enforce": false,
+      "iac_check": "Allowed-region values are referenced but not enumerated in this document for direct policy evaluation."
+    },
+    {
+      "id": "CM-015",
+      "title": "Controlled, traceable deviation",
+      "source_section": "Section 4 \u2013 Control Matrix \u2013 Exceptions",
+      "severity": "important",
+      "obligation": "Exceptions require owner, rationale, approval, and expiration.",
+      "enforce": false,
+      "iac_check": "Exception workflow fields are process metadata outside Terraform plan JSON and must not be invented."
+    },
+    {
+      "id": "CM-016",
+      "title": "Human approval remains mandatory",
+      "source_section": "Section 3 \u2013 Relationship to Project Nile; Section 9 \u2013 Human approval",
+      "severity": "blocker",
+      "obligation": "Human approval is required for production-impacting changes.",
+      "enforce": false,
+      "iac_check": "Pull request approval state is external workflow evidence, not a Terraform plan field."
+    }
+  ]
+}

@@ -1,0 +1,96 @@
+{
+  "schema": "nile-governance-controls/v1",
+  "source_paths": [
+    "architecture/nile-overview.md"
+  ],
+  "summary": "Captures architecture-overview obligations from Project Nile that are descriptive or delegated to authoritative policy/specification documents rather than directly enforceable from Terraform plan JSON based on this overview alone.",
+  "input_schema": {
+    "description": "Terraform plan JSON (terraform show -json). This pack intentionally does not enforce because the source document is an overview and defers concrete provider constraints to other documents.",
+    "required_fields": [
+      "resource_changes"
+    ]
+  },
+  "controls": [
+    {
+      "id": "NILE-ARCH-001",
+      "title": "Consumers use Nile self-service interfaces instead of raw cloud APIs",
+      "source_section": "Consumer Layer",
+      "severity": "important",
+      "obligation": "Consumers submit provisioning requests through Nile interfaces and do not interact directly with raw cloud provider APIs.",
+      "enforce": false,
+      "reason": "User workflow and access-path requirement; not derivable from Terraform plan JSON for a single resource plan."
+    },
+    {
+      "id": "NILE-ARCH-002",
+      "title": "Factories embed organizational standards and provider constraints",
+      "source_section": "Factory Layer",
+      "severity": "important",
+      "obligation": "Factories encode naming conventions, network topology, encryption requirements, mandatory tags, and provider-specific constraints.",
+      "enforce": false,
+      "reason": "Overview statement aggregates multiple obligations whose enforceable specifics are delegated to tagging and platform specification documents, not fully defined here."
+    },
+    {
+      "id": "NILE-ARCH-003",
+      "title": "Validation workflows and shift-left governance use policy artifacts",
+      "source_section": "Policy & Governance Layer",
+      "severity": "important",
+      "obligation": "Policy artifacts inform validation workflows and governance review.",
+      "enforce": false,
+      "reason": "Process/workflow requirement rather than a Terraform resource attribute check."
+    },
+    {
+      "id": "NILE-ARCH-004",
+      "title": "Provider constraints come from authoritative platform specifications",
+      "source_section": "Cloud Provider Layer",
+      "severity": "important",
+      "obligation": "Approved regions, naming conventions, SKUs, network topology, IAM integration, and encryption requirements are defined by platform specification documents.",
+      "enforce": false,
+      "reason": "This overview names categories but does not enumerate allowed values or exact plan-checkable rules."
+    },
+    {
+      "id": "NILE-ARCH-005",
+      "title": "Candidate or deferred GCP controls must not be inferred as active from the overview",
+      "source_section": "GCP Platform Integration",
+      "severity": "important",
+      "obligation": "Active control status for GCP must be determined through policy-catalog.md and control-matrix.md, and candidate or deferred controls must not be inferred as active from this overview.",
+      "enforce": false,
+      "reason": "Meta-governance interpretation rule; not enforceable against Terraform plan JSON."
+    },
+    {
+      "id": "NILE-ARCH-006",
+      "title": "All human access is brokered through centralized identity provider",
+      "source_section": "Security Architecture / Identity and Access Management",
+      "severity": "blocker",
+      "obligation": "All human access to cloud resources is brokered through Walmart's centralized identity provider.",
+      "enforce": false,
+      "reason": "Human access brokerage cannot be validated from resource_changes in a Terraform plan."
+    },
+    {
+      "id": "NILE-ARCH-007",
+      "title": "Service-to-service authentication uses short-lived identity mechanisms",
+      "source_section": "Security Architecture / Identity and Access Management",
+      "severity": "blocker",
+      "obligation": "Service-to-service authentication uses Azure Managed Identities or GCP Workload Identity instead of long-lived static credentials.",
+      "enforce": false,
+      "reason": "Potentially partially enforceable in specific resource modules, but the overview does not define concrete plan fields or resource scope for a safe generic policy."
+    },
+    {
+      "id": "NILE-ARCH-008",
+      "title": "Direct internet exposure requires explicit security exemption",
+      "source_section": "Security Architecture / Network Security",
+      "severity": "blocker",
+      "obligation": "Direct internet exposure requires explicit exemption approved by the Security team.",
+      "enforce": false,
+      "reason": "Exception approval is process-only, and the overview does not define exact resource patterns constituting prohibited exposure."
+    },
+    {
+      "id": "NILE-ARCH-009",
+      "title": "Resources align to approved regions for residency compliance",
+      "source_section": "Compliance Alignment",
+      "severity": "important",
+      "obligation": "Approved region lists in platform specifications enforce data residency requirements.",
+      "enforce": false,
+      "reason": "Enforceable values are delegated to separate platform specification documents and are not enumerated in this overview."
+    }
+  ]
+}

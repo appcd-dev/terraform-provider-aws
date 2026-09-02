@@ -1,0 +1,105 @@
+{
+  "schema": "nile-governance-controls/v1",
+  "source_paths": [
+    "governance/exception-authority-model.md"
+  ],
+  "summary": "Captures process-oriented exception authority, review, evidence, and escalation requirements that are not directly enforceable from Terraform plan JSON.",
+  "input_schema": {
+    "description": "Terraform plan JSON (terraform show -json). This document defines human governance responsibilities and exception decision processes rather than resource attribute requirements.",
+    "required_fields": [
+      "resource_changes"
+    ]
+  },
+  "controls": [
+    {
+      "id": "EAM-001",
+      "title": "Human review is mandatory for exception requests",
+      "source_section": "Section 3 – Authority Principles / Human Review Required",
+      "severity": "blocker",
+      "obligation": "Exception requests require human review and no automated system holds exception authority.",
+      "enforce": false,
+      "iac_check": "Not enforceable from Terraform plan JSON; requires human governance workflow evidence."
+    },
+    {
+      "id": "EAM-002",
+      "title": "Reviewable evidence must exist in GitHub before exception approval",
+      "source_section": "Section 3 – Authority Principles / Evidence Before Exception Approval",
+      "severity": "blocker",
+      "obligation": "Exception review requires reviewable evidence linked in GitHub before approval.",
+      "enforce": false,
+      "iac_check": "Not enforceable from Terraform plan JSON; depends on linked records and evidence review state."
+    },
+    {
+      "id": "EAM-003",
+      "title": "Risk introduced by a deviation must be documented before review",
+      "source_section": "Section 3 – Authority Principles / Risk Visibility Required",
+      "severity": "high",
+      "obligation": "Risk introduced by a deviation must be documented and visible to governance reviewers before exception review occurs.",
+      "enforce": false,
+      "iac_check": "Not enforceable from Terraform plan JSON; requires exception record and governance review context."
+    },
+    {
+      "id": "EAM-004",
+      "title": "Every exception requires an accountable owner",
+      "source_section": "Section 3 – Authority Principles / Ownership Required",
+      "severity": "high",
+      "obligation": "Every exception requires an accountable owner and ownership is not delegated to tooling or automation.",
+      "enforce": false,
+      "iac_check": "Not enforceable from Terraform plan JSON; owner accountability is maintained in exception records."
+    },
+    {
+      "id": "EAM-005",
+      "title": "GitHub is the system of record for exception traceability",
+      "source_section": "Section 3 – Authority Principles / GitHub As System Of Record",
+      "severity": "high",
+      "obligation": "Exception evidence, review history, and decision traceability must be reviewable through GitHub artifacts.",
+      "enforce": false,
+      "iac_check": "Not enforceable from Terraform plan JSON; requires repository recordkeeping and traceability review."
+    },
+    {
+      "id": "EAM-006",
+      "title": "Incomplete exception requests should be returned before review begins",
+      "source_section": "Section 8 – Exception Review Flow / Request",
+      "severity": "medium",
+      "obligation": "Exception requests must include business justification, technical justification, risk description, compensating controls, owner identification, and preliminary evidence links or be returned as incomplete.",
+      "enforce": false,
+      "iac_check": "Not enforceable from Terraform plan JSON; requires exception request workflow data."
+    },
+    {
+      "id": "EAM-007",
+      "title": "Decisions must be documented with rationale and traceability",
+      "source_section": "Section 8 – Exception Review Flow / Decision",
+      "severity": "blocker",
+      "obligation": "Exception decisions must be recorded with explicit status, rationale, supporting evidence references, and GitHub traceability.",
+      "enforce": false,
+      "iac_check": "Not enforceable from Terraform plan JSON; depends on documented governance decision records."
+    },
+    {
+      "id": "EAM-008",
+      "title": "Exceptions without sufficient evidence are incomplete",
+      "source_section": "Section 11 – Exception Evidence Requirements",
+      "severity": "high",
+      "obligation": "Exceptions without sufficient evidence should be treated as incomplete and should not be treated as approved exceptions.",
+      "enforce": false,
+      "iac_check": "Not enforceable from Terraform plan JSON; requires review of exception evidence records."
+    },
+    {
+      "id": "EAM-009",
+      "title": "Ready With Exception requires a documented reviewed exception record",
+      "source_section": "Section 13 – Relationship To Production Readiness",
+      "severity": "high",
+      "obligation": "A Ready With Exception outcome requires a documented and reviewed exception record with owner, expiration date, risk description, evidence links, and decision record.",
+      "enforce": false,
+      "iac_check": "Not enforceable from Terraform plan JSON; requires readiness and exception governance records."
+    },
+    {
+      "id": "EAM-010",
+      "title": "Validation agents may validate records but must not approve exceptions",
+      "source_section": "Section 15 – Validation Agent Guidance",
+      "severity": "medium",
+      "obligation": "Validation agents may detect exception conditions and verify record completeness but must not approve, reject, or independently escalate exceptions.",
+      "enforce": false,
+      "iac_check": "Not enforceable from Terraform plan JSON; defines human governance boundaries for validation tooling."
+    }
+  ]
+}

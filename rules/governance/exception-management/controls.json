@@ -1,0 +1,105 @@
+{
+  "schema": "nile-governance-controls/v1",
+  "source_paths": [
+    "governance/exception-management.md"
+  ],
+  "summary": "Documents Nile exception-management requirements as process-only controls for exception records, reviewability, traceability, ownership, evidence, and revalidation.",
+  "input_schema": {
+    "description": "Terraform plan JSON (terraform show -json). This source document defines process and recordkeeping requirements that are not directly enforceable from plan fields.",
+    "required_fields": [
+      "resource_changes"
+    ]
+  },
+  "controls": [
+    {
+      "id": "EMS-001",
+      "title": "Exceptions are documented before use",
+      "source_section": "Section 4.1 – Document Before Use",
+      "severity": "high",
+      "obligation": "Exceptions should be documented before reliance.",
+      "enforce": false,
+      "reason": "Requires exception workflow/document existence, not Terraform resource attributes."
+    },
+    {
+      "id": "EMS-002",
+      "title": "Every exception has an accountable owner",
+      "source_section": "Section 4.2 – Ownership Required",
+      "severity": "high",
+      "obligation": "Every exception requires an accountable owner.",
+      "enforce": false,
+      "reason": "Owner assignment is tracked in exception records rather than plan JSON."
+    },
+    {
+      "id": "EMS-003",
+      "title": "Exception risk is documented and visible",
+      "source_section": "Section 4.3 – Risk Must Be Visible",
+      "severity": "high",
+      "obligation": "Risk must be documented.",
+      "enforce": false,
+      "reason": "Risk documentation is process metadata, not a Terraform plan field."
+    },
+    {
+      "id": "EMS-004",
+      "title": "Exceptions require expiration and review",
+      "source_section": "Section 4.4 – Expiration Required; Section 14 – Revalidation Expectations",
+      "severity": "high",
+      "obligation": "Exceptions should not be indefinite without review and should be periodically reassessed.",
+      "enforce": false,
+      "reason": "Expiration dates and review cadence live in exception records, not resource_changes."
+    },
+    {
+      "id": "EMS-005",
+      "title": "Compensating controls are documented when available",
+      "source_section": "Section 4.5 – Compensating Controls Preferred; Section 12 – Compensating Controls",
+      "severity": "medium",
+      "obligation": "Alternative protections should be documented when available.",
+      "enforce": false,
+      "reason": "Documented compensating controls cannot be inferred reliably from Terraform plan JSON."
+    },
+    {
+      "id": "EMS-006",
+      "title": "Exception records are reviewable and traceable in GitHub",
+      "source_section": "Section 3 – Relationship to Project Nile; Section 4.7 – GitHub As System Of Record; Section 15 – Evidence Requirements",
+      "severity": "high",
+      "obligation": "Exceptions must be reviewable, traceable, and stored in GitHub with evidence links.",
+      "enforce": false,
+      "reason": "GitHub storage, traceability, and evidence links are external recordkeeping requirements, not plan attributes."
+    },
+    {
+      "id": "EMS-007",
+      "title": "Required exception record fields are completed",
+      "source_section": "Section 7 – Required Exception Fields",
+      "severity": "high",
+      "obligation": "Exception records must include the required identifiers, scope, owner, justifications, dates, status, approval reference, artifacts, evidence links, and notes.",
+      "enforce": false,
+      "reason": "These fields belong to exception records and governance documentation rather than Terraform resources."
+    },
+    {
+      "id": "EMS-008",
+      "title": "Ready with Exception requires an exception record",
+      "source_section": "Section 11 – Production Readiness Exceptions",
+      "severity": "high",
+      "obligation": "A gate status of Ready with Exception requires an exception record.",
+      "enforce": false,
+      "reason": "Gate outcomes and linked exception records are process artifacts, not Terraform plan data."
+    },
+    {
+      "id": "EMS-009",
+      "title": "Exception records include supporting evidence",
+      "source_section": "Section 15 – Evidence Requirements",
+      "severity": "high",
+      "obligation": "Exception records without evidence should be treated as incomplete.",
+      "enforce": false,
+      "reason": "Evidence links and review artifacts exist outside the Terraform plan schema."
+    },
+    {
+      "id": "EMS-010",
+      "title": "Validation verifies exception documentation quality without granting approval",
+      "source_section": "Section 17 – Validation Agent Guidance",
+      "severity": "medium",
+      "obligation": "Validation verifies documentation quality and traceability, but does not approve, create, or override exceptions.",
+      "enforce": false,
+      "reason": "This is role/process guidance and cannot be evaluated from resource_changes."
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.5.0",
+  "resource_changes": [
+    {
+      "address": "google_storage_bucket.bad",
+      "mode": "managed",
+      "type": "google_storage_bucket",
+      "name": "bad",
+      "provider_name": "registry.terraform.io/hashicorp/google",
+      "change": {
+        "actions": [
+          "update"
+        ],
+        "after": {
+          "name": "bucket-bad",
+          "location": "US",
+          "labels": {
+            "owner": "platform",
+            "cost-center": "cc-1",
+            "repo": "",
+            "service": "nile"
+          }
+        }
+      }
+    }
+  ]
+}

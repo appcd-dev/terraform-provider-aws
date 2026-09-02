@@ -1,0 +1,128 @@
+{
+  "schema": "nile-governance-controls/v1",
+  "source_paths": ["governance/production-readiness-gates.md"],
+  "summary": "Production readiness gates are mostly review and evidence driven. This pack enforces only Gate 4 metadata requirements that map directly to Terraform plan resource tags and labels.",
+  "input_schema": {
+    "description": "Terraform plan JSON (terraform show -json). Policies read resource_changes[].change.after and inspect tags or labels on planned resources.",
+    "required_fields": ["resource_changes"]
+  },
+  "controls": [
+    {
+      "id": "PRG-001",
+      "title": "Azure required metadata tags present and meaningful",
+      "source_section": "## 9. Gate 4 — Metadata / Azure Considerations / Common Failure Conditions",
+      "severity": "blocker",
+      "obligation": "Nile-managed Azure resources must include the required metadata tags and must not use placeholder values.",
+      "enforce": true,
+      "iac_check": "For azurerm_* resource_changes on create/update, require non-empty after.tags values for owner, created-by, cost-center, environment, function, service, repo, applicationname, name, notificationdistlist, ssp, trproductid, and apmid; reject placeholder values."
+    },
+    {
+      "id": "PRG-002",
+      "title": "GCP required metadata labels present and meaningful",
+      "source_section": "## 9. Gate 4 — Metadata / GCP Considerations / Common Failure Conditions",
+      "severity": "blocker",
+      "obligation": "Nile-managed GCP resources must include the required metadata labels and must not use placeholder values.",
+      "enforce": true,
+      "iac_check": "For google_* resource_changes on create/update, require non-empty after.labels values for owner, created_by, cost_center, environment, function, service, repo, application_name, name, notification_distlist, ssp, tr_product_id, and apm_id; reject placeholder values."
+    },
+    {
+      "id": "PRG-003",
+      "title": "Source control and review evidence exists",
+      "source_section": "## 6. Gate 1 — Source Control and IaC",
+      "severity": "blocker",
+      "obligation": "Infrastructure artifacts, pull request references, ownership, and review history must be source-controlled and reviewable in GitHub.",
+      "enforce": false,
+      "reason": "Requires repository, pull request, and review-record evidence outside Terraform plan JSON."
+    },
+    {
+      "id": "PRG-004",
+      "title": "Identity posture reviewed and justified",
+      "source_section": "## 7. Gate 2 — Identity and Access",
+      "severity": "blocker",
+      "obligation": "Identity model, service account or managed identity approach, access posture, and static credential usage must be reviewed and justified.",
+      "enforce": false,
+      "reason": "The document frames this as review evidence and architecture posture, not concrete universal Terraform-plan attributes across all resource types."
+    },
+    {
+      "id": "PRG-005",
+      "title": "Network exposure review completed",
+      "source_section": "## 8. Gate 3 — Network Exposure",
+      "severity": "blocker",
+      "obligation": "Public exposure, firewall posture, connectivity model, and exceptions must be reviewed and documented.",
+      "enforce": false,
+      "reason": "Requires cross-resource topology review and documented exceptions beyond plan-only checks in this generic gate document."
+    },
+    {
+      "id": "PRG-006",
+      "title": "Data protection posture reviewed",
+      "source_section": "## 10. Gate 5 — Data Protection",
+      "severity": "blocker",
+      "obligation": "Encryption, secure transfer, key management, and public exposure posture must be reviewed for applicable services.",
+      "enforce": false,
+      "reason": "High-level review requirement without uniform, document-specific Terraform attributes that can be safely enforced across clouds and services from this file alone."
+    },
+    {
+      "id": "PRG-007",
+      "title": "Logging and monitoring evidence reviewed",
+      "source_section": "## 11. Gate 6 — Logging and Monitoring",
+      "severity": "important",
+      "obligation": "Logging destination, audit logging, alert routing, retention, and monitoring ownership must be documented and reviewed.",
+      "enforce": false,
+      "reason": "Evidence and operational ownership requirement, not a uniform Terraform-plan assertion from this document."
+    },
+    {
+      "id": "PRG-008",
+      "title": "Threat detection coverage reviewed",
+      "source_section": "## 12. Gate 7 — Threat Detection",
+      "severity": "important",
+      "obligation": "Threat detection tooling, findings routing, accountable owner, and alerting path must be documented and reviewed.",
+      "enforce": false,
+      "reason": "Process and operating-model evidence requirement outside Terraform plan JSON."
+    },
+    {
+      "id": "PRG-009",
+      "title": "Backup and recovery posture reviewed",
+      "source_section": "## 13. Gate 8 — Backup and Recovery",
+      "severity": "blocker",
+      "obligation": "Backup posture, recovery objectives, and exception rationale must be documented for applicable resource types.",
+      "enforce": false,
+      "reason": "Requires applicability and recovery-objective evidence not represented uniformly in Terraform plan JSON."
+    },
+    {
+      "id": "PRG-010",
+      "title": "Privileged access risk reviewed",
+      "source_section": "## 14. Gate 9 — Privileged Access",
+      "severity": "blocker",
+      "obligation": "Owner and admin roles, custom roles, guest usage, and emergency access paths must be reviewed and documented.",
+      "enforce": false,
+      "reason": "Review and governance requirement requiring identity/role context beyond generic Terraform plan inspection."
+    },
+    {
+      "id": "PRG-011",
+      "title": "Policy exceptions documented and approved",
+      "source_section": "## 15. Gate 10 — Policy Exceptions",
+      "severity": "blocker",
+      "obligation": "Exceptions must include control name, scope, owner, rationale, risk, compensating control, approval, expiration, review date, and evidence link.",
+      "enforce": false,
+      "reason": "Exception workflow schema lives in GitHub/process records, not Terraform plan JSON."
+    },
+    {
+      "id": "PRG-012",
+      "title": "Human approval recorded before production-impacting deployment",
+      "source_section": "## 16. Gate 11 — Human Approval",
+      "severity": "blocker",
+      "obligation": "GitHub pull request review, linked findings, linked validation results, and human approval must be present before production-impacting deployment.",
+      "enforce": false,
+      "reason": "Human approval and PR evidence are external workflow artifacts, not Terraform plan fields."
+    },
+    {
+      "id": "PRG-013",
+      "title": "Graduation evidence package complete",
+      "source_section": "## 17. Gate 12 — Graduation Evidence",
+      "severity": "important",
+      "obligation": "Architecture records, governance findings, validation evidence, exceptions, operational ownership, telemetry evidence, backup evidence, metadata evidence, and final approval must be complete before graduation.",
+      "enforce": false,
+      "reason": "Composite evidence package requirement spanning documents, approvals, and operations records outside Terraform plan JSON."
+    }
+  ]
+}

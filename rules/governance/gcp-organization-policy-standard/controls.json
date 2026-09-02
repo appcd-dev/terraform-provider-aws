@@ -1,0 +1,294 @@
+{
+  "schema": "nile-governance-controls/v1",
+  "source_paths": [
+    "governance/gcp-organization-policy-standard.md"
+  ],
+  "summary": "Documents GCP organization policy governance constraints referenced from Terraform source, but leaves all controls unenforced in OPA because the markdown explicitly marks values, enforcement modes, scope, and module implementations as unconfirmed.",
+  "input_schema": {
+    "description": "Terraform plan JSON (terraform show -json). This pack intentionally defines no enforceable plan checks because the source standard does not provide confirmed resource attributes or allowed/denied values.",
+    "required_fields": [
+      "resource_changes"
+    ]
+  },
+  "controls": [
+    {
+      "id": "GCP-ORGPOL-001",
+      "title": "Compute VM external IP access governance documented",
+      "source_section": "Section 8.2 – Public IP Restriction (`compute.vmExternalIpAccess`)",
+      "severity": "blocker",
+      "obligation": "Restrict or deny external IP assignment for Compute Engine VM instances.",
+      "enforce": false,
+      "iac_check": "Not enforceable from this markdown alone because enforcement mode and allowed or denied values are unconfirmed."
+    },
+    {
+      "id": "GCP-ORGPOL-002",
+      "title": "Internet network endpoint groups governance documented",
+      "source_section": "Section 8.3 – Internet Network Endpoint Groups (`compute.disableInternetNetworkEndpointGroup`)",
+      "severity": "blocker",
+      "obligation": "Prevent creation of internet-facing network endpoint groups.",
+      "enforce": false,
+      "iac_check": "Not enforceable from this markdown alone because module behavior and scope are unconfirmed."
+    },
+    {
+      "id": "GCP-ORGPOL-003",
+      "title": "Cloud NAT usage governance documented",
+      "source_section": "Section 8.4 – Cloud NAT Usage (`compute.restrictCloudNATUsage`)",
+      "severity": "blocker",
+      "obligation": "Restrict or control which projects or configurations may use Cloud NAT.",
+      "enforce": false,
+      "iac_check": "Not enforceable from this markdown alone because allowed values or deny mode are unconfirmed."
+    },
+    {
+      "id": "GCP-ORGPOL-004",
+      "title": "Load balancer type restriction governance documented",
+      "source_section": "Section 8.5 – Load Balancer Type Restrictions (`compute.restrictLoadBalancerCreationForTypes`)",
+      "severity": "blocker",
+      "obligation": "Restrict creation of load balancers to approved types.",
+      "enforce": false,
+      "iac_check": "Not enforceable from this markdown alone because approved or denied types are unconfirmed."
+    },
+    {
+      "id": "GCP-ORGPOL-005",
+      "title": "Protocol forwarding restriction governance documented",
+      "source_section": "Section 8.6 – Protocol Forwarding (`compute.restrictProtocolForwardingCreationForTypes`)",
+      "severity": "blocker",
+      "obligation": "Restrict creation of protocol forwarding rules to approved types.",
+      "enforce": false,
+      "iac_check": "Not enforceable from this markdown alone because approved or denied forwarding types are unconfirmed."
+    },
+    {
+      "id": "GCP-ORGPOL-006",
+      "title": "Shared VPC host project governance documented",
+      "source_section": "Section 8.7 – Shared VPC Host Projects (`compute.restrictSharedVpcHostProjects`)",
+      "severity": "blocker",
+      "obligation": "Restrict which projects may serve as Shared VPC host projects.",
+      "enforce": false,
+      "iac_check": "Not enforceable from this markdown alone because allowed project values are unconfirmed."
+    },
+    {
+      "id": "GCP-ORGPOL-007",
+      "title": "XPN project lien removal governance documented",
+      "source_section": "Section 8.8 – XPN Project Lien Removal (`compute.restrictXpnProjectLienRemoval`)",
+      "severity": "blocker",
+      "obligation": "Prevent unauthorized removal of Shared VPC liens.",
+      "enforce": false,
+      "iac_check": "Not enforceable from this markdown alone because enforcement behavior is unconfirmed."
+    },
+    {
+      "id": "GCP-ORGPOL-008",
+      "title": "Zonal DNS default governance documented",
+      "source_section": "Section 8.9 – Zonal DNS Defaults (`compute.setNewProjectDefaultToZonalDNSOnly`)",
+      "severity": "important",
+      "obligation": "Set new projects to use zonal DNS only.",
+      "enforce": false,
+      "iac_check": "Not enforceable from this markdown alone because exact policy behavior is unconfirmed."
+    },
+    {
+      "id": "GCP-ORGPOL-009",
+      "title": "Shared reservations governance documented",
+      "source_section": "Section 8.10 – Shared Reservations (`compute.sharedReservationsOwnerProjects`)",
+      "severity": "important",
+      "obligation": "Control which projects may own shared compute reservations.",
+      "enforce": false,
+      "iac_check": "Not enforceable from this markdown alone because allowed owner project values are unconfirmed."
+    },
+    {
+      "id": "GCP-ORGPOL-010",
+      "title": "Default network creation governance documented",
+      "source_section": "Section 8.11 – Default Network Creation (`compute.skipDefaultNetworkCreation`)",
+      "severity": "blocker",
+      "obligation": "Prevent automatic default VPC network creation in new projects.",
+      "enforce": false,
+      "iac_check": "Not enforceable from this markdown alone because Boolean enforcement behavior is unconfirmed."
+    },
+    {
+      "id": "GCP-ORGPOL-011",
+      "title": "Trusted image projects governance documented",
+      "source_section": "Section 8.12 – Trusted Image Projects (`compute.trustedImageProjects`)",
+      "severity": "blocker",
+      "obligation": "Restrict Compute Engine instances to boot from images sourced from approved projects only.",
+      "enforce": false,
+      "iac_check": "Not enforceable from this markdown alone because approved image project values are unconfirmed."
+    },
+    {
+      "id": "GCP-ORGPOL-012",
+      "title": "VM IP forwarding governance documented",
+      "source_section": "Section 8.13 – VM IP Forwarding (`compute.vmCanIpForward`)",
+      "severity": "blocker",
+      "obligation": "Control or restrict which VM instances may have IP forwarding enabled.",
+      "enforce": false,
+      "iac_check": "Not enforceable from this markdown alone because allowed values or deny mode are unconfirmed."
+    },
+    {
+      "id": "GCP-ORGPOL-013",
+      "title": "Allowed policy member domains governance documented",
+      "source_section": "Section 9.2 – Allowed Policy Member Domains (`iam.allowedPolicyMemberDomains`)",
+      "severity": "blocker",
+      "obligation": "Restrict IAM policy bindings to approved identity domains.",
+      "enforce": false,
+      "iac_check": "Not enforceable from this markdown alone because the allowed domain list is unconfirmed."
+    },
+    {
+      "id": "GCP-ORGPOL-014",
+      "title": "Cross-project service account usage governance documented",
+      "source_section": "Section 9.3 – Cross-Project Service Account Usage (`iam.disableCrossProjectServiceAccountUsage`)",
+      "severity": "blocker",
+      "obligation": "Prevent service accounts from being used across project boundaries.",
+      "enforce": false,
+      "iac_check": "Not enforceable from this markdown alone because enforcement mode is unconfirmed."
+    },
+    {
+      "id": "GCP-ORGPOL-015",
+      "title": "Cross-project service account lien removal governance documented",
+      "source_section": "Section 9.4 – Cross-Project Service Account Lien Removal (`iam.restrictCrossProjectServiceAccountLienRemoval`)",
+      "severity": "important",
+      "obligation": "Restrict removal of liens protecting cross-project service account configurations.",
+      "enforce": false,
+      "iac_check": "Not enforceable from this markdown alone because enforcement mode is unconfirmed."
+    },
+    {
+      "id": "GCP-ORGPOL-016",
+      "title": "Automatic grants for default service accounts governance documented",
+      "source_section": "Section 9.5 – Automatic Grants for Default Service Accounts (`iam.automaticIamGrantsForDefaultServiceAccounts`)",
+      "severity": "blocker",
+      "obligation": "Disable automatic IAM role grants to default service accounts.",
+      "enforce": false,
+      "iac_check": "Not enforceable from this markdown alone because Boolean enforcement details are unconfirmed."
+    },
+    {
+      "id": "GCP-ORGPOL-017",
+      "title": "Credential lifetime extension governance documented",
+      "source_section": "Section 9.6 – Credential Lifetime Extension (`iam.allowServiceAccountCredentialLifetimeExtension`)",
+      "severity": "important",
+      "obligation": "Control which service accounts, if any, may have extended credential lifetimes.",
+      "enforce": false,
+      "iac_check": "Not enforceable from this markdown alone because allowed principals or deny mode are unconfirmed."
+    },
+    {
+      "id": "GCP-ORGPOL-018",
+      "title": "Service account key expiration governance documented",
+      "source_section": "Section 9.7 – Service Account Key Expiration (`iam.serviceAccountKeyExpiryHours`)",
+      "severity": "blocker",
+      "obligation": "Enforce a maximum lifetime for service account keys.",
+      "enforce": false,
+      "iac_check": "Not enforceable from this markdown alone because expiry hours are unconfirmed."
+    },
+    {
+      "id": "GCP-ORGPOL-019",
+      "title": "Service account key exposure response governance documented",
+      "source_section": "Section 9.8 – Service Account Key Exposure Response (`iam.serviceAccountKeyExposureResponse`)",
+      "severity": "important",
+      "obligation": "Define the automated or policy response when a service account key is determined to be exposed.",
+      "enforce": false,
+      "iac_check": "Not enforceable from this markdown alone because the configured response action is unconfirmed."
+    },
+    {
+      "id": "GCP-ORGPOL-020",
+      "title": "Workload identity pool AWS account governance documented",
+      "source_section": "Section 9.9 – Workload Identity Pool AWS Accounts (`iam.workloadIdentityPoolAwsAccounts`)",
+      "severity": "important",
+      "obligation": "Restrict which AWS accounts may be configured in GCP Workload Identity Pools.",
+      "enforce": false,
+      "iac_check": "Not enforceable from this markdown alone because the allowed AWS account list is unconfirmed and scope is unconfirmed."
+    },
+    {
+      "id": "GCP-ORGPOL-021",
+      "title": "Workload identity pool provider governance documented",
+      "source_section": "Section 9.10 – Workload Identity Pool Providers (`iam.workloadIdentityPoolProviders`)",
+      "severity": "important",
+      "obligation": "Restrict which identity providers may be configured in GCP Workload Identity Pools.",
+      "enforce": false,
+      "iac_check": "Not enforceable from this markdown alone because the allowed provider list is unconfirmed and scope is unconfirmed."
+    },
+    {
+      "id": "GCP-ORGPOL-022",
+      "title": "IAM deny policy governance documented",
+      "source_section": "Section 9.11 – Deny Policy (`iam.denypolicy`)",
+      "severity": "blocker",
+      "obligation": "Apply IAM deny policies to explicitly prevent certain principals from using specific permissions.",
+      "enforce": false,
+      "iac_check": "Not enforceable from this markdown alone because deny rule targets, permissions, and even managed-vs-custom classification are unconfirmed."
+    },
+    {
+      "id": "GCP-ORGPOL-023",
+      "title": "Workforce-pool administrator denial governance documented",
+      "source_section": "Section 9.12 – Workforce-Pool Administrator Denial (Custom)",
+      "severity": "blocker",
+      "obligation": "Restrict who may administer workforce identity pools.",
+      "enforce": false,
+      "iac_check": "Not enforceable from this markdown alone because custom constraint definition, deny targets, and permissions are unconfirmed."
+    },
+    {
+      "id": "GCP-ORGPOL-024",
+      "title": "Workload-pool administrator denial governance documented",
+      "source_section": "Section 9.13 – Workload-Pool Administrator Denial (Custom)",
+      "severity": "blocker",
+      "obligation": "Restrict who may administer workload identity pools.",
+      "enforce": false,
+      "iac_check": "Not enforceable from this markdown alone because custom constraint definition, deny targets, and permissions are unconfirmed."
+    },
+    {
+      "id": "GCP-ORGPOL-025",
+      "title": "Resource locations governance documented",
+      "source_section": "Section 10.1 – Resource Locations (`gcp.resourceLocations`)",
+      "severity": "blocker",
+      "obligation": "Restrict GCP resource creation to approved locations.",
+      "enforce": false,
+      "iac_check": "Not enforceable from this markdown alone because allowed_regions values are unconfirmed."
+    },
+    {
+      "id": "GCP-ORGPOL-026",
+      "title": "BigQuery dataset location restriction governance documented",
+      "source_section": "Section 10.2 – BigQuery Dataset Location Restriction (Custom)",
+      "severity": "blocker",
+      "obligation": "Restrict where BigQuery datasets may be created.",
+      "enforce": false,
+      "iac_check": "Not enforceable from this markdown alone because naming inconsistency exists and actual allowed locations are unconfirmed."
+    },
+    {
+      "id": "GCP-ORGPOL-027",
+      "title": "TLS version restriction governance documented",
+      "source_section": "Section 11.1 – TLS Version Restriction (`gcp.restrictTLSVersion`)",
+      "severity": "blocker",
+      "obligation": "Restrict TLS versions to approved minimum versions.",
+      "enforce": false,
+      "iac_check": "Not enforceable from this markdown alone because the approved minimum TLS version and enforcement mode are explicitly unconfirmed."
+    },
+    {
+      "id": "GCP-ORGPOL-028",
+      "title": "Cloud SQL public IP restriction governance documented",
+      "source_section": "Section 12.1 – Public IP Restriction (`sql.restrictPublicIp`)",
+      "severity": "blocker",
+      "obligation": "Restrict or deny public IP assignment for Cloud SQL instances.",
+      "enforce": false,
+      "iac_check": "Not enforceable from this markdown alone because enforcement mode is unconfirmed and the standard warns not to conflate this control with other SQL settings."
+    },
+    {
+      "id": "GCP-ORGPOL-029",
+      "title": "AI Notebook public IP restriction governance documented",
+      "source_section": "Section 13.2 – AI Notebook Public IP Restriction (`ainotebooks.restrictPublicIp`)",
+      "severity": "blocker",
+      "obligation": "Restrict AI Notebooks from being assigned public IP addresses.",
+      "enforce": false,
+      "iac_check": "Not enforceable from this markdown alone because enforcement mode and scope are unconfirmed."
+    },
+    {
+      "id": "GCP-ORGPOL-030",
+      "title": "Allowed Vertex AI models governance documented",
+      "source_section": "Section 13.3 – Allowed Vertex AI Models (`vertexai.allowedModels`)",
+      "severity": "important",
+      "obligation": "Restrict which Vertex AI models may be used or deployed.",
+      "enforce": false,
+      "iac_check": "Not enforceable from this markdown alone because the allowed models list is unconfirmed and scope is unconfirmed."
+    },
+    {
+      "id": "GCP-ORGPOL-031",
+      "title": "Allowed Vertex AI partner model features governance documented",
+      "source_section": "Section 13.4 – Allowed Vertex AI Partner Model Features (`vertexai.allowedPartnerModelFeatures`)",
+      "severity": "important",
+      "obligation": "Restrict which Vertex AI partner model features may be enabled.",
+      "enforce": false,
+      "iac_check": "Not enforceable from this markdown alone because the allowed partner feature list is unconfirmed and scope is unconfirmed."
+    }
+  ]
+}
