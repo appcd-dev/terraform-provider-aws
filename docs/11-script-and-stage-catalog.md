@@ -188,8 +188,10 @@ Loop stages: `gcp-iac-loop`, `gcp-iac-governance-loop`.
 | `governance_opa_check.py` | Python | Run Nile-Factory Rego packs against Terraform plan JSON for generated IaC. | `test_governance_opa_check.py` |
 | `hcl_sanity.py` | Python | HCL sanity gates for AWS hydrate and destination validate stages. | `test_hcl_sanity.py` |
 | `tfstate_monolith_decomposer.py` | Python | Layered three-tier tfstate → logical_group_manifest + per-group state shards. | — |
+| `cloud2code-aws-scan.sh` | Shell | (shell helper) | — |
 | `ensure_cloud2code.sh` | Shell | Bootstrap cloud2code CLI on runner when absent | `test_ensure_cloud2code.sh` |
 | `run-destination-stage.sh` | Shell | One-line Guild execute_series entrypoints for destination stages | — |
+| `runner-capability-preflight.sh` | Shell | (shell helper) | — |
 | `stage-runner.sh` | Shell | (shell orchestrator) | — |
 | `agent-pipeline-config/scripts/render-ingest-bootstrap.py` | Python | Render ingest-bootstrap.sh from live module templates. | — |
 | `agent-pipeline-config/scripts/generate-script-catalog.sh` | Shell | (shared pipeline script) | — |
@@ -207,7 +209,7 @@ Loop stages: `gcp-iac-loop`, `gcp-iac-governance-loop`.
 | `azure-migration-blueprint-execute-series-embedded.sh.tftpl` | `aios-agent-aws-migrator` | `WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 bash ${script_pack_preload_dir}/run-destina` |
 | `azure-pr-execute-series-embedded.sh.tftpl` | `aios-agent-aws-migrator` | `WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 IAC_REPOSITORY_URL='${default_iac_repositor` |
 | `azure-source-fetch-execute-series-embedded.sh.tftpl` | `aios-agent-aws-migrator` | `SOURCE_PR='' SOURCE_IAC_BRANCH='${azure_only_source_branch}' SOURCE_IAC_REPOSITORY_URL='${default_ia` |
-| `cloud2code-aws-scan-execute-series.sh.tftpl` | `aios-agent-aws-migrator` | `bash …/cloud2code-aws-scan.sh` |
+| `cloud2code-aws-scan-execute-series.sh.tftpl` | `aios-agent-aws-migrator` | `set -euo pipefail` |
 | `converge-execute-series-embedded.sh.tftpl` | `aios-agent-aws-migrator` | `/bin/bash <<'DBSPLIT_CONVERGE_EXECUTE'` |
 | `gcp-iac-generate-execute-series-embedded.sh.tftpl` | `aios-agent-aws-migrator` | `WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 bash ${script_pack_preload_dir}/run-destina` |
 | `gcp-iac-governance-conform-execute-series-embedded.sh.tftpl` | `aios-agent-aws-migrator` | `WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 NILE_GOVERNANCE_REPO='${nile_governance_rep` |
@@ -218,7 +220,7 @@ Loop stages: `gcp-iac-loop`, `gcp-iac-governance-loop`.
 | `gcp-source-fetch-execute-series-embedded.sh.tftpl` | `aios-agent-aws-migrator` | `SOURCE_PR='' SOURCE_IAC_BRANCH='${gcp_only_source_branch}' WORKFLOW_RUN_ID='{{workflow_run_id}}' DBS` |
 | `iac-pr-execute-series-embedded.sh.tftpl` | `aios-agent-aws-migrator` | `/bin/bash <<'DBSPLIT_IAC_PR_EXECUTE'` |
 | `ingest-execute-series-embedded.sh.tftpl` | `aios-agent-aws-migrator` | `set -euo pipefail` |
-| `runner-capability-preflight-execute-series.sh.tftpl` | `aios-agent-aws-migrator` | `bash …/runner-capability-preflight.sh` |
+| `runner-capability-preflight-execute-series.sh.tftpl` | `aios-agent-aws-migrator` | `set -euo pipefail` |
 | `codify-branch-execute-series.sh.tftpl` | `aios-agent-governance-codify` | `cd {{CLONE_DIR}} && set -eu && git fetch origin {{BASE_BRANCH}} && SOURCE_SHA='SOURCE_COMMIT_SHA' &&` |
 | `codify-checkout-branch-execute-series.sh.tftpl` | `aios-agent-governance-codify` | `set -eu; TGT='{{TARGET_DIR}}'; TGT_REPO='{{TARGET_REPO}}'; BRANCH='CODIFY_BRANCH'; if git -C "$TGT" ` |
 | `codify-intake-execute-series.sh.tftpl` | `aios-agent-governance-codify` | `set -eu; SRC='{{SOURCE_DIR}}'; TGT='{{TARGET_DIR}}'; SRC_REPO='{{SOURCE_REPO}}'; TGT_REPO='{{TARGET_` |
