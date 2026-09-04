@@ -22,8 +22,8 @@ Blocked gates are platform `conditional_skip` stages (no LLM). They jump to `fin
 
 | Stage | Lead behavior | Forbidden |
 | --- | --- | --- |
-| `runner-capability-preflight` | Paste `RUNNER_CAPABILITY_PREFLIGHT_EXECUTE_SERIES` once; note `runner_capability_preflight_ok` | Custom probes, clarifying questions for missing tools |
-| `cloud2code-scan-aws` | Spawn exactly one `cloud2code-scan-runner`; it writes `.work/cloud2code-inputs.json`, then pastes `CLOUD2CODE_SCAN_EXECUTE_SERIES` verbatim. If create-agent dedup blocks that exact runner after a failed attempt, run the same two `${shell_tool_prefix}_*` calls directly in this stage. | Installing cloud2code, asking for `monolith_state_uri`, hand-authored scan scripts, renamed retry runners |
+| `runner-capability-preflight` | `create_agent` OK. Put exact `bash …/runner-capability-preflight.sh` one-liner in expectation; `tool_names=["${shell_tool_prefix}_execute_series"]` only | Custom probes, `set -o pipefail` under sh |
+| `cloud2code-scan-aws` | `create_agent` OK. Put exact `bash …/cloud2code-aws-scan.sh` one-liner in expectation (replace `AWS_REGION_PLACEHOLDER`); `tool_names=["${shell_tool_prefix}_execute_series"]` only | Extra tools, inventing scan shell, asking for `monolith_state_uri` |
 | `ingest-and-split` | Consume `monolith_state_uri` from the scan handoff and spawn exactly one `ingest-and-split-runner`. | Asking for tfstate path, direct shell on lead, `create_files`, `execute_series` in ingest runner |
 | `registry-and-import-codegen` | Spawn one `registry-and-import-codegen-runner` with `IAC_PR_EXECUTE_SERIES`. | Per-group LLM scaffold, second execute series |
 | `shell-converge-matrix` | Spawn one `shell-converge-matrix-runner` with `CONVERGE_EXECUTE_SERIES`; it repairs Terraform init/provider-cache disk failures, hydrates import config, then runs fmt, validate, optional tests, available lint, and zero-diff plan. If spawn dedup blocks a loop retry, run the same execute_series directly. | `hcl-hydrate-runner-batch-*`, probes |

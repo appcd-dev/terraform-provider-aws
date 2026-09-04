@@ -17,7 +17,12 @@ EOT
 
   aws_migrator_spawn_context_preflight = <<-EOT
 ${local.dbsplit_spawn_context_base}
-PREFLIGHT_RUNNER_RULE: make ONE ${local.shell_tool_prefix}_execute_series call pasting RUNNER_CAPABILITY_PREFLIGHT_EXECUTE_SERIES verbatim. Do not call note before execute_series. Do not call execute_command. Do not author custom probes. After success, note() runner_capability_preflight_ok and stage_summary:runner-capability-preflight.
+PREFLIGHT_RUNNER_RULE: create_agent is allowed (reactree). Put the exact BEGIN/END one-liner INSIDE create_agent expectation (same pattern as a successful preflight spawn). tool_names MUST be only ["${local.shell_tool_prefix}_execute_series"]. FIRST tool call: ONE execute_series with commands[0].command set to the BEGIN/END body. Do not invent probes or set -o pipefail.
+
+CREATE_AGENT_EXPECTATION (copy into expectation):
+Your FIRST tool call must be ONE ${local.shell_tool_prefix}_execute_series with commands[0].command set to this exact body and no note before it:
+${local.runner_capability_preflight_execute_series_body}
+After success, note() runner_capability_preflight_ok and stage_summary:runner-capability-preflight.
 
 ---BEGIN RUNNER_CAPABILITY_PREFLIGHT_EXECUTE_SERIES---
 ${local.runner_capability_preflight_execute_series_body}
@@ -26,7 +31,12 @@ EOT
 
   aws_migrator_spawn_context_cloud2code = <<-EOT
 ${local.dbsplit_spawn_context_base}
-CLOUD2CODE_RUNNER_RULE: read_notes once, then make ONE ${local.shell_tool_prefix}_execute_series call containing exactly two commands: (1) write ${local.runner_work_home}/.{{workflow_run_id}}/.work/cloud2code-inputs.json from the notes; (2) paste CLOUD2CODE_SCAN_EXECUTE_SERIES verbatim. Do not call note before execute_series. Do not call execute_command. Do not run cloud2code on the lead agent. Do not author availability probes, installers, or scan commands: the pasted bootstrap checks for cloud2code and installs pinned v0.5.1 into $HOME/.local/bin when absent, then forces cloud2code --auto-import=false. Do not ask for monolith_state_uri.
+CLOUD2CODE_RUNNER_RULE: create_agent is allowed (reactree). Mirror preflight: put the exact printf-free pack one-liner INSIDE create_agent expectation. tool_names MUST be only ["${local.shell_tool_prefix}_execute_series"]. Replace AWS_REGION_PLACEHOLDER with the workflow region (e.g. us-east-1). Do not invent set -o pipefail / cloud2code aws scan (sessions 127f2c35 / af38cc9e).
+
+CREATE_AGENT_EXPECTATION (copy into expectation; replace AWS_REGION_PLACEHOLDER):
+Your FIRST tool call must be ONE ${local.shell_tool_prefix}_execute_series with commands[0].command set to this exact body and no note before it:
+${local.cloud2code_scan_execute_series_body}
+After success, note() cloud2code_scan_ok / monolith_state_uri / monolith_resource_count / stage_summary:cloud2code-scan-aws.
 
 ---BEGIN CLOUD2CODE_SCAN_EXECUTE_SERIES---
 ${local.cloud2code_scan_execute_series_body}

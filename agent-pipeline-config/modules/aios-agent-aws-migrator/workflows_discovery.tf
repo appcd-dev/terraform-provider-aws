@@ -83,7 +83,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
       {
         stage_id    = "runner-capability-preflight"
         description = "Verify remote-runner tools (jq, aws, python3, git, tofu, cloud2code) and script-pack preload before scan"
-        note        = "One execute_series. Emits runner_capability_preflight_ok or blocked:remote_runner_* sentinels. No LLM probing."
+        note        = "create_agent OK. Worker pastes printf|/bin/bash one-liner once. Emits runner_capability_preflight_ok or blocked:remote_runner_* . No custom probes."
         required    = true
       },
       {
@@ -180,7 +180,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
       )
       note = <<-EOT
         **Purpose:** fail fast when the remote runner lacks tools or the script pack is not preloaded — before cloud2code or ingest burn cost.
-        **Incremental bring-up execution:** Your FIRST tool call must be ONE `${local.shell_tool_prefix}_execute_series` pasting `RUNNER_CAPABILITY_PREFLIGHT_EXECUTE_SERIES` verbatim (starts with `/bin/bash <<'RUNNER_CAPABILITY_PREFLIGHT_EXECUTE'`). Never compose custom probes or hand-written shell — session dcfbdaa2 failed with `Illegal option -o pipefail` because a custom script ran under `/bin/sh`. If `${local.shell_tool_prefix}_execute_*` tools are absent, emit `blocked:remote_runner_shell_unavailable: "true"` and return — do not ask clarifying questions.
+        **Incremental bring-up execution:** `create_agent` is allowed (reactree). Spawn ONE preflight worker with CREATE_AGENT_EXPECTATION from the spawn context (exact `bash …/runner-capability-preflight.sh` one-liner in expectation). `tool_names` only `["${local.shell_tool_prefix}_execute_series"]`. Never invent probes — `execute_*` runs under `/bin/sh` (sessions dcfbdaa2 / 6741e13a). If shell tools are absent, emit `blocked:remote_runner_shell_unavailable: "true"` and return.
         **Hard evidence gate:** completion requires `runner_capability_preflight_ok: "true"`. Absent that, record `stage_summary:runner-capability-preflight=blocked:missing_runner_evidence` and return blocked.
         **Blocked sentinels:** `blocked:remote_runner_jq_missing`, `blocked:remote_runner_awscli_missing`, `blocked:remote_runner_python3_missing`, `blocked:remote_runner_git_missing`, `blocked:remote_runner_tofu_missing`, `blocked:remote_runner_opa_missing`, `blocked:remote_runner_cloud2code_missing`, `blocked:remote_runner_script_pack_missing`, `blocked:remote_runner_shell_unavailable`.
 
@@ -213,7 +213,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
       )
       note = <<-EOT
         **Purpose:** create the monolithic AWS Terraform state for this workflow. This stage owns `monolith_state_uri`; downstream stages must not ask the operator for it.
-        **Incremental bring-up execution:** do not call `read_notes`, `note`, or `create_agent` before the scan. Your FIRST tool call must be ONE `${local.shell_tool_prefix}_execute_series` containing exactly two commands: first write `$HOME/.<workflow_run_id>/.work/cloud2code-inputs.json` with `aws_region` copied from the workflow input; second paste `CLOUD2CODE_SCAN_EXECUTE_SERIES` verbatim. The bootstrap embeds module defaults for the repository and branch. Never replace it with hand-written availability probes, installation steps, or scan commands. Do not call `${local.shell_tool_prefix}_execute_command`.
+        **Incremental bring-up execution:** `create_agent` is allowed (reactree). Spawn ONE `cloud2code-scan-runner` with CREATE_AGENT_EXPECTATION from the spawn context (exact `bash …/cloud2code-aws-scan.sh` one-liner; replace `AWS_REGION_PLACEHOLDER`). `tool_names` only `["${local.shell_tool_prefix}_execute_series"]`. Never invent `set -o pipefail` / `cloud2code aws scan` (sessions 127f2c35 / af38cc9e).
         **Hard evidence gate:** never report this stage complete from notes or reasoning alone. Completion requires a successful `${local.shell_tool_prefix}_execute_series` result containing `cloud2code_scan_ok: "true"`, a non-empty `monolith_state_uri`, and `monolith_resource_count` greater than zero. If those values are absent, record `stage_summary:cloud2code-scan-aws=blocked:missing_runner_evidence` and return blocked.
         **No Azure generation here:** this stage only creates the source AWS tfstate. Azure generation starts after AWS HCL convergence.
         **Success criteria:** final line must include `cloud2code_scan_ok: "true"`, `cloud2code_tfstate_path=...`, `monolith_state_uri=...`, and `monolith_resource_count=<N>`. Also `note` those keys and mirror them to `$HOME/.<workflow_run_id>/notes.json`.

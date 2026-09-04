@@ -1,12 +1,15 @@
+#!/usr/bin/env bash
 set -euo pipefail
 
-# Args: $1 = workflow_run_id (Guild substitutes {{workflow_run_id}} outside this script).
-# Optional: $2 = aws_region (written into cloud2code-inputs.json when provided).
-WF_ID="$${1:?workflow_run_id required}"
-AWS_REGION_ARG="$${2:-}"
+# Args: $1 = workflow_run_id; $2 = aws_region (optional but recommended)
+WF_ID="${1:?workflow_run_id required}"
+AWS_REGION_ARG="${2:-}"
 
-export HOME=${runner_work_home}
-ABS_WORK_ROOT="${runner_work_home}/.$${WF_ID}"
+RUNNER_WORK_HOME="${RUNNER_WORK_HOME:-/home/runner}"
+SCRIPT_PACK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+export HOME="$RUNNER_WORK_HOME"
+ABS_WORK_ROOT="${RUNNER_WORK_HOME}/.${WF_ID}"
 WORK_ROOT="$ABS_WORK_ROOT"
 INPUT_JSON="$WORK_ROOT/.work/cloud2code-inputs.json"
 NOTES_JSON="$WORK_ROOT/notes.json"
@@ -24,28 +27,28 @@ if [ -n "$AWS_REGION_ARG" ]; then
 fi
 
 mirror_note() {
-  local key="$${1:?KEY}"
-  local value="$${2:-}"
+  local key="${1:?KEY}"
+  local value="${2:-}"
   local tmp
-  tmp="$(mktemp "$${NOTES_JSON}.XXXXXX")"
+  tmp="$(mktemp "${NOTES_JSON}.XXXXXX")"
   jq --arg k "$key" --arg v "$value" '. + {($k): $v}' "$NOTES_JSON" >"$tmp" \
     && mv "$tmp" "$NOTES_JSON"
 }
 
 read_input() {
-  local key="$${1:?KEY}"
+  local key="${1:?KEY}"
   [ -f "$INPUT_JSON" ] || return 0
   jq -r --arg k "$key" '.[$k] // empty' "$INPUT_JSON" 2>/dev/null || true
 }
 
 read_note() {
-  local key="$${1:?KEY}"
+  local key="${1:?KEY}"
   jq -r --arg k "$key" '.[$k] // empty' "$NOTES_JSON" 2>/dev/null || true
 }
 
 coalesce_value() {
-  local key="$${1:?KEY}"
-  local env_key="$${2:-}"
+  local key="${1:?KEY}"
+  local env_key="${2:-}"
   local value=""
   value="$(read_input "$key")"
   if [ -z "$value" ]; then
@@ -64,26 +67,26 @@ CLOUD2CODE_EXCLUDE="$(coalesce_value cloud2code_exclude CLOUD2CODE_EXCLUDE)"
 # standalone resources (identity humans, Athena, EC2 key pairs, folded attrs).
 # Operators may override via cloud2code_exclude / CLOUD2CODE_EXCLUDE.
 if [ -z "$CLOUD2CODE_EXCLUDE" ]; then
-  CLOUD2CODE_EXCLUDE="${default_cloud2code_exclude}"
+  CLOUD2CODE_EXCLUDE="aws_athena_workgroup,aws_cloudfront_origin_access_identity,aws_db_parameter_group,aws_iam_access_key,aws_iam_account_alias,aws_iam_account_password_policy,aws_iam_group,aws_iam_group_membership,aws_iam_group_policy,aws_iam_group_policy_attachment,aws_iam_openid_connect_provider,aws_iam_saml_provider,aws_iam_server_certificate,aws_iam_user,aws_iam_user_group_membership,aws_iam_user_policy,aws_iam_user_policy_attachment,aws_iam_user_ssh_key,aws_key_pair,aws_route53_resolver_rule_association"
 fi
 # Drop exclude types cloud2code does not recognize — unsupported --exclude values
 # abort the entire import (cloud2code 0.5.x: "type X on Exclude filter: not supported").
 if [ -n "$CLOUD2CODE_EXCLUDE" ] && command -v cloud2code >/dev/null 2>&1; then
   _sup_file="$(mktemp)"
-  if cloud2code get-supported-resources -c aws >"$${_sup_file}" 2>/dev/null; then
+  if cloud2code get-supported-resources -c aws >"${_sup_file}" 2>/dev/null; then
     CLOUD2CODE_EXCLUDE="$(
       printf '%s' "$CLOUD2CODE_EXCLUDE" | tr ',' '\n' | while IFS= read -r _t; do
-        _t="$(printf '%s' "$${_t}" | tr -d '[:space:]')"
-        [ -z "$${_t}" ] && continue
-        if grep -Eq "^ - $${_t}\$" "$${_sup_file}"; then
-          printf '%s\n' "$${_t}"
+        _t="$(printf '%s' "${_t}" | tr -d '[:space:]')"
+        [ -z "${_t}" ] && continue
+        if grep -Eq "^ - ${_t}\$" "${_sup_file}"; then
+          printf '%s\n' "${_t}"
         else
-          echo "cloud2code_exclude_skipped_unsupported=$${_t}" >&2
+          echo "cloud2code_exclude_skipped_unsupported=${_t}" >&2
         fi
       done | paste -sd, -
     )"
   fi
-  rm -f "$${_sup_file}"
+  rm -f "${_sup_file}"
 fi
 CLOUD2CODE_TAGS="$(coalesce_value cloud2code_tags CLOUD2CODE_TAGS)"
 CLOUD2CODE_OUTPUT_DIR="$(coalesce_value cloud2code_output_dir CLOUD2CODE_OUTPUT_DIR)"
@@ -92,12 +95,12 @@ IAC_REPOSITORY_URL="$(coalesce_value iac_repository_url IAC_REPOSITORY_URL)"
 if [ -z "$IAC_REPOSITORY_URL" ]; then
   IAC_REPOSITORY_URL="$(coalesce_value iac_repo_url IAC_REPO_URL)"
 fi
-if [ -z "$IAC_REPOSITORY_URL" ] && [ -n "${default_iac_repository_url}" ]; then
-  IAC_REPOSITORY_URL="${default_iac_repository_url}"
+if [ -z "$IAC_REPOSITORY_URL" ]; then
+  IAC_REPOSITORY_URL="https://github.com/Walmart-StackGen/Nile-Factory.git"
 fi
 DEFAULT_BRANCH="$(coalesce_value default_branch DEFAULT_BRANCH)"
-if [ -z "$DEFAULT_BRANCH" ] && [ -n "${default_branch}" ]; then
-  DEFAULT_BRANCH="${default_branch}"
+if [ -z "$DEFAULT_BRANCH" ]; then
+  DEFAULT_BRANCH="main"
 fi
 GROUPING_STRATEGY="$(coalesce_value grouping_strategy GROUPING_STRATEGY)"
 MAX_RESOURCES_PER_APPSTACK="$(coalesce_value max_resources_per_appstack MAX_RESOURCES_PER_APPSTACK)"
@@ -126,7 +129,13 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 1
 fi
 
-# Install lives in runner-capability-preflight; scan only verifies presence.
+# Install lives in runner-capability-preflight; scan verifies and can re-ensure.
+if [ -f "$SCRIPT_PACK_DIR/ensure_cloud2code.sh" ]; then
+  # shellcheck source=/dev/null
+  . "$SCRIPT_PACK_DIR/ensure_cloud2code.sh"
+  ensure_cloud2code || true
+fi
+
 if ! command -v cloud2code >/dev/null 2>&1; then
   mirror_note "blocked:remote_runner_cloud2code_missing" "true"
   mirror_note "stage_summary:cloud2code-scan-aws" "blocked:cloud2code_missing"
@@ -164,7 +173,7 @@ if [ -n "$CLOUD2CODE_EXCLUDE" ]; then
   CMD+=(--exclude "$CLOUD2CODE_EXCLUDE")
 fi
 
-printf '%q ' "$${CMD[@]}" >"$WORK_ROOT/.work/cloud2code-command.txt"
+printf '%q ' "${CMD[@]}" >"$WORK_ROOT/.work/cloud2code-command.txt"
 echo >>"$WORK_ROOT/.work/cloud2code-command.txt"
 mirror_note "cloud2code_command_path" "$WORK_ROOT/.work/cloud2code-command.txt"
 mirror_note "aws_region" "$AWS_REGION"
@@ -186,7 +195,7 @@ if [ -n "$TFSTATE_DECOMPOSER_OVERRIDES_PATH" ]; then mirror_note "tfstate_decomp
 if [ -n "$TFSTATE_DECOMPOSER_LAYER_TAXONOMY_JSON" ]; then mirror_note "tfstate_decomposer_layer_taxonomy_json" "$TFSTATE_DECOMPOSER_LAYER_TAXONOMY_JSON"; fi
 if [ -n "$TFSTATE_DECOMPOSER_MAX_TUNING_ITERATIONS" ]; then mirror_note "tfstate_decomposer_max_tuning_iterations" "$TFSTATE_DECOMPOSER_MAX_TUNING_ITERATIONS"; fi
 
-if ! "$${CMD[@]}" >"$WORK_ROOT/.work/cloud2code.log" 2>&1; then
+if ! "${CMD[@]}" >"$WORK_ROOT/.work/cloud2code.log" 2>&1; then
   mirror_note "blocked:cloud2code_scan_failed" "true"
   mirror_note "cloud2code_log_path" "$WORK_ROOT/.work/cloud2code.log"
   mirror_note "stage_summary:cloud2code-scan-aws" "blocked:cloud2code_import_failed"

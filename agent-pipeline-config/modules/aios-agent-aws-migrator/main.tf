@@ -149,7 +149,7 @@ locals {
   gcp_mapping_catalog_script          = file("${path.module}/scripts/gcp_mapping_catalog.py")
   gcp_mapping_catalog_json            = file("${path.module}/mappings/aws-to-gcp.json")
   ensure_cloud2code_script            = file("${path.module}/scripts/ensure_cloud2code.sh")
-  script_pack_version                 = "20260827.4"
+  script_pack_version                 = "20260904.1"
   script_pack_git_ref                 = "main"
   script_pack_preload_dir             = "${local.runner_work_home}/.aws-migrator/script-pack/${local.script_pack_version}"
 
@@ -401,15 +401,11 @@ locals {
     local.template_vars,
   )
 
-  cloud2code_scan_execute_series_body = templatefile(
-    "${path.module}/templates/cloud2code-aws-scan-execute-series.sh.tftpl",
-    local.template_vars,
-  )
-
-  runner_capability_preflight_execute_series_body = templatefile(
-    "${path.module}/templates/runner-capability-preflight-execute-series.sh.tftpl",
-    local.template_vars,
-  )
+  # Short pack one-liners (same shape as azure/gcp destination stages). Huge base64
+  # pastes truncate under create_agent (session 1d8207c8 quoting EOF) and invented
+  # shell hits dash pipefail (sessions 6741e13a / 127f2c35 / af38cc9e).
+  runner_capability_preflight_execute_series_body = "bash ${local.script_pack_preload_dir}/runner-capability-preflight.sh '{{workflow_run_id}}'"
+  cloud2code_scan_execute_series_body             = "bash ${local.script_pack_preload_dir}/cloud2code-aws-scan.sh '{{workflow_run_id}}' 'AWS_REGION_PLACEHOLDER'"
 
   rendered_persona = templatefile("${path.module}/personas/aws-migrator-architect.md.tftpl", local.template_vars)
 

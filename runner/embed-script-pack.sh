@@ -22,9 +22,12 @@ cp "$MODULE/scripts/governance_conform.py" "$DEST/"
 cp "$MODULE/scripts/governance_opa_check.py" "$DEST/"
 cp "$MODULE/scripts/run-destination-stage.sh" "$DEST/"
 cp "$MODULE/scripts/ensure_cloud2code.sh" "$DEST/"
+cp "$MODULE/scripts/runner-capability-preflight.sh" "$DEST/"
+cp "$MODULE/scripts/cloud2code-aws-scan.sh" "$DEST/"
 cp "$MODULE/mappings/aws-to-azure.json" "$DEST/mappings/"
 cp "$MODULE/mappings/aws-to-gcp.json" "$DEST/mappings/"
-chmod +x "$DEST/stage-runner.sh" "$DEST/run-destination-stage.sh"
+chmod +x "$DEST/stage-runner.sh" "$DEST/run-destination-stage.sh" \
+  "$DEST/runner-capability-preflight.sh" "$DEST/cloud2code-aws-scan.sh"
 
 python3 /tmp/render_ingest_bootstrap.py "$DEST"
 chown -R runner:runner /home/runner/.aws-migrator

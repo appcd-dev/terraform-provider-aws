@@ -1,35 +1,39 @@
+#!/usr/bin/env bash
 set -euo pipefail
 
-# Args: $1 = workflow_run_id (Guild substitutes {{workflow_run_id}} outside this script).
-WF_ID="$${1:?workflow_run_id required}"
+# Args: $1 = workflow_run_id
+WF_ID="${1:?workflow_run_id required}"
 
-export HOME=${runner_work_home}
-ABS_WORK_ROOT="${runner_work_home}/.$${WF_ID}"
+# Prefer the directory this script lives in (script pack), then env, then default.
+SCRIPT_PACK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RUNNER_WORK_HOME="${RUNNER_WORK_HOME:-/home/runner}"
+
+export HOME="$RUNNER_WORK_HOME"
+ABS_WORK_ROOT="${RUNNER_WORK_HOME}/.${WF_ID}"
 WORK_ROOT="$ABS_WORK_ROOT"
 NOTES_JSON="$WORK_ROOT/notes.json"
-SCRIPT_PACK_DIR="${script_pack_preload_dir}"
 
 mkdir -p "$WORK_ROOT/.work"
 chmod 700 "$WORK_ROOT" 2>/dev/null || true
 [ -f "$NOTES_JSON" ] || echo '{}' >"$NOTES_JSON"
 
 mirror_note() {
-  local key="$${1:?KEY}"
-  local value="$${2:-}"
+  local key="${1:?KEY}"
+  local value="${2:-}"
   local tmp
-  tmp="$(mktemp "$${NOTES_JSON}.XXXXXX")"
+  tmp="$(mktemp "${NOTES_JSON}.XXXXXX")"
   jq --arg k "$key" --arg v "$value" '. + {($k): $v}' "$NOTES_JSON" >"$tmp" \
     && mv "$tmp" "$NOTES_JSON"
 }
 
 emit_blocked() {
-  local sentinel="$${1:?SENTINEL}"
-  local summary="$${2:-$sentinel}"
+  local sentinel="${1:?SENTINEL}"
+  local summary="${2:-$sentinel}"
   if command -v jq >/dev/null 2>&1 && [ -f "$NOTES_JSON" ]; then
     mirror_note "$sentinel" "true"
     mirror_note "stage_summary:runner-capability-preflight" "blocked:$summary"
   fi
-  echo "$${sentinel}: \"true\""
+  echo "${sentinel}: \"true\""
   echo "stage_summary:runner-capability-preflight=blocked:$summary"
   exit 1
 }
@@ -61,7 +65,11 @@ if ! command -v opa >/dev/null 2>&1; then
   emit_blocked "blocked:remote_runner_opa_missing" "opa_missing"
 fi
 
-${ensure_cloud2code_script}
+# Prefer pack-local ensure_cloud2code.sh (same directory as this script).
+if [ -f "$SCRIPT_PACK_DIR/ensure_cloud2code.sh" ]; then
+  # shellcheck source=/dev/null
+  . "$SCRIPT_PACK_DIR/ensure_cloud2code.sh"
+fi
 
 if ! ensure_cloud2code; then
   emit_blocked "blocked:remote_runner_cloud2code_missing" "cloud2code_install_failed"
