@@ -44,8 +44,9 @@ RUN chmod +x /tmp/embed-script-pack.sh \
 ENV HOME=/home/runner \
   USER=runner \
   PATH=/home/runner/.local/bin:/usr/local/bin:/usr/bin:/bin \
-  ALLOWED_CLIS=tofu,terraform,jq,git,aws,gh,python3,tar,curl,wget,opa,tflint,cloud2code \
   AUTO_DISCOVER=true
+# aiden-runner >= 0.2.22 allows CLIs under /usr/bin by default when ALLOWED_CLIS
+# is unset. Do not pin a narrow allowlist here — that blocked /bin/bash on 0.2.13.
 
 USER runner
 WORKDIR /home/runner

@@ -170,8 +170,8 @@ output "remote_runner_image" {
 }
 
 output "remote_runner_helm_image_sets" {
-  description = "Helm --set overrides when upgrading aiden-runner to the Nile-Factory image (append to remote_runner_helm_install_command)."
-  value       = "image.repository=${local.nile_factory_runner_image_repository} --set image.tag=${local.nile_factory_runner_image_tag} --set runner.allowedClis=${replace(local.nile_factory_runner_allowed_clis, ",", "\\,")}"
+  description = "Helm --set overrides when upgrading aiden-runner to the Nile-Factory image (append to remote_runner_helm_install_command). Clears runner.allowedClis so aiden-runner 0.2.22 keeps its /usr/bin default."
+  value       = "image.repository=${local.nile_factory_runner_image_repository} --set image.tag=${local.nile_factory_runner_image_tag} --set runner.allowedClis="
 }
 
 output "ingest_bootstrap_script" {

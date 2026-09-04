@@ -2,7 +2,7 @@
 
 Draft for review. Confirm or mark wrong. Longer write-up: [10-remote-runner-faq.md](10-remote-runner-faq.md).
 
-Checked on 2026-08-28 against this repo's image (`runner/Dockerfile`, `aiden-runner` 0.2.13, pack `20260827.4`).
+Checked on 2026-09-04 against this repo's image (`runner/Dockerfile`, `aiden-runner` 0.2.22, pack `20260827.4`).
 
 - [ ] 1. Exact Docker image
 - [ ] 2. Registry
@@ -25,7 +25,7 @@ Checked on 2026-08-28 against this repo's image (`runner/Dockerfile`, `aiden-run
 
 `ghcr.io/walmart-stackgen/nile-factory-runner`
 
-Built in this repo (`runner/Dockerfile`). Bakes `aiden-runner` 0.2.13 plus tofu, cloud2code, aws, gh, opa, tflint, python3, and the script pack under `/home/runner/.aws-migrator/script-pack/`.
+Built in this repo (`runner/Dockerfile`). Bakes `aiden-runner` 0.2.22 plus tofu, cloud2code, aws, gh, opa, tflint, python3, and the script pack under `/home/runner/.aws-migrator/script-pack/`.
 
 Do not use `ghcr.io/stackgenhq/aiden-runner` (binary only) or the stock Guild image without those tools.
 
@@ -49,7 +49,7 @@ Authenticated. Private GHCR package. `docker login ghcr.io`.
 
 `pack-20260827.4` (current `SCRIPT_PACK_VERSION`).
 
-Also: `aiden-0.2.13`, `sha-…`. Do not pin `latest`.
+Also: `aiden-0.2.22`, `sha-…`. Do not pin `latest`.
 
 ---
 

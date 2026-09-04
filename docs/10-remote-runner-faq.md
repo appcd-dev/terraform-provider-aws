@@ -2,7 +2,7 @@
 
 Answers for running **Aiden 2.0 / Guild `aiden-runner`** with this repo. This is not the older Aiden 1.0 chart (`aiden-remote-runner` from `registry.devopsnow.io`). Do not mix those install commands.
 
-Checked against Nile-Factory image **`ghcr.io/walmart-stackgen/nile-factory-runner`** (`runner/Dockerfile`, `aiden-runner` 0.2.13, pack `20260827.4`) on 2026-08-28.
+Checked against Nile-Factory image **`ghcr.io/walmart-stackgen/nile-factory-runner`** (`runner/Dockerfile`, `aiden-runner` 0.2.22, pack `20260827.4`) on 2026-09-04.
 
 How Nile-Factory actually starts the process: after `tofu apply` on `deployments/greenfield`, run `tofu output -raw remote_runner_cli_start_command` (or the Helm output). That string is the source of truth for mothership URL and runner token. For `deployments/walmart`, the customer starts the runner they registered in StackGen UI.
 
@@ -13,7 +13,7 @@ How Nile-Factory actually starts the process: after `tofu apply` on `deployments
 | 1 | Exact Docker image | `ghcr.io/walmart-stackgen/nile-factory-runner` (this repo). Guild stock image is not enough. |
 | 2 | Registry | GitHub Container Registry (`ghcr.io`), org `walmart-stackgen` |
 | 3 | Pull auth | Authenticated. Private package on a private repo. |
-| 4 | Tag to pin | `pack-20260827.4` (script pack) or `sha-…`. Also `aiden-0.2.13`. Do not pin `latest`. |
+| 4 | Tag to pin | `pack-20260827.4` (script pack) or `sha-…`. Also `aiden-0.2.22`. Do not pin `latest`. |
 | 5 | Without Kubernetes? | Yes. Docker or the `aiden-runner` binary is enough. |
 | 6 | Kubernetes API only for K8s integration? | Yes. Mothership talk is outbound HTTPS. The API server is only needed if you want in-cluster `kubectl` / Helm RBAC. |
 | 7 | `--auto-discover` | Host **CLI binaries** and **MCP configs** on the runner, advertised as `host.available_clis`. Not AWS/Azure/GCP resource discovery. |
@@ -33,7 +33,7 @@ This repo publishes:
 ghcr.io/walmart-stackgen/nile-factory-runner
 ```
 
-Built from [`runner/Dockerfile`](../runner/Dockerfile). It installs the `aiden-runner` **binary** (0.2.13) plus OpenTofu, Cloud2Code, AWS CLI, `gh`, `opa`, `tflint`, Python, and the aws-migrator script pack. `HOME` is `/home/runner`.
+Built from [`runner/Dockerfile`](../runner/Dockerfile). It installs the `aiden-runner` **binary** (0.2.22) plus OpenTofu, Cloud2Code, AWS CLI, `gh`, `opa`, `tflint`, Python, and the aws-migrator script pack. `HOME` is `/home/runner`.
 
 Do not run Nile-Factory on `ghcr.io/stackgenhq/aiden-runner` (binary only) or on the stock Guild image unless you add the same tools and pack yourself.
 
@@ -41,7 +41,7 @@ Do not run Nile-Factory on `ghcr.io/stackgenhq/aiden-runner` (binary only) or on
 
 **GitHub Container Registry**, `ghcr.io/walmart-stackgen`.
 
-The `aiden-runner` **binary** still comes from `https://releases.stackgen.com/binaries/aiden-runner/v0.2.13/` at image build time. Helm chart `aiden-runner` from `appcd-public-releases` can deploy this image if you override `image.repository` / `image.tag`.
+The `aiden-runner` **binary** still comes from `https://releases.stackgen.com/binaries/aiden-runner/v0.2.22/` at image build time. Helm chart `aiden-runner` from `appcd-public-releases` can deploy this image if you override `image.repository` / `image.tag`.
 
 ## 3. Public or authenticated pull?
 
@@ -53,7 +53,7 @@ The upstream `aiden-runner` binary tarball used during **build** is public (`rel
 
 Pin **`pack-20260827.4`** (or the current `SCRIPT_PACK_VERSION`) so the baked script pack matches the module.
 
-Also published: `aiden-0.2.13`, `sha-<git>`, `latest` on `main`. Do not pin `latest` in production. Rebuild after every pack bump.
+Also published: `aiden-0.2.22`, `sha-<git>`, `latest` on `main`. Do not pin `latest` in production. Rebuild after every pack bump.
 
 Copy-paste from a fresh apply:
 
@@ -63,7 +63,7 @@ tofu output -raw remote_runner_cli_start_command
 tofu output -raw remote_runner_helm_install_command
 ```
 
-Those commands already embed mothership URL and token. Replace `:latest` with `:0.2.13` if the generated Docker line still floats.
+Those commands already embed mothership URL and token. Replace `:latest` with `:0.2.22` if the generated Docker line still floats.
 
 ## 5. Can the runner operate without Kubernetes?
 
@@ -229,18 +229,19 @@ Helm equivalent (pin the chart and image together):
 helm upgrade --install aiden-runner \
   --repo https://appcd-public-releases.s3.us-east-2.amazonaws.com/charts/ \
   aiden-runner \
-  --version 0.2.13 \
+  --version 0.2.22 \
   --set image.repository=ghcr.io/walmart-stackgen/nile-factory-runner \
   --set image.tag=pack-20260827.4 \
-  --set 'runner.allowedClis=tofu\,terraform\,jq\,git\,aws\,gh\,python3\,tar\,curl\,wget\,opa\,tflint\,cloud2code' \
+  --set runner.allowedClis= \
   --set runner.mothershipUrl=https://walmart.cloud.stackgen.com \
   --set runner.token='<from tofu output, never commit>' \
   --create-namespace -n aiden-runner
 ```
 
+Clear `runner.allowedClis` (empty) so aiden-runner 0.2.22 keeps its `/usr/bin` default. Do not pass a comma-list here — that replaces the default and will block `bash` again. The stock chart’s kubectl/helm allowlist is also wrong for this image.
 Prefer the tofu-generated `helm_install_command` when it exists; it already has the right mothership URL and token.
 
 ## Sources
 
 - This repo: [`runner/Dockerfile`](../runner/Dockerfile), `docs/00-quickstart.md`, `aios-agent-aws-migrator` runner notes
-- `aiden-runner start --help` (v0.2.13)
+- `aiden-runner start --help` (v0.2.22)

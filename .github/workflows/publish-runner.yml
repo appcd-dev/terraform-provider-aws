@@ -76,7 +76,7 @@ jobs:
           tags: |
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
             type=raw,value=pack-${{ steps.pack.outputs.version }}
-            type=raw,value=aiden-0.2.13
+            type=raw,value=aiden-0.2.22
             type=sha,prefix=sha-
 
       - name: Build and push

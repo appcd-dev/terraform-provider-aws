@@ -157,7 +157,7 @@ locals {
   nile_factory_runner_image_repository = "ghcr.io/walmart-stackgen/nile-factory-runner"
   nile_factory_runner_image_tag        = "pack-${local.script_pack_version}"
   nile_factory_runner_image            = "${local.nile_factory_runner_image_repository}:${local.nile_factory_runner_image_tag}"
-  nile_factory_runner_allowed_clis     = "tofu,terraform,jq,git,aws,gh,python3,tar,curl,wget,opa,tflint,cloud2code"
+  nile_factory_runner_allowed_clis     = ""
   script_pack_allocate_sha256         = sha256(local.allocate_manifest_script)
   script_pack_decomposer_sha256       = sha256(local.tfstate_monolith_decomposer)
   script_pack_runner_sha256           = sha256(file("${path.module}/scripts/stage-runner.sh"))

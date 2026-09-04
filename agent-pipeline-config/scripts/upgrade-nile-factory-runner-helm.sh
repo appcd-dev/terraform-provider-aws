@@ -37,7 +37,7 @@ helm upgrade "$RELEASE" appcd-public-releases/aiden-runner \
   --reuse-values \
   --set "image.repository=$(echo "$IMAGE" | cut -d: -f1)" \
   --set "image.tag=$(echo "$IMAGE" | cut -d: -f2)" \
-  --set 'runner.allowedClis=tofu\,terraform\,jq\,git\,aws\,gh\,python3\,tar\,curl\,wget\,opa\,tflint\,cloud2code' \
+  --set runner.allowedClis= \
   "${extra_args[@]}"
 
 echo "Waiting for rollout..."

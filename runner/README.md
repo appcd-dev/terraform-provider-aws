@@ -17,7 +17,7 @@ identity that can read packages on `Walmart-StackGen/Nile-Factory`.
 | --- | --- |
 | `sha-<git sha>` | Every successful publish |
 | `pack-<script_pack_version>` | Matches `SCRIPT_PACK_VERSION` in `stage-runner.sh` (currently `20260827.4`) |
-| `aiden-0.2.13` | Pinned `aiden-runner` binary |
+| `aiden-0.2.22` | Pinned `aiden-runner` binary |
 | `latest` | Tip of `main` |
 
 Pin `pack-20260827.4` (or the current pack tag) in production. Rebuild after every
@@ -25,7 +25,7 @@ Pin `pack-20260827.4` (or the current pack tag) in production. Rebuild after eve
 
 ## What is inside
 
-- `aiden-runner` 0.2.13
+- `aiden-runner` 0.2.22
 - OpenTofu 1.12.5 (`tofu`)
 - Cloud2Code 0.5.1
 - AWS CLI v2, `gh`, `git`, `jq`, `python3`, `opa`, `tflint`, `curl`/`wget`/`tar`
@@ -33,13 +33,11 @@ Pin `pack-20260827.4` (or the current pack tag) in production. Rebuild after eve
 - Script pack at `/home/runner/.aws-migrator/script-pack/<version>/` including
   rendered `ingest-bootstrap.sh` (module defaults: decomposer strategy, cap 0)
 
-Helm `runner.allowedClis` defaults to `kubectl,helm,...` and will **block** `tofu`
-if you install the stock Guild chart unchanged. Either leave `ALLOWED_CLIS` as
-baked in this image or set:
-
-```text
-tofu,terraform,jq,git,aws,gh,python3,tar,curl,wget,opa,tflint,cloud2code
-```
+`aiden-runner` 0.2.22 allows CLIs under `/usr/bin` by default when `ALLOWED_CLIS`
+is unset. This image leaves it unset. If you install via the stock Guild Helm
+chart, **clear** `runner.allowedClis` (`--set runner.allowedClis=`) so the
+binary default applies. The chart’s kubectl/helm allowlist (and any comma-list
+you pass) replaces that default and can block `bash` / `tofu` again.
 
 ## Local build
 
@@ -70,7 +68,7 @@ docker run -d --name nile-factory-runner --restart unless-stopped \
   "$IMAGE"
 ```
 
-Helm: use the tofu `helm_install_command`, then `--set image.repository=ghcr.io/walmart-stackgen/nile-factory-runner --set image.tag=pack-20260827.4` and fix `runner.allowedClis` as above. Add an imagePullSecret if the cluster cannot pull private GHCR.
+Helm: use the tofu `helm_install_command`, then `--set image.repository=ghcr.io/walmart-stackgen/nile-factory-runner --set image.tag=pack-20260827.4 --set runner.allowedClis=` (empty, so 0.2.22’s `/usr/bin` default applies). Add an imagePullSecret if the cluster cannot pull private GHCR.
 
 `kubectl cp` preload still works if you need to hot-fix the pack without waiting for a rebuild.
 
