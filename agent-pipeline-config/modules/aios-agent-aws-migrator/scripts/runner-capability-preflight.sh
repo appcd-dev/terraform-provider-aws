@@ -2,7 +2,30 @@
 set -euo pipefail
 
 # Args: $1 = workflow_run_id
-WF_ID="${1:?workflow_run_id required}"
+# Refuse literal '{{workflow_run_id}}' (session b2177674); fall back to WORKFLOW_RUN_ID.
+WF_ID_ARG="${1:-}"
+resolve_workflow_run_id() {
+  local id="${1:-}"
+  case "$id" in
+    '' | *'{{'* | *'}}'* | *'{'* | *'}'*)
+      id="${WORKFLOW_RUN_ID:-}"
+      ;;
+  esac
+  case "$id" in
+    '' | *'{{'* | *'}}'* | *'{'* | *'}'*)
+      return 1
+      ;;
+  esac
+  printf '%s' "$id"
+}
+
+if ! WF_ID="$(resolve_workflow_run_id "$WF_ID_ARG")"; then
+  echo 'blocked:remote_runner_workflow_run_id_unresolved: "true"'
+  echo "preflight_workflow_run_id_arg=${WF_ID_ARG:-<empty>}"
+  echo "hint=replace {{workflow_run_id}} with the real id from the stagerunner [Workflow execution] header"
+  exit 1
+fi
+export WORKFLOW_RUN_ID="$WF_ID"
 
 # Prefer the directory this script lives in (script pack), then env, then default.
 SCRIPT_PACK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -16,6 +39,7 @@ NOTES_JSON="$WORK_ROOT/notes.json"
 mkdir -p "$WORK_ROOT/.work"
 chmod 700 "$WORK_ROOT" 2>/dev/null || true
 [ -f "$NOTES_JSON" ] || echo '{}' >"$NOTES_JSON"
+echo "preflight_workflow_run_id=$WF_ID"
 
 mirror_note() {
   local key="${1:?KEY}"

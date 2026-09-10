@@ -16,7 +16,7 @@ identity that can read packages on `Walmart-StackGen/Nile-Factory`.
 | Tag | When |
 | --- | --- |
 | `sha-<git sha>` | Every successful publish |
-| `pack-<script_pack_version>` | Matches `SCRIPT_PACK_VERSION` in `stage-runner.sh` (currently `20260910.2`) |
+| `pack-<script_pack_version>` | Matches `SCRIPT_PACK_VERSION` in `stage-runner.sh` (currently `20260910.3`) |
 | `aiden-0.2.22` | Pinned `aiden-runner` binary |
 | `latest` | Tip of `main` |
 

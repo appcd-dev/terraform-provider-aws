@@ -101,7 +101,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
       {
         stage_id    = "cloud2code-scan-loop"
         description = "Retry cloud2code scan until a valid tfstate handoff or terminal blocked sentinel is emitted"
-        note        = "loop_stage only — no LLM. Exit on cloud2code_scan_ok=true or terminal cloud2code blocked sentinel."
+        note        = "loop_stage only — no LLM. Exit on cloud2code_scan_ok=true or hard missing-tool/region blockers. Import failures stay in-loop so the agent can read the log and retry."
         required    = false
       },
       {
@@ -213,11 +213,17 @@ resource "sg_workflow" "aws_migrator_discovery" {
       )
       note = <<-EOT
         **Purpose:** create the monolithic AWS Terraform state for this workflow. This stage owns `monolith_state_uri`; downstream stages must not ask the operator for it.
-        **Incremental bring-up execution:** `create_agent` is allowed (reactree). Spawn ONE `cloud2code-scan-runner` with CREATE_AGENT_EXPECTATION from the spawn context (exact `bash …/cloud2code-aws-scan.sh` one-liner; replace `AWS_REGION_PLACEHOLDER`). `tool_names` only `["${local.shell_tool_prefix}_execute_series"]`. Never invent `set -o pipefail` / `cloud2code aws scan` (sessions 127f2c35 / af38cc9e).
-        **Hard evidence gate:** never report this stage complete from notes or reasoning alone. Completion requires a successful `${local.shell_tool_prefix}_execute_series` result containing `cloud2code_scan_ok: "true"`, a non-empty `monolith_state_uri`, and `monolith_resource_count` greater than zero. If those values are absent, record `stage_summary:cloud2code-scan-aws=blocked:missing_runner_evidence` and return blocked.
+        **Incremental bring-up execution:** `create_agent` is allowed (reactree). Spawn ONE `cloud2code-scan-runner` with CREATE_AGENT_EXPECTATION from the spawn context (exact `bash …/cloud2code-aws-scan.sh` one-liner). `tool_names` only `["${local.shell_tool_prefix}_execute_series"]`. Never invent `set -o pipefail` / `cloud2code aws scan` (sessions 127f2c35 / af38cc9e).
+        **Substitute before paste (mandatory):** replace `AWS_REGION_PLACEHOLDER` with the region AND replace `{{workflow_run_id}}` with the real id from the stagerunner `[Workflow execution]` header (e.g. `wf-aws-cloud-discovery-…`). Do **not** leave the brace token literal — Guild often does not expand it inside agent-pasted `execute_series` (session b2177674 wrote `/home/runner/.{{workflow_run_id}}/` and then could not self-diagnose).
         **Operator scan filters (mandatory):** when the query set `cloud2code_include`, `cloud2code_exclude`, or `cloud2code_tags`, copy each value into the matching `CLOUD2CODE_*=''` slot at the front of the one-liner before pasting it. That env prefix is the only path from the query to `cloud2code import aws`; leaving it empty scans the whole region regardless of what the operator asked for.
+        **Self-heal on failure (mandatory):** if the runner returns `blocked:cloud2code_scan_failed`, `blocked:cloud2code_workflow_run_id_unresolved`, or a missing tfstate sentinel, do **not** stop at the sentinel. Read `cloud2code_log_tail_*` from the same tool result (or `tail` `$HOME/.<real_workflow_run_id>/.work/cloud2code.log` via `${local.shell_tool_prefix}_execute_command`). Classify and fix, then re-run the scan one-liner in this stage:
+        - literal `{{workflow_run_id}}` / unresolved id → paste the real id and retry
+        - outdated / missing `cloud2code` → rely on pack `ensure_cloud2code` (pin 0.5.2+) and retry
+        - unsupported `--exclude` / filter errors → drop bad types from `CLOUD2CODE_EXCLUDE` or narrow `CLOUD2CODE_INCLUDE` and retry
+        - transient AWS / runner blips → retry the same one-liner once
+        Only emit a terminal `blocked:cloud2code_scan_failed: "true"` after at least one remediation attempt (or when the log shows a clearly non-retryable cause such as missing AWS credentials with no alternate path). Never fabricate an empty tfstate.
+        **Hard evidence gate:** never report this stage complete from notes or reasoning alone. Completion requires a successful `${local.shell_tool_prefix}_execute_series` result containing `cloud2code_scan_ok: "true"`, a non-empty `monolith_state_uri`, and `monolith_resource_count` greater than zero. If those values are absent after remediation, record `stage_summary:cloud2code-scan-aws=blocked:missing_runner_evidence` (retryable) rather than inventing success.
         **Success criteria:** final line must include `cloud2code_scan_ok: "true"`, `cloud2code_tfstate_path=...`, `monolith_state_uri=...`, and `monolith_resource_count=<N>`. Also `note` those keys and mirror them to `$HOME/.<workflow_run_id>/notes.json`.
-        **Blocked sentinels:** emit and return on `blocked:missing_aws_region`, `blocked:remote_runner_cloud2code_missing`, `blocked:remote_runner_awscli_missing`, `blocked:remote_runner_jq_missing`, `blocked:cloud2code_scan_failed`, `blocked:cloud2code_tfstate_missing`, or `blocked:cloud2code_tfstate_invalid`. Never fabricate an empty tfstate.
 
         The exact spawn/direct-fallback context follows. It is embedded here so
         the architect can execute the same bootstrap when subagent creation is
@@ -235,11 +241,11 @@ resource "sg_workflow" "aws_migrator_discovery" {
         loop_to        = "cloud2code-scan-aws"
         max_iterations = 5
         exit_condition = "output_matches_regex"
-        # Only operator-fixable blockers end the loop. A transient platform
-        # denial (e.g. identity lookup failing during a Guild rolling restart)
-        # surfaces as missing_runner_evidence and must retry, so this regex
-        # deliberately omits a stage_summary:...=blocked: catch-all.
-        exit_match = "cloud2code_scan_ok[^\\n]{0,40}\"true\"|blocked:missing_aws_region|blocked:remote_runner_cloud2code_missing|blocked:remote_runner_awscli_missing|blocked:remote_runner_jq_missing|blocked:cloud2code_scan_failed|blocked:cloud2code_tfstate_missing|blocked:cloud2code_tfstate_invalid"
+        # Exit only on success or hard missing-tool / missing-region blockers.
+        # Import failures (`blocked:cloud2code_scan_failed`) are retryable: the
+        # agent must read the log tail, remediate, and re-run (session b2177674
+        # exited the loop on the first failure without healing).
+        exit_match = "cloud2code_scan_ok[^\\n]{0,40}\"true\"|blocked:missing_aws_region|blocked:remote_runner_cloud2code_missing|blocked:remote_runner_awscli_missing|blocked:remote_runner_jq_missing"
       }
     },
     {
@@ -252,7 +258,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
         # Require emitted sentinel forms (`: "true"` / stage_summary=blocked:), not bare
         # names — loop_stage FINISH reasons embed the exit_match pattern text and would
         # otherwise false-trigger this gate after a successful cloud2code_scan_ok.
-        match   = "blocked:missing_aws_region:\\s*\\\"true\\\"|blocked:remote_runner_cloud2code_missing:\\s*\\\"true\\\"|blocked:remote_runner_awscli_missing:\\s*\\\"true\\\"|blocked:remote_runner_jq_missing:\\s*\\\"true\\\"|blocked:cloud2code_scan_failed:\\s*\\\"true\\\"|blocked:cloud2code_tfstate_missing:\\s*\\\"true\\\"|blocked:cloud2code_tfstate_invalid:\\s*\\\"true\\\"|stage_summary:cloud2code-scan-aws=blocked:"
+        match   = "blocked:missing_aws_region:\\s*\\\"true\\\"|blocked:remote_runner_cloud2code_missing:\\s*\\\"true\\\"|blocked:remote_runner_awscli_missing:\\s*\\\"true\\\"|blocked:remote_runner_jq_missing:\\s*\\\"true\\\"|blocked:cloud2code_scan_failed:\\s*\\\"true\\\"|blocked:cloud2code_tfstate_missing:\\s*\\\"true\\\"|blocked:cloud2code_tfstate_invalid:\\s*\\\"true\\\"|blocked:cloud2code_workflow_run_id_unresolved:\\s*\\\"true\\\"|stage_summary:cloud2code-scan-aws=blocked:"
         skip_to = "final-gate-and-memory"
         reason  = "Cloud2code scan blocked — skip ingest, registry, destination, and orphan stages"
       }

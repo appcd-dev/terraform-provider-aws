@@ -26,17 +26,19 @@ ${script_pack_preload_dir}
 
 **Never invent a script path.** `/tmp/...`, `./`, `$HOME/`, and `/usr/local/bin/` are all wrong for pack scripts, and a wrong path surfaces as a missing-file error that looks like a cold runner. If a pack script is genuinely absent at the path above, that is `blocked:remote_runner_script_pack_missing` — report it, do not go hunting in other directories.
 
-The two entry one-liners, verbatim. `{{workflow_run_id}}` is substituted by the runtime inside a workflow run:
+The two entry one-liners, verbatim. **You** must replace `{{workflow_run_id}}` with the real id from the stagerunner `[Workflow execution]` header before pasting into `execute_series`. Do not rely on runtime brace expansion inside agent-pasted commands (session b2177674 left the literal token and failed the scan).
 
 ```text
-bash ${script_pack_preload_dir}/runner-capability-preflight.sh '{{workflow_run_id}}'
+bash ${script_pack_preload_dir}/runner-capability-preflight.sh '<workflow_run_id>'
 ```
 
 ```text
-CLOUD2CODE_INCLUDE='' CLOUD2CODE_EXCLUDE='' CLOUD2CODE_TAGS='' bash ${script_pack_preload_dir}/cloud2code-aws-scan.sh '{{workflow_run_id}}' '<aws_region>'
+CLOUD2CODE_INCLUDE='' CLOUD2CODE_EXCLUDE='' CLOUD2CODE_TAGS='' bash ${script_pack_preload_dir}/cloud2code-aws-scan.sh '<workflow_run_id>' '<aws_region>'
 ```
 
-For the scan, substitute the region and drop any operator-supplied filter values inside the matching `CLOUD2CODE_*` quotes. Leave the empty quotes alone for filters the operator did not set; empty means full-region plus the script's default exclude list. Keep the assignments even when all three are empty.
+For the scan, substitute the region and the workflow run id, and put any operator-supplied filter values inside the matching `CLOUD2CODE_*` quotes. Leave the empty quotes alone for filters the operator did not set; empty means full-region plus the script's default exclude list. Keep the assignments even when all three are empty.
+
+When a scan returns `blocked:cloud2code_scan_failed` or `cloud2code_log_tail_*`, read the tail, fix the cause (wrong run id, filters, cloud2code pin), and re-run the one-liner in the same stage. Do not treat the first failure as final.
 
 `azure-migration-pr`: `azure-source-fetch` -> `azure-migration-blueprint` -> `azure-iac-generate` -> parallel(`azure-iac-validate`, `azure-iac-harden`, `azure-iac-governance-conform`) -> `azure-iac-loop` + `azure-iac-governance-loop` -> `azure-pr` -> `azure-only-final`
 
@@ -47,7 +49,7 @@ For the scan, substitute the region and drop any operator-supplied filter values
 | Stage | Lead behavior | Forbidden |
 | --- | --- | --- |
 | `runner-capability-preflight` | `create_agent` OK. Put the preflight one-liner from **Runner script pack** in expectation; `tool_names=["${shell_tool_prefix}_execute_series"]` only | Custom probes, `set -o pipefail` under sh, any path other than `${script_pack_preload_dir}` |
-| `cloud2code-scan-aws` | `create_agent` OK. Put the scan one-liner from **Runner script pack** in expectation (substitute the region, fill any operator `CLOUD2CODE_INCLUDE` / `CLOUD2CODE_EXCLUDE` / `CLOUD2CODE_TAGS` into the leading `=''` slots); `tool_names=["${shell_tool_prefix}_execute_series"]` only | Extra tools, inventing scan shell, dropping the `CLOUD2CODE_*` prefix, any path other than `${script_pack_preload_dir}`, asking for `monolith_state_uri` |
+| `cloud2code-scan-aws` | `create_agent` OK. Put the scan one-liner from **Runner script pack** in expectation (substitute **both** `<workflow_run_id>` and the region; fill any operator `CLOUD2CODE_*` slots). On failure, read `cloud2code_log_tail_*` / the log path and retry after a fix. | Extra tools, inventing scan shell, leaving `{{workflow_run_id}}` literal, dropping the `CLOUD2CODE_*` prefix, stopping on the first `blocked:cloud2code_scan_failed` without reading the log, asking for `monolith_state_uri` |
 | `ingest-and-split` | Consume `monolith_state_uri` from the scan handoff and spawn exactly one `ingest-and-split-runner`. | Asking for tfstate path, direct shell on lead, `create_files`, `execute_series` in ingest runner |
 | `registry-and-import-codegen` | Start with `IAC_PR_EXECUTE_SERIES`; if clone/PR/fmt fails, keep fixing on the runner until `pr_url` or a real `pr_blocker`. | Replacing the pack scaffold with a from-scratch rewrite |
 | `shell-converge-matrix` | Start with converge series; if fmt/validate fails, fix HCL on the runner and re-check until `terraform_validation_ok=true`. | Treating plan drift as invalid Terraform |

@@ -2,13 +2,41 @@
 set -euo pipefail
 
 # Args: $1 = workflow_run_id; $2 = aws_region (optional but recommended)
-WF_ID="${1:?workflow_run_id required}"
+# Agents sometimes paste the literal '{{workflow_run_id}}' token when Guild does
+# not expand it inside execute_series (session b2177674). Prefer a real id from
+# argv, then WORKFLOW_RUN_ID, and refuse brace placeholders so the work root is
+# never '/home/runner/.{{workflow_run_id}}'.
+WF_ID_ARG="${1:-}"
 AWS_REGION_ARG="${2:-}"
+
+resolve_workflow_run_id() {
+  local id="${1:-}"
+  case "$id" in
+    '' | *'{{'* | *'}}'* | *'{'* | *'}'*)
+      id="${WORKFLOW_RUN_ID:-}"
+      ;;
+  esac
+  case "$id" in
+    '' | *'{{'* | *'}}'* | *'{'* | *'}'*)
+      return 1
+      ;;
+  esac
+  printf '%s' "$id"
+}
 
 RUNNER_WORK_HOME="${RUNNER_WORK_HOME:-/home/runner}"
 SCRIPT_PACK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 export HOME="$RUNNER_WORK_HOME"
+
+if ! WF_ID="$(resolve_workflow_run_id "$WF_ID_ARG")"; then
+  echo 'blocked:cloud2code_workflow_run_id_unresolved: "true"'
+  echo "cloud2code_workflow_run_id_arg=${WF_ID_ARG:-<empty>}"
+  echo "hint=replace {{workflow_run_id}} with the real id from the stagerunner [Workflow execution] header (e.g. wf-aws-cloud-discovery-…), or export WORKFLOW_RUN_ID before the scan"
+  exit 1
+fi
+export WORKFLOW_RUN_ID="$WF_ID"
+
 ABS_WORK_ROOT="${RUNNER_WORK_HOME}/.${WF_ID}"
 WORK_ROOT="$ABS_WORK_ROOT"
 INPUT_JSON="$WORK_ROOT/.work/cloud2code-inputs.json"
@@ -17,6 +45,8 @@ NOTES_JSON="$WORK_ROOT/notes.json"
 mkdir -p "$WORK_ROOT/.work" "$WORK_ROOT/cloud2code" "$WORK_ROOT/state"
 chmod 700 "$WORK_ROOT" 2>/dev/null || true
 [ -f "$NOTES_JSON" ] || echo '{}' >"$NOTES_JSON"
+echo "cloud2code_workflow_run_id=$WF_ID"
+echo "cloud2code_work_root=$WORK_ROOT"
 
 # Merge the region in, never rewrite the file: cloud2code_include / _exclude /
 # _tags may already be there and a full rewrite silently widens the scan.
@@ -211,6 +241,10 @@ if ! "${CMD[@]}" >"$WORK_ROOT/.work/cloud2code.log" 2>&1; then
   mirror_note "stage_summary:cloud2code-scan-aws" "blocked:cloud2code_import_failed"
   echo 'blocked:cloud2code_scan_failed: "true"'
   echo "cloud2code_log_path=$WORK_ROOT/.work/cloud2code.log"
+  echo "cloud2code_scan_retryable: \"true\""
+  echo "cloud2code_log_tail_begin"
+  tail -n 120 "$WORK_ROOT/.work/cloud2code.log" 2>/dev/null || true
+  echo "cloud2code_log_tail_end"
   exit 1
 fi
 
