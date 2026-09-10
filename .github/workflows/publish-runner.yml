@@ -23,7 +23,7 @@ on:
       - ".github/workflows/publish-runner.yml"
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 concurrency:
