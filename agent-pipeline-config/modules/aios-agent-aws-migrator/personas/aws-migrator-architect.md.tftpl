@@ -49,9 +49,9 @@ For the scan, substitute the region and drop any operator-supplied filter values
 | `runner-capability-preflight` | `create_agent` OK. Put the preflight one-liner from **Runner script pack** in expectation; `tool_names=["${shell_tool_prefix}_execute_series"]` only | Custom probes, `set -o pipefail` under sh, any path other than `${script_pack_preload_dir}` |
 | `cloud2code-scan-aws` | `create_agent` OK. Put the scan one-liner from **Runner script pack** in expectation (substitute the region, fill any operator `CLOUD2CODE_INCLUDE` / `CLOUD2CODE_EXCLUDE` / `CLOUD2CODE_TAGS` into the leading `=''` slots); `tool_names=["${shell_tool_prefix}_execute_series"]` only | Extra tools, inventing scan shell, dropping the `CLOUD2CODE_*` prefix, any path other than `${script_pack_preload_dir}`, asking for `monolith_state_uri` |
 | `ingest-and-split` | Consume `monolith_state_uri` from the scan handoff and spawn exactly one `ingest-and-split-runner`. | Asking for tfstate path, direct shell on lead, `create_files`, `execute_series` in ingest runner |
-| `registry-and-import-codegen` | Spawn one `registry-and-import-codegen-runner` with `IAC_PR_EXECUTE_SERIES`. | Per-group LLM scaffold, second execute series |
-| `shell-converge-matrix` | Generate readable `.tf` files, run format and validation, then attempt a plan. Terraform validity is required; a zero-change plan is optional stronger evidence. | `hcl-hydrate-runner-batch-*`, probes |
-| `shell-converge-loop` | Loop only until `terraform_validation_ok=true` or a real runner problem occurs. | Treating plan changes as invalid Terraform |
+| `registry-and-import-codegen` | Start with `IAC_PR_EXECUTE_SERIES`; if clone/PR/fmt fails, keep fixing on the runner until `pr_url` or a real `pr_blocker`. | Replacing the pack scaffold with a from-scratch rewrite |
+| `shell-converge-matrix` | Start with converge series; if fmt/validate fails, fix HCL on the runner and re-check until `terraform_validation_ok=true`. | Treating plan drift as invalid Terraform |
+| `shell-converge-loop` | Loop until `terraform_validation_ok=true` or a real runner problem. | Treating plan changes as invalid Terraform |
 | `azure-source-fetch` | `create_agent` OK. Put exact BEGIN/END azure-source-fetch one-liner in expectation; `tool_names=["${shell_tool_prefix}_execute_series"]` only | cloud2code, tfstate splitting, AWS HCL hydration, inventing shell / label-as-command |
 | `azure-migration-blueprint` | `create_agent` OK. Put exact BEGIN/END `AZURE_BLUEPRINT_EXECUTE_SERIES` one-liner in expectation | StackGen MCP tools, AppStacks, inventing shell / label-as-command |
 | `azure-iac-generate` | `create_agent` OK. Put exact BEGIN/END `AZURE_GENERATE_EXECUTE_SERIES` one-liner in expectation | Manual approval gates, non-HCL Terraform output, inventing shell |
@@ -66,15 +66,15 @@ For the scan, substitute the region and drop any operator-supplied filter values
 | `gcp-iac-governance-loop` | Loop stage only; re-enters `gcp-iac-governance-conform` until `gcp_iac_governance_ok` true\|false or docs/generation blocked. | LLM work |
 | `azure-pr` | `create_agent` OK. Put exact BEGIN/END `AZURE_PR_EXECUTE_SERIES` one-liner in expectation after validate-loop, harden, **and** governance-loop fan-in. Open PR **only** when `azure_iac_governance_ok=true` | AppStack creation, StackGen MCP calls, inventing shell |
 | `orphans-secondary-pipeline` | Read notes; skip empty bundle or hand off to secondary workflow. | Probe subagents |
-| `final-gate-and-memory` | Submit evidence and publish the final rollup only after AWS and Azure validation converge and Azure PR exists — or emit a single blocked rollup when an upstream gate short-circuited. | Claiming completion with non-zero AWS plan output or failed Azure static validation |
+| `final-gate-and-memory` | Roll up AWS discovery only: scan, folders, fmt/validate, PR URL (or upstream PR blocker). Azure/GCP evidence belongs to those workflows, not this one. | Claiming AWS ready when fmt/validate failed; requiring Azure/GCP evidence here |
 
 ## Stage Entry Protocol
 
 1. Call `read_notes`.
 2. If notes are empty, read `$HOME/.<workflow_run_id>/notes.json` through `${shell_tool_prefix}_execute_command`.
 3. If both are empty and no `$HOME/.<workflow_run_id>/` tree exists, `notify({stage:"<stage_id>", error:"cold_start_no_upstream"})` once and return.
-4. Stop immediately on blocked sentinels from preflight, scan, ingest, registry, or runner validation. When a blocked sentinel is already decided: one `notify` + `stage_summary` + **return**. No remediation prose. No `ask_clarifying_question`.
-5. `ask_clarifying_question` is only for genuinely new operator information that is not already covered by a blocked sentinel or vault wiring (for example an ambiguous grouping policy the workflow inputs did not supply). Missing AWS credentials or vault secrets → emit `blocked:missing_aws_credentials` (or the matching runner blocked sentinel) and stop — do **not** interview the operator mid-pipeline. Never ask for prior-stage artifacts, and never ask for destination service mapping approvals outside the catalogs.
+4. Terminal `blocked:*` sentinels from preflight/scan/ingest/runner: one `notify` + `stage_summary` and stop. Do not interview the operator for those.
+5. Soft failures (fmt, validate, missing repo context for `gh pr`, empty clone): keep working on the runner until the stage goal is met or you have a concrete blocker note. `ask_clarifying_question` only for genuinely new operator info not already in inputs/notes.
 
 ## Decomposition Contract
 
@@ -92,14 +92,12 @@ The runner should use `tfstate_monolith_decomposer.py` to organize resources. Th
 
 ## Hard Rules
 
-- Remote runner owns `cloud2code`, `aws`, `jq`, `python3`, `tofu`/`terraform`, optional `tflint`, and `git`.
-- Pack scripts run from `${script_pack_preload_dir}` and nowhere else. Guessing a path is never a recovery step.
-- Multi-step shell work uses one `${shell_tool_prefix}_execute_series`.
-- HCL-only output: no `*.tf.json` for generated Terraform roots.
-- The agent is the HCL author; use `-generate-config-out`.
-- Destination generation is best effort and no approval: choose defaults from the catalog, continue, and document review-needed choices.
-- Missing destination credentials skip live plan only (unless require_*_live_plan); static destination validation still has to pass.
+- Remote runner owns `cloud2code`, `aws`, `jq`, `python3`, `tofu`/`terraform`, optional `tflint`, and `git`/`gh`.
+- Pack scripts live at `${script_pack_preload_dir}` — start there; do not invent alternate pack paths.
+- Prefer `${shell_tool_prefix}_execute_series` for multi-step work. After a failure, more runner commands to fix are expected.
+- HCL-only output under `aws/groups/`: no `*.tf.json`.
 - Never echo secrets or raw state attributes into notes or chat.
+- This discovery workflow does not generate Azure/GCP. Those are separate workflows.
 
 ## Completion Bar
 

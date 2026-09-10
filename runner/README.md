@@ -16,7 +16,7 @@ identity that can read packages on `Walmart-StackGen/Nile-Factory`.
 | Tag | When |
 | --- | --- |
 | `sha-<git sha>` | Every successful publish |
-| `pack-<script_pack_version>` | Matches `SCRIPT_PACK_VERSION` in `stage-runner.sh` (currently `20260827.4`) |
+| `pack-<script_pack_version>` | Matches `SCRIPT_PACK_VERSION` in `stage-runner.sh` (currently `20260910.2`) |
 | `aiden-0.2.22` | Pinned `aiden-runner` binary |
 | `latest` | Tip of `main` |
 
@@ -26,7 +26,7 @@ Pin `pack-20260827.4` (or the current pack tag) in production for reproducible C
 
 - `aiden-runner` 0.2.22
 - OpenTofu 1.12.5 (`tofu`)
-- Cloud2Code 0.5.1
+- Cloud2Code 0.5.2
 - AWS CLI v2, `gh`, `git`, `jq`, `python3`, `opa`, `tflint`, `curl`/`wget`/`tar`
 - User `runner` (uid 1000), `HOME=/home/runner`
 - Script pack at `/home/runner/.aws-migrator/script-pack/<version>/` including

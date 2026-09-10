@@ -1,13 +1,20 @@
 # ensure_cloud2code makes the pinned Cloud2Code CLI available to runner scripts.
 # It installs into the runner user's home directory so root access is unnecessary.
+# Re-downloads when the on-PATH binary is missing or not the pinned version.
 ensure_cloud2code() {
-  if command -v cloud2code >/dev/null 2>&1; then
-    return 0
-  fi
-
-  local version="${CLOUD2CODE_VERSION:-0.5.1}"
+  local version="${CLOUD2CODE_VERSION:-0.5.2}"
   local release_base="${CLOUD2CODE_RELEASE_BASE_URL:-https://releases.stackgen.com/binaries/cloud2code}"
-  local target_os target_arch machine archive_url install_dir tmp_dir
+  local target_os target_arch machine archive_url install_dir tmp_dir current
+
+  if command -v cloud2code >/dev/null 2>&1; then
+    current="$(cloud2code version 2>/dev/null | head -n 1 | tr -d '[:space:]' | sed 's/^v//')"
+    case "$current" in
+      "$version"|*"$version"*)
+        return 0
+        ;;
+    esac
+    echo "cloud2code_upgrade=from:${current:-unknown}:to:$version" >&2
+  fi
 
   target_os="$(uname -s | tr '[:upper:]' '[:lower:]')"
   machine="$(uname -m)"
