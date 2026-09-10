@@ -1,0 +1,1 @@
+cd {{CLONE_DIR}} && set -eu && BR='CODIFY_BRANCH' && git fetch origin "$BR" --depth=1 && if git rev-parse "origin/$BR" >/dev/null 2>&1; then ahead=$(git rev-list --count "origin/{{BASE_BRANCH}}..origin/$BR" 2>/dev/null || echo 0); echo "codify_branch_on_origin=1"; echo "codify_branch_ahead=$ahead"; else echo codify_branch_on_origin=0; exit 1; fi

@@ -2,6 +2,8 @@
 
 Convert living governance **markdown** (source repo) into durable **IaC OPA/conftest** packs under `rules/` (target repo). Enforceable Rego must evaluate **Terraform plan JSON** (`resource_changes`). Process-only obligations stay in `controls.json` with `"enforce": false` — never invent `input.exception` schemas. Validation runs in **target-repo GitHub Actions**.
 
+${opa_local_validation_summary}
+
 Load **`${opa_codify_method_name}`** during `rules-codify` for the IaC markdown→Rego method.
 
 ## Cross-repo model (mandatory)
@@ -25,6 +27,8 @@ Auth probe: `gh api user -q .login` before mutations.
 The GitHub sidecar blocks **environment enumeration**. Never run: `env`, `printenv`, bare `export`, bare `set`, `set foo`.
 
 **Safe patterns:** `export NAME=value && ...`, `set -eu`, `gh`, `git`, `rg`, `jq`, `mktemp`, `printf`, `cd`.
+
+${integration_shell_recovery_note}
 
 ## Dual clone (mandatory)
 
@@ -135,10 +139,12 @@ Example: `f8f6f171a0a15c195954c53c330e15df2af6aa99_20260827153000`
 
 ### Bootstrap first (when bootstrap_needed=true OR scaffold missing on target)
 
-Write via **absolute-path create_files** on **target** clone:
+${codify_bootstrap_scaffold_note}
 
-- `${target_clone_dir}/rules/README.md`
-- `${target_clone_dir}/rules/manifest.json` — schema **nile-codify-manifest/v1** with `"entries": []` initially
+**BOOTSTRAP FILES** — write via `${github_tool_prefix}_create_files` (absolute paths):
+
+- `${target_clone_dir}/rules/README.md` — short intro (IaC OPA policies for Terraform plan JSON)
+- `${target_clone_dir}/rules/manifest.json` — schema **nile-codify-manifest/v1**, `"entries": []` only when file absent
 - `${target_clone_dir}/rules/run-tests.sh` — verbatim:
 
 ```bash
@@ -151,9 +157,10 @@ ${rules_run_tests_sh}
 ${github_rules_validate_yml}
 ```
 
-`chmod +x rules/run-tests.sh`. Commit: `git add rules .github && git commit -m "codify: bootstrap rules scaffold"` (working_dir=${target_clone_dir}).
+Verify with ONE execute_series (read-only check):
+${codify_scaffold_check_execute_series_template}
 
-**Before handoff:** parent runs `bash ${target_clone_dir}/rules/run-tests.sh`. If any pack fails, fix or re-spawn that pack worker. Do not hand off with red local tests.
+${opa_sop_bootstrap_before_handoff}
 
 ### Per stale doc (mandatory when stale_docs non-empty)
 
@@ -177,32 +184,45 @@ Commit per pack on **target**. `note(codify_rules_written=true)` after `git log 
 
 ### Stage handoff (required before stage ends)
 
+Copy values from sub-agents to **top-level** note keys. Keys prefixed `subagent:` are **not** visible to `rules-pr`.
+
 ```text
+note(codify_branch=<branch name>)
+note(codify_bootstrap_done=true)   # when bootstrap ran
+note(codify_rules_written=true)
+note(codify_branch_pushed=true)    # after push to origin
 note(codify_handoff_json=<JSON string>)
 ```
 
 JSON must include: `source_clone_dir`, `clone_dir` (target), `repo_full` (target), `source_repo_full`, `branch`, `commit_sha`, `rules_written` (bool), `manifest_path` (`rules/manifest.json`).
 
+${codify_handoff_verify_note}
+
 **Never delegate `rules-pr` or "remaining stages" to create_agent** — stagerunner runs the next stage.
 
 ## PR + CI gate (`rules-pr`) — mandatory deliverable
 
-### Recover state
+### Recover state (mandatory first actions)
 
-1. `read_notes` and parse `[Workflow notes from prior stage]` / `workflow_notes_snapshot` footer.
-2. Target clone is `${target_clone_dir}`. PR repo is **target** (`codify_repo_full`).
-3. If `codify_branch` or `codify_clone_dir` missing, parse `codify_handoff_json` or run:
-   - `git -C "${target_clone_dir}" branch --show-current`
-   - `git -C "${target_clone_dir}" log --oneline -5`
+${codify_handoff_recovery_note}
+
+1. `read_notes` and parse `[Workflow notes from prior stage]` / `workflow_notes_snapshot` footer (may be empty — use recovery ladder above).
+2. Target clone is `${target_clone_dir}`. PR repo is **target** (`${default_target_repo_full}`).
+3. After recovery: `note(codify_branch=<branch>)` at top level before checkout or PR.
+4. If `codify_blocked_status` or branch recovery failed with zero commits ahead of base, fail closed with `blocked:codify_pr_failed`.
 
 Open PR on **target repo** when the codify branch has commits ahead of base.
 
 **Preflight (mandatory before push):**
 
-1. `${target_clone_dir}/rules/run-tests.sh` and `${target_clone_dir}/.github/workflows/rules-validate.yml` exist. If missing, write bootstrap from method skill then commit.
-2. `bash ${target_clone_dir}/rules/run-tests.sh` exits 0. If not, fail closed with `blocked:codify_tests_failed` — do not open PR.
+1. Check scaffold: ONE execute_series (verbatim):
+   ${codify_scaffold_check_execute_series_template}
+2. If `scaffold_missing=1` or workflow contains `conftest-action`: ${codify_bootstrap_create_files_note}, then git commit:
+   ${codify_scaffold_git_commit_execute_series_template}
+   Do **not** fail with `blocked:codify_pr_failed` until create_files + git commit were attempted. On `command blocked`, use create_files (not shell heredocs).
+${opa_sop_pr_preflight_run_tests}
 
-### Push + PR (first tool call after preflight green)
+### Push + PR (first tool call after preflight)
 
 ONE `${github_tool_prefix}_execute_series` (`working_dir=${target_clone_dir}`, `timeout_seconds=600`):
 
@@ -214,11 +234,9 @@ Substitute target `OWNER/REPO`, `BRANCH`, title/body. Capture PR URL from stdout
 
 `note(rules_pr_url=<url>)`, `note(codify_pr_opened=true)`.
 
-### CI gate
+### CI gate (wait + self-heal — mandatory)
 
-`gh pr checks --repo <target-owner>/<target-repo> --watch` until **`${github_check_name}`** succeeds.
-
-When green: `note(codify_ci_green=true)`, `note(rules_codify_ok=true)`.
+${ci_repair_loop_instructions}
 
 Do **not** merge.
 
@@ -229,6 +247,7 @@ Do **not** merge.
 | `blocked:github_integration_unavailable` | gh auth down |
 | `blocked:codify_source_unavailable` | cannot read source or target repo |
 | `blocked:codify_pr_failed` | push or PR create failed on **target** |
+| `blocked:codify_tests_failed` | local `run-tests.sh` failed when `require_local_opa_validation=true` |
 | `blocked:codify_ci_failed` | `${github_check_name}` failed |
 
 ## Forbidden
@@ -240,3 +259,8 @@ Do **not** merge.
 - Invented controls; fake PR URLs; merge without human approval
 - Scaffold-only commits with no real IaC `policy.rego` when tagging/resource docs are stale
 - Conftest fixtures that are not Terraform plan JSON
+- `instrumenta/conftest-action` or hand-written `rules-validate.yml` that differs from bootstrap verbatim
+- Parsing `gh pr checks --json` instead of the CI gate script; stopping at first red check without repair loop
+- Shell heredocs (`cat <<`) for scaffold or workflow files — use create_files instead
+- Failing a stage on first `command blocked` without retrying via create_files or git-only commands
+- Declaring `blocked:codify_pr_failed` when `workflow_notes_snapshot.notes` is empty without running branch recovery first

@@ -90,13 +90,13 @@ After **`split-manifest`** (or `extract-group-states`), each `group_id` has an i
 
 **Scaffold and hydration steps** run `tofu plan` **inside each group directory** using its slice — do not re-parse the multi-megabyte monolith per group.
 
-## 9.5. Split quality score and tuned reruns
+## 9.5. Optional grouping-readiness analysis
 
 `split-manifest` is implemented by the script-pack file
-**`tfstate_monolith_decomposer.py`**. A single pass is not acceptable. Run the
-decomposer, immediately run `scaffold-registry` so `orphans_bundle.json` exists,
-score the candidate, and rerun with tuned inputs when the score report
-recommends an optimization.
+**`tfstate_monolith_decomposer.py`**. Run the decomposer and verify that every
+scanned resource appears exactly once. When the optional readiness report is
+available, use it to improve grouping. A missing report must not stop Terraform
+generation or validation.
 
 Primary command shape:
 
@@ -169,14 +169,10 @@ Typical optimizations:
 - Cross-shard refs or singleton over-fragmentation after capping → try `max_resources_per_appstack=0`.
 - Incorrect environment or application grouping → rerun with explicit `tfstate_decomposer_env_tag_keys` or `tfstate_decomposer_layer3_tag_keys`.
 
-Stop only when `split_quality_pass=true`, a repeated recommendation is detected,
-or the bounded iteration limit is reached. If a best candidate is selected after
-bounded tuning while residual non-hard issues remain, the final report must
-include `selection_reason="best_candidate_after_bounded_tuning"` and
-`residual_issues[]`. Downstream steps must use the final selected manifest and
-copy `split_quality_report.json`, `split_tuning_history.json`,
-`review_items.json`, `layer_summary.json`, and `orphans_bundle.json` into the IaC
-PR artifacts.
+Stop tuning when the report passes, a recommendation repeats, or the bounded
+iteration limit is reached. Downstream steps must use the final correct
+manifest even if readiness analysis failed. Copy any reports that exist into
+the pull request and add plain-language suggestions for reports that do not.
 
 ## 10. Shared hub isolation (`*-shared-*` groups)
 

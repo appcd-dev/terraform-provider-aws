@@ -56,6 +56,24 @@ variable "github_check_name" {
   default     = "rules-validate"
 }
 
+variable "require_local_opa_validation" {
+  description = "When true, rules-codify and rules-pr require opa test / run-tests.sh to pass inside the GitHub integration sidecar before handoff or PR. When false (default), skip local OPA — target-repo rules-validate CI is the gate."
+  type        = bool
+  default     = false
+}
+
+variable "ci_repair_max_iterations" {
+  description = "Max CI wait+repair cycles in rules-pr before failing with blocked:codify_ci_failed."
+  type        = number
+  default     = 5
+}
+
+variable "ci_gate_timeout_seconds" {
+  description = "Per-attempt timeout when waiting for the rules-validate GitHub check to finish."
+  type        = number
+  default     = 900
+}
+
 variable "name_suffix" {
   description = "Optional suffix appended to agent, workflow, and SOP names (e.g. tenant id)."
   type        = string
@@ -71,5 +89,5 @@ variable "workflow_skill_refs" {
 variable "planner_max_tool_iterations" {
   description = "Max tool iterations for the governance-rules-codify workflow planner."
   type        = number
-  default     = 96
+  default     = 128
 }

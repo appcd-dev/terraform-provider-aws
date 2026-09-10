@@ -33,7 +33,9 @@ EOT
 ${local.dbsplit_spawn_context_base}
 CLOUD2CODE_RUNNER_RULE: create_agent is allowed (reactree). Mirror preflight: put the exact printf-free pack one-liner INSIDE create_agent expectation. tool_names MUST be only ["${local.shell_tool_prefix}_execute_series"]. Replace AWS_REGION_PLACEHOLDER with the workflow region (e.g. us-east-1). Do not invent set -o pipefail / cloud2code aws scan (sessions 127f2c35 / af38cc9e).
 
-CREATE_AGENT_EXPECTATION (copy into expectation; replace AWS_REGION_PLACEHOLDER):
+CLOUD2CODE_FILTER_RULE (mandatory): the one-liner starts with CLOUD2CODE_INCLUDE='' CLOUD2CODE_EXCLUDE='' CLOUD2CODE_TAGS=''. These are the ONLY route from the operator query to the scan — the script takes no filter arguments. When the operator supplied cloud2code_include, cloud2code_exclude, or cloud2code_tags, put that comma-separated value inside the matching quotes verbatim (e.g. CLOUD2CODE_INCLUDE='aws_instance'). Leave the empty quotes untouched for keys the operator did not set; empty means full-region scan and the script's default exclude list. Never drop the assignments and never invent filter values the operator did not ask for.
+
+CREATE_AGENT_EXPECTATION (copy into expectation; replace AWS_REGION_PLACEHOLDER and fill any operator-supplied CLOUD2CODE_* filters):
 Your FIRST tool call must be ONE ${local.shell_tool_prefix}_execute_series with commands[0].command set to this exact body and no note before it:
 ${local.cloud2code_scan_execute_series_body}
 After success, note() cloud2code_scan_ok / monolith_state_uri / monolith_resource_count / stage_summary:cloud2code-scan-aws.

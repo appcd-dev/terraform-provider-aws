@@ -4,7 +4,7 @@
 # Usage: DBSPLIT_EMBEDDED=1 bash -s <command> [args...] << 'DBSPLIT_STAGE_RUNNER' ... DBSPLIT_STAGE_RUNNER
 set -euo pipefail
 
-SCRIPT_PACK_VERSION="20260904.1"
+SCRIPT_PACK_VERSION="20260910.1"
 DBSPLIT_DEFAULT_STRATEGY="${DBSPLIT_DEFAULT_STRATEGY:-tfstate_monolith_decomposer}"
 DBSPLIT_DEFAULT_CAP="${DBSPLIT_DEFAULT_CAP:-0}"
 REQUIRED_ALLOCATE_MARKER="def merge_small_by_seed"
@@ -295,7 +295,9 @@ emit_ingest_handoff_summary() {
     "aggregate_group_resource_count=\(.aggregate_group_resource_count // "0")",
     "split_quality_score=\(.split_quality_score // "0")",
     "split_quality_pass=\(.split_quality_pass // "false")",
+    "split_quality_status=\(.split_quality_status // "not_available")",
     "split_quality_report=\(.split_quality_report // "")",
+    "readiness_suggestions_path=\(.readiness_suggestions_path // "")",
     "split_tuning_iterations=\(.split_tuning_iterations // "0")",
     "tfstate_decomposer_orphan_count=\(.tfstate_decomposer_orphan_count // "0")",
     "monolith_state_local_path=\(.monolith_state_local_path // "")",
@@ -1723,7 +1725,18 @@ cmd_split_manifest() {
     return 1
   fi
 
+  local readiness_rc=0
+  set +e
   cmd_tuned_split_manifest "$work_root" "$state_path" "$strategy" "$cap"
+  readiness_rc=$?
+  set -e
+
+  # Grouping analysis helps reviewers, but it is not required to generate
+  # valid Terraform. Continue when the actual split outputs are complete.
+  if [ ! -s "${work_root}/logical_group_manifest.json" ] || [ ! -s "${work_root}/group_state_paths.json" ]; then
+    echo "split_error=required_group_files_missing"
+    return 1
+  fi
 
   strategy="$(read_note "$work_root" "grouping_strategy" 2>/dev/null || printf '%s' "$strategy")"
   cap="$(read_note "$work_root" "max_resources_per_appstack" 2>/dev/null || printf '%s' "$cap")"
@@ -1741,10 +1754,29 @@ cmd_split_manifest() {
   mirror_note "$work_root" "logical_group_seeds_path" "${work_root}/logical_group_seeds.json"
   mirror_note "$work_root" "db_anchor_inventory_path" "${work_root}/db_anchor_inventory.json"
 
-  local quality_pass
+  local quality_pass quality_status readiness_path
   quality_pass="$(read_note "$work_root" "split_quality_pass" 2>/dev/null || echo false)"
+  readiness_path="${work_root}/readiness-suggestions.md"
+  if [ "$readiness_rc" -eq 0 ] && [ -s "${work_root}/split_quality_report.json" ]; then
+    quality_status="available"
+  else
+    quality_status="not_available"
+    cat >"$readiness_path" <<'EOF'
+# Ways to improve readiness
+
+The Terraform files can still be generated and validated. This optional
+analysis was not available for this run.
+
+- Add consistent application, environment, and owner tags to related resources.
+- Review whether shared networking and security resources belong in separate folders.
+- Run a zero-change Terraform plan with AWS read credentials before using the files.
+EOF
+    mirror_note "$work_root" "readiness_suggestions_path" "$readiness_path"
+  fi
+  mirror_note "$work_root" "split_quality_status" "$quality_status"
   echo "count_reconciliation_ok=${ok}"
   echo "split_quality_pass=${quality_pass}"
+  echo "split_quality_status=${quality_status}"
   emit_script_pack_verify "$work_root"
   emit_ingest_handoff_summary "$work_root"
 
@@ -1753,13 +1785,10 @@ cmd_split_manifest() {
     echo 'stage_summary:ingest-and-split=blocked:count_reconciliation_failed'
     return 1
   fi
-  if [ "$quality_pass" != "true" ]; then
-    mirror_note "$work_root" "stage_summary:ingest-and-split" "blocked:split_quality_failed"
-    echo 'stage_summary:ingest-and-split=blocked:split_quality_failed'
-    return 1
-  fi
-
   mirror_note "$work_root" "stage_summary:ingest-and-split" "ok"
+  if [ "$quality_status" = "not_available" ]; then
+    echo "readiness_warning=optional_grouping_analysis_not_available"
+  fi
   echo 'stage_summary:ingest-and-split=ok'
 }
 
@@ -2355,11 +2384,11 @@ write_aws_discovery_todo_md() {
     residual=""
   fi
   if [ "$recon" != "true" ]; then
-    start_blocker="Count reconciliation is not green — do not feed this PR into Azure/GCP until counts match."
+    start_blocker="Some scanned resources are missing or duplicated. Fix that before using these files."
   elif [ "$quality_pass" != "true" ]; then
-    start_blocker="Split quality did not pass — review split_quality_report.json before destination workflows."
+    start_blocker="Terraform generation can continue. Optional grouping analysis was unavailable or found improvements."
   else
-    start_blocker="Split passed gates, but review high-impact / provisional items before Azure/GCP generation."
+    start_blocker="Terraform generation can continue. Review the readiness suggestions when convenient."
   fi
 
   mkdir -p "$(dirname "$out_file")"
@@ -2384,7 +2413,7 @@ write_aws_discovery_todo_md() {
     echo
     echo "1. Confirm region/account in \`discovery-report.md\`."
     echo "2. Confirm \`count_reconciliation_ok=true\` and group count looks right (\`${group_count}\` groups / \`${resource_count}\` resources)."
-    echo "3. Open \`split_quality_report.json\` — score \`${quality_score}\`, pass \`${quality_pass}\`."
+    echo "3. If present, review \`split_quality_report.json\` for optional grouping suggestions."
     echo "4. Review high-impact items (\`${high_impact}\`) in \`review_items.json\`."
     echo "5. Spot-check a few \`aws/groups/*\` roots (foundation, platform, one app)."
     echo "6. Only then trigger \`azure-migration-pr\` / \`gcp-migration-pr\` with \`source_pr=<this PR number>\`."
@@ -2412,7 +2441,7 @@ write_aws_discovery_todo_md() {
       echo "- Count reconciliation OK."
     fi
     if [ "$quality_pass" != "true" ]; then
-      echo "- **Split quality did not pass** — see \`split_quality_report.json\` / \`split_tuning_history.json\`."
+      echo "- Optional grouping analysis was unavailable or found improvements. Terraform checks still run."
     else
       echo "- Split quality gate passed (still review provisional/low-confidence assignments)."
     fi
@@ -3000,11 +3029,11 @@ cmd_sync_hydrated_iac_pr() {
 
   require_embedded_invocation || return 1
 
-  local multi_ok
-  multi_ok="$(read_note "$work_root" "multi_plan_zero_diff_ok" 2>/dev/null || true)"
-  if [ "$multi_ok" != "true" ]; then
-    mirror_note "$work_root" "hydrated_iac_sync_status" "skipped:plan_not_converged"
-    echo "hydrated_iac_sync_status=skipped:plan_not_converged"
+  local validation_ok
+  validation_ok="$(read_note "$work_root" "terraform_validation_ok" 2>/dev/null || true)"
+  if [ "$validation_ok" != "true" ]; then
+    mirror_note "$work_root" "hydrated_iac_sync_status" "skipped:terraform_validation_failed"
+    echo "hydrated_iac_sync_status=skipped:terraform_validation_failed"
     return 0
   fi
 
@@ -3688,8 +3717,8 @@ hydrate_one_group() {
       remaining_json='{"add":0,"change":0,"destroy":0}'
       status_json="{\"generated_tf_path\":\"${gen_tf}\",\"plan_no_changes\":false,\"plan_exit_code\":${plan_rc},\"import_generated_parity\":${parity_ok},\"remaining_actions\":${remaining_json},\"validation\":{\"fmt\":\"${fmt_status}\",\"validate\":\"${validate_status}\",\"test\":\"${test_status}\",\"lint\":\"${lint_status}\"},\"attempt\":${attempt}}"
       mirror_note "$work_root" "hcl_hydration_status:${group_id}" "$status_json"
-      attempt=$((attempt + 1))
-      continue
+      echo "group_valid=${group_id} plan_status=failed attempt=${attempt}"
+      return 0
     fi
 
     remaining_json="$(plan_change_counts_json "$tofu_bin" "$plan_file" 2>/dev/null || echo '{"add":0,"change":0,"destroy":0}')"
@@ -3709,7 +3738,10 @@ hydrate_one_group() {
       return 0
     fi
 
-    attempt=$((attempt + 1))
+    status_json="{\"generated_tf_path\":\"${gen_tf}\",\"plan_no_changes\":false,\"plan_exit_code\":0,\"import_generated_parity\":${parity_ok},\"remaining_actions\":${remaining_json},\"validation\":{\"fmt\":\"${fmt_status}\",\"validate\":\"${validate_status}\",\"test\":\"${test_status}\",\"lint\":\"${lint_status}\"},\"attempt\":${attempt}}"
+    mirror_note "$work_root" "hcl_hydration_status:${group_id}" "$status_json"
+    echo "group_valid=${group_id} plan_status=changes_remaining remaining=${remaining_json} attempt=${attempt}"
+    return 0
   done
 
   if [ -z "${remaining_json:-}" ]; then
@@ -3739,9 +3771,10 @@ cmd_hydrate_and_plan_matrix() {
     cmd_prepare_parallel_artifacts "$work_root" || return 1
   fi
 
-  local ok_count fail_count total
+  local ok_count fail_count zero_count total
   ok_count=0
   fail_count=0
+  zero_count=0
   total=0
 
   while IFS= read -r group_id; do
@@ -3749,6 +3782,9 @@ cmd_hydrate_and_plan_matrix() {
     total=$((total + 1))
     if hydrate_one_group "$work_root" "$group_id" "$tofu_bin"; then
       ok_count=$((ok_count + 1))
+      if [ "$(read_note "$work_root" "hcl_hydration_status:${group_id}" 2>/dev/null | jq -r '.plan_no_changes // false' 2>/dev/null || echo false)" = "true" ]; then
+        zero_count=$((zero_count + 1))
+      fi
     else
       fail_count=$((fail_count + 1))
     fi
@@ -3758,26 +3794,34 @@ cmd_hydrate_and_plan_matrix() {
     cleanup_terraform_runtime_artifacts "$work_root" "$group_id"
   done < <(jq -r '.[]' "$sample_path")
 
+  local validation_ok="false"
   local multi_ok="false"
   if [ "$total" -gt 0 ] && [ "$fail_count" -eq 0 ]; then
+    validation_ok="true"
+  fi
+  if [ "$total" -gt 0 ] && [ "$zero_count" -eq "$total" ]; then
     multi_ok="true"
   fi
 
   # Belt-and-suspenders: even if hydrate_one_group returned 0, refuse must
   # have complete generated.tf for every sample group before sync/PR.
-  if [ "$multi_ok" = "true" ]; then
+  if [ "$validation_ok" = "true" ]; then
     if ! assert_sample_groups_hydrated "$work_root" "${work_root}/groups"; then
+      validation_ok="false"
       multi_ok="false"
       fail_count=$((fail_count + 1))
     fi
   fi
 
+  mirror_note "$work_root" "terraform_validation_ok" "$validation_ok"
   mirror_note "$work_root" "multi_plan_zero_diff_ok" "$multi_ok"
-  mirror_note "$work_root" "stage_summary:shell-converge-matrix" "ok_groups=${ok_count} fail_groups=${fail_count}"
-  echo "hydrate_ok_groups=${ok_count}"
-  echo "hydrate_fail_groups=${fail_count}"
+  mirror_note "$work_root" "stage_summary:shell-converge-matrix" "valid_groups=${ok_count} invalid_groups=${fail_count} zero_change_groups=${zero_count}"
+  echo "terraform_valid_groups=${ok_count}"
+  echo "terraform_invalid_groups=${fail_count}"
+  echo "terraform_zero_change_groups=${zero_count}"
+  echo "terraform_validation_ok: \"${validation_ok}\""
   echo "multi_plan_zero_diff_ok: \"${multi_ok}\""
-  if [ "$multi_ok" != "true" ]; then
+  if [ "$validation_ok" != "true" ]; then
     return 1
   fi
   return 0

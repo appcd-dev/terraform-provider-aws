@@ -18,9 +18,17 @@ mkdir -p "$WORK_ROOT/.work" "$WORK_ROOT/cloud2code" "$WORK_ROOT/state"
 chmod 700 "$WORK_ROOT" 2>/dev/null || true
 [ -f "$NOTES_JSON" ] || echo '{}' >"$NOTES_JSON"
 
+# Merge the region in, never rewrite the file: cloud2code_include / _exclude /
+# _tags may already be there and a full rewrite silently widens the scan.
 if [ -n "$AWS_REGION_ARG" ]; then
   if command -v jq >/dev/null 2>&1; then
-    jq -n --arg r "$AWS_REGION_ARG" '{aws_region: $r}' >"$INPUT_JSON"
+    _merged="$(mktemp "${INPUT_JSON}.XXXXXX")"
+    if [ -s "$INPUT_JSON" ] && jq --arg r "$AWS_REGION_ARG" '. + {aws_region: $r}' "$INPUT_JSON" >"$_merged" 2>/dev/null; then
+      mv "$_merged" "$INPUT_JSON"
+    else
+      rm -f "$_merged"
+      jq -n --arg r "$AWS_REGION_ARG" '{aws_region: $r}' >"$INPUT_JSON"
+    fi
   else
     printf '{"aws_region":"%s"}\n' "$AWS_REGION_ARG" >"$INPUT_JSON"
   fi
@@ -66,7 +74,9 @@ CLOUD2CODE_EXCLUDE="$(coalesce_value cloud2code_exclude CLOUD2CODE_EXCLUDE)"
 # Default exclude: catalog non_applicable types that never map to Azure/GCP as
 # standalone resources (identity humans, Athena, EC2 key pairs, folded attrs).
 # Operators may override via cloud2code_exclude / CLOUD2CODE_EXCLUDE.
-if [ -z "$CLOUD2CODE_EXCLUDE" ]; then
+# An explicit include is already a whitelist, so the default exclude only adds
+# a chance of cloud2code rejecting the pair.
+if [ -z "$CLOUD2CODE_EXCLUDE" ] && [ -z "$CLOUD2CODE_INCLUDE" ]; then
   CLOUD2CODE_EXCLUDE="aws_athena_workgroup,aws_cloudfront_origin_access_identity,aws_db_parameter_group,aws_iam_access_key,aws_iam_account_alias,aws_iam_account_password_policy,aws_iam_group,aws_iam_group_membership,aws_iam_group_policy,aws_iam_group_policy_attachment,aws_iam_openid_connect_provider,aws_iam_saml_provider,aws_iam_server_certificate,aws_iam_user,aws_iam_user_group_membership,aws_iam_user_policy,aws_iam_user_policy_attachment,aws_iam_user_ssh_key,aws_key_pair,aws_route53_resolver_rule_association"
 fi
 # Drop exclude types cloud2code does not recognize — unsupported --exclude values

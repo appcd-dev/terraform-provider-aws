@@ -20,8 +20,7 @@ identity that can read packages on `Walmart-StackGen/Nile-Factory`.
 | `aiden-0.2.22` | Pinned `aiden-runner` binary |
 | `latest` | Tip of `main` |
 
-Pin `pack-20260827.4` (or the current pack tag) in production. Rebuild after every
-`script_pack_version` bump.
+Pin `pack-20260827.4` (or the current pack tag) in production for reproducible CLIs. The image still bakes a bootstrap pack; **script changes ship via vault secret sync** after `tofu apply` (see module `remote_runner_script_pack_sync_enabled`, default true).
 
 ## What is inside
 

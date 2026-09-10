@@ -14,8 +14,8 @@ locals {
     },
     {
       stage_id    = "rules-pr"
-      description = "Open PR on target repo (Nile-Factory); poll until rules-validate GHA check succeeds"
-      note        = "Do not merge. note(rules_codify_ok=true) and rules_pr_url only when required check is green."
+      description = "Open PR on target repo (Nile-Factory); CI wait+self-heal until rules-validate green"
+      note        = "Do not merge. Repair CI failures (scaffold, Rego, manifest) up to ci_repair_max_iterations."
       required    = true
     },
   ]

@@ -1,9 +1,8 @@
 # AWS Cloud2Code to Terraform reverse-IaC orchestration
 
-Scan one AWS region, capture a Terraform state, decompose it into logical
-Terraform roots, reverse-engineer HCL, and validate until every selected AWS
-root passes Terraform checks with a zero-change plan. Then generate and validate
-best-effort Azure Terraform equivalents and open an Azure pull request.
+Scan one AWS region, generate readable Terraform files, and make sure they pass
+Terraform format and validation checks. Attempt a zero-change plan as an
+optional stronger check. Then open a pull request with readiness suggestions.
 
 ## Phases
 
@@ -11,7 +10,7 @@ best-effort Azure Terraform equivalents and open an Azure pull request.
 1. **AWS scan** — capture one region as a monolithic Terraform state.
 2. **Decomposition** — split the monolith into logical, layered Terraform roots.
 3. **Reverse-IaC scaffold** — write HCL-only roots with import blocks and open the AWS IaC pull request.
-4. **Terraform validation** — hydrate, format, validate, optionally test and lint, and reach a zero-change plan per root, looping until every selected root converges or a real blocker is recorded.
+4. **Terraform validation** — generate, format, validate, optionally test and lint, and attempt a zero-change plan.
 5. **Azure generation** — build a migration blueprint, generate Azure Terraform roots, validate them, loop until they pass, and open the Azure pull request.
 6. **Orphan handoff** — hand any resources that cannot be hydrated safely to the secondary orphan-module procedure; skip cleanly when there are none.
 7. **Final gate** — confirm every phase produced its evidence before reporting complete (or emit a single blocked rollup when an upstream gate short-circuited).
@@ -37,11 +36,12 @@ summaries only — never secrets or raw state attribute payloads):
 | `logical_group_manifest` | Decomposition manifest path |
 | `group_state_paths` | Per-group state paths |
 | `count_reconciliation_ok` | Aggregate group count matches monolith count |
-| `split_quality_pass` | Decomposition selected an acceptable candidate (clean ≥80 or soft ≥70 after tuning) |
+| `split_quality_status` | Whether optional grouping-readiness analysis was generated |
 | `registry_mapping_report` | Reverse-IaC registry/scaffold report |
 | `orphans_bundle` | Addresses that cannot be hydrated into normal HCL roots |
 | `hcl_hydration_status:<group_id>` | Per-group validation status JSON |
-| `multi_plan_zero_diff_ok` | True only when all selected roots pass validation and a zero-change plan |
+| `terraform_validation_ok` | True when all selected Terraform folders pass required format and validation checks |
+| `multi_plan_zero_diff_ok` | Optional stronger result: all selected folders also have a zero-change plan |
 | `azure_migration_blueprint_path` | Azure migration blueprint JSON path |
 | `azure_review_needed_path` | Azure review-needed markdown path |
 | `azure_iac_generated` | True when `azure/groups/<group_id>/` roots were written |
@@ -64,20 +64,16 @@ decomposition script pack:
 
 1. Download or copy the monolith state onto the host under the run working directory.
 2. Run the state decomposer.
-3. Score count reconciliation, orphan count, cap violations, review queue, and fragmentation.
-4. Rerun with tuned `tfstate_decomposer_*` controls when the quality report recommends it.
-5. Select the best bounded candidate and record the manifest, per-group states, split quality report, tuning history, and orphan bundle.
+3. Verify every scanned resource appears exactly once and every group has a state file.
+4. When readiness analysis is available, use it to improve grouping.
+5. Continue with the correct split even when the optional readiness report or tuning history is missing.
 
-### Split quality floors
+### Readiness analysis
 
-- **Clean pass:** `quality_score >= 80`, count reconciliation true, and no hard issues
-  (reconcile fail, duplicates, unallocated addresses, no groups, cap violations).
-- **Soft pass after bounded tuning:** when no clean pass exists, the runner may accept the
-  best candidate at `quality_score >= 70` with no hard issues and set
-  `selection_reason=best_candidate_after_bounded_tuning`. Soft-pass is operationally
-  acceptable, not excellent — prefer improving grouping when practical.
-- `script_pack_drift_possible` is a non-blocking warning (for example a suspiciously
-  single `ungrouped` giant state); it must not terminate the ingest loop by itself.
+The grouping score, tuning history, orphan count, and review queue are optional.
+Use them to suggest improvements, but do not stop Terraform generation because
+they are missing or below a score threshold. Stop only when resources are
+missing, duplicated, or do not have generated group state files.
 
 Large states may validate against a sampled subset of groups for wall-time; when
 sampling is used, mark the final evidence as partial.
@@ -124,8 +120,8 @@ Record `hcl_hydration_status:<group_id>` with:
 }
 ```
 
-Loop the validation phase until `multi_plan_zero_diff_ok` is `"true"` or a
-terminal blocker is recorded, capped by `${max_iterations}` iterations.
+Loop the validation phase until `terraform_validation_ok` is `"true"` or a
+real runner problem is recorded, capped by `${max_iterations}` iterations.
 
 ## Azure generation
 
@@ -178,9 +174,8 @@ Report complete only when:
 
 - Scan evidence exists.
 - Monolith and aggregate group counts match.
-- Split quality passed.
 - Required HCL hydration records exist.
-- `multi_plan_zero_diff_ok` is `"true"`.
+- `terraform_validation_ok` is `"true"`.
 - `azure_migration_blueprint_path` and `azure_review_needed_path` exist.
 - `azure_iac_generated` is `"true"`.
 - `azure_iac_validation_ok` is `"true"`.
@@ -190,6 +185,6 @@ Report complete only when:
 ## Blockers
 
 Stop with a compact blocked reason on missing AWS region, missing host tools,
-missing monolith state URI, invalid tfstate, script-pack verification failure,
-unreconciled counts, missing Terraform binary, or a persistent non-zero
-Terraform plan after the bounded loop.
+missing source state, invalid state, script-pack verification failure,
+missing or duplicated resources, missing Terraform, or generated files that
+do not pass Terraform validation.

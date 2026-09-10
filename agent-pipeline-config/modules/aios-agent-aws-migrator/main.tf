@@ -84,6 +84,16 @@ locals {
   runner_azure_env_secret_id = trimspace(var.runner_azure_env_secret_id)
   runner_gcp_env_secret_id   = trimspace(var.runner_gcp_env_secret_id)
 
+  script_pack_tarball_url = trimspace(var.script_pack_tarball_url) != "" ? trimspace(var.script_pack_tarball_url) : "https://github.com/${trimspace(var.script_pack_release_repo)}/releases/download/pack-${local.script_pack_version}/script-pack.tar.gz"
+
+  create_runner_script_pack_env_secret = var.remote_runner_script_pack_sync_enabled && trimspace(var.runner_script_pack_env_secret_id) == ""
+  runner_script_pack_env_secret_id = local.create_runner_script_pack_env_secret ? sg_secret.runner_script_pack[0].id : trimspace(var.runner_script_pack_env_secret_id)
+
+  runner_generic_secret_ref_ids_base = distinct(concat(
+    var.remote_runner_generic_secret_ref_ids,
+    trimspace(local.runner_script_pack_env_secret_id) != "" ? [local.runner_script_pack_env_secret_id] : [],
+  ))
+
   # PR+review bar: require live plan when Azure is wired unless explicitly overridden.
   require_azure_live_plan = var.require_azure_live_plan != null ? var.require_azure_live_plan : (
     local.runner_azure_env_secret_id != "" || local.resolved_azure_integration_name != ""
@@ -100,7 +110,9 @@ locals {
     var.remote_runner_typed_secret_refs,
   )
   runner_typed_secret_refs      = var.remote_runner_secret_sync_enabled ? local.runner_typed_secret_refs_base : {}
-  runner_generic_secret_ref_ids = var.remote_runner_secret_sync_enabled ? var.remote_runner_generic_secret_ref_ids : []
+  runner_generic_secret_ref_ids = var.remote_runner_secret_sync_enabled ? local.runner_generic_secret_ref_ids_base : []
+  # Keep this plan-time known: do not inspect sg_secret.*.id (unknown until apply),
+  # or count on sg_remote_runner_secrets fails with "Invalid count argument".
   runner_secrets_sync_configured = var.remote_runner_secret_sync_enabled && (
     trimspace(var.runner_git_token) != ""
     || trimspace(var.runner_git_env_secret_id) != ""
@@ -108,6 +120,8 @@ locals {
     || trimspace(var.runner_aws_env_secret_id) != ""
     || trimspace(var.runner_azure_env_secret_id) != ""
     || trimspace(var.runner_gcp_env_secret_id) != ""
+    || local.create_runner_script_pack_env_secret
+    || trimspace(var.runner_script_pack_env_secret_id) != ""
     || length(var.remote_runner_typed_secret_refs) > 0
     || length(var.remote_runner_generic_secret_ref_ids) > 0
   )
@@ -149,7 +163,7 @@ locals {
   gcp_mapping_catalog_script          = file("${path.module}/scripts/gcp_mapping_catalog.py")
   gcp_mapping_catalog_json            = file("${path.module}/mappings/aws-to-gcp.json")
   ensure_cloud2code_script            = file("${path.module}/scripts/ensure_cloud2code.sh")
-  script_pack_version                 = "20260904.1"
+  script_pack_version                 = "20260910.1"
   script_pack_git_ref                 = "main"
   script_pack_preload_dir             = "${local.runner_work_home}/.aws-migrator/script-pack/${local.script_pack_version}"
 
@@ -404,8 +418,12 @@ locals {
   # Short pack one-liners (same shape as azure/gcp destination stages). Huge base64
   # pastes truncate under create_agent (session 1d8207c8 quoting EOF) and invented
   # shell hits dash pipefail (sessions 6741e13a / 127f2c35 / af38cc9e).
+  # The scan script only ever received workflow_run_id and region, so the
+  # optional_inputs cloud2code_include / cloud2code_exclude / cloud2code_tags
+  # had no route to the runner and every run scanned the whole region. The env
+  # prefix is that route: empty quotes keep the full-region default.
   runner_capability_preflight_execute_series_body = "bash ${local.script_pack_preload_dir}/runner-capability-preflight.sh '{{workflow_run_id}}'"
-  cloud2code_scan_execute_series_body             = "bash ${local.script_pack_preload_dir}/cloud2code-aws-scan.sh '{{workflow_run_id}}' 'AWS_REGION_PLACEHOLDER'"
+  cloud2code_scan_execute_series_body             = "CLOUD2CODE_INCLUDE='' CLOUD2CODE_EXCLUDE='' CLOUD2CODE_TAGS='' bash ${local.script_pack_preload_dir}/cloud2code-aws-scan.sh '{{workflow_run_id}}' 'AWS_REGION_PLACEHOLDER'"
 
   rendered_persona = templatefile("${path.module}/personas/aws-migrator-architect.md.tftpl", local.template_vars)
 
@@ -418,7 +436,7 @@ locals {
     **Primary execution:** all shell, `cloud2code`, `tofu`/`terraform`, `jq`, `git`, and **tfstate generation/download** run on remote runner **`${local.resolved_remote_runner_name}`** via **`${local.shell_tool_prefix}_execute_*`** tools (never Ubuntu CLI). Discovery starts with `runner-capability-preflight` so missing tools fail before scan/ingest. `cloud2code-scan-aws` writes a local tfstate path to `monolith_state_uri`; `stage-runner.sh download-state` then materializes `$WORK_ROOT/state/terraform.tfstate` for decomposition.%{if var.create_remote_runner~}
     Runner registered by Terraform via `sg_remote_runner`; install commands are in module outputs `remote_runner_cli_start_command` / `remote_runner_helm_install_command` — deploy aiden-runner on-prem with **outbound-only** access to mothership before running workflows.%{endif~}
     Per the **Execution Optimization Protocol** (${local.sop_orchestration_name}), multi-step work is batched into one `${local.shell_tool_prefix}_execute_series`; `${local.shell_tool_prefix}_execute_command` is for a single cohesive command; `${local.shell_tool_prefix}_execute_parallel` (or `flow_type:"parallel"` subagent batches) is the only sanctioned fan-out for independent per-group / per-shard work.
-    **Runner prerequisites:** deploy **`ghcr.io/walmart-stackgen/nile-factory-runner:pack-${local.script_pack_version}`** (see `remote_runner_image` output) so the script pack and **`opa`** CLI are baked in — avoid stock `stackgen-guild-aiden-runner` plus manual `kubectl cp`. The runner image must include **`tofu`/`terraform`**, **`jq`**, **`git`**, **`awscli`**, **`opa`**, `tar`, and either `curl` or `wget`, plus AWS read credentials for the target region. The scan bootstrap downloads pinned Cloud2Code v0.5.1 into `$HOME/.local/bin` when `cloud2code` is absent; no root access is required. When `runner_git_token` / `runner_aws_*` or `runner_*_env_secret_id` / `remote_runner_typed_secret_refs` are set, Terraform binds **`sg_remote_runner_secrets`** so mothership sync injects **`GIT_TOKEN`** / **`AWS_*`** env on the runner (memory-only) for **`cloud2code import aws`**, **`git clone`**, **`gh pr create`**, and plan hydration. The large tfstate decomposition script pack is preloaded on the runner at **`${local.script_pack_preload_dir}`** and copied into each `$WORK_ROOT/scripts`; do not pass it through runner environment variables.
+    **Runner prerequisites:** deploy **`ghcr.io/walmart-stackgen/nile-factory-runner:pack-${local.script_pack_version}`** (see `remote_runner_image` output) for CLIs + **`opa`** — avoid stock `stackgen-guild-aiden-runner` plus manual `kubectl cp`. The runner image must include **`tofu`/`terraform`**, **`jq`**, **`git`**, **`awscli`**, **`opa`**, `tar`, and either `curl` or `wget`, plus AWS read credentials for the target region. The scan bootstrap downloads pinned Cloud2Code v0.5.1 into `$HOME/.local/bin` when `cloud2code` is absent; no root access is required. When `runner_git_token` / `runner_aws_*` or `runner_*_env_secret_id` / `remote_runner_typed_secret_refs` are set, Terraform binds **`sg_remote_runner_secrets`** so mothership sync injects **`GIT_TOKEN`** / **`AWS_*`** env on the runner (memory-only) for **`cloud2code import aws`**, **`git clone`**, **`gh pr create`**, and plan hydration.%{if var.remote_runner_script_pack_sync_enabled~} Terraform also binds a script-pack vault secret (`SCRIPT_PACK_*` metadata). aiden-runner secret sync refreshes those keys; `runner-capability-preflight` runs `sync-script-pack-from-env.sh` to download the tarball into **`${local.script_pack_preload_dir}`** when the pack version or sha gates change — **no runner redeploy** on script bumps (bump `script_pack_version`, publish the release tarball, `tofu apply`).%{else~} The large tfstate decomposition script pack must be preloaded on the runner at **`${local.script_pack_preload_dir}`**.%{endif~} Each workflow copies the pack into `$WORK_ROOT/scripts`; do not pass it through runner environment variables.
     Persist artifact paths (plan JSON, state snapshots) via `note` keys `remote_runner_artifacts`. If `${local.shell_tool_prefix}_execute_*` is unavailable (runner offline), emit **`blocked:remote_runner_shell_unavailable: "true"`** and stop — do not fall back to inline shell on the architect.
     RUNNER
   )
@@ -511,6 +529,28 @@ resource "sg_secret" "runner_aws_env" {
     AWS_SECRET_ACCESS_KEY = var.runner_aws_secret_access_key
     AWS_REGION            = trimspace(var.runner_aws_region)
     AWS_DEFAULT_REGION    = trimspace(var.runner_aws_region)
+  }
+}
+
+resource "sg_secret" "runner_script_pack" {
+  count = local.create_runner_script_pack_env_secret ? 1 : 0
+
+  name        = "${local.module_prefix}-runner-script-pack${local.suffix}"
+  description = "Script pack sync metadata for ${local.resolved_remote_runner_name} (SCRIPT_PACK_* env keys → aiden-runner secret sync)."
+  category    = "Generic"
+  subcategory = "env"
+  metadata = {
+    SCRIPT_PACK_VERSION                 = local.script_pack_version
+    SCRIPT_PACK_PRELOAD_DIR             = local.script_pack_preload_dir
+    SCRIPT_PACK_TARBALL_URL             = local.script_pack_tarball_url
+    SCRIPT_PACK_GIT_REF                 = local.script_pack_git_ref
+    SCRIPT_PACK_ALLOCATE_SHA256         = local.script_pack_allocate_sha256
+    SCRIPT_PACK_DECOMPOSER_SHA256       = local.script_pack_decomposer_sha256
+    SCRIPT_PACK_RUNNER_SHA256           = local.script_pack_runner_sha256
+    SCRIPT_PACK_CATALOG_PY_SHA256       = local.script_pack_catalog_py_sha256
+    SCRIPT_PACK_CATALOG_JSON_SHA256     = local.script_pack_catalog_json_sha256
+    SCRIPT_PACK_GCP_CATALOG_PY_SHA256   = local.script_pack_gcp_catalog_py_sha256
+    SCRIPT_PACK_GCP_CATALOG_JSON_SHA256 = local.script_pack_gcp_catalog_json_sha256
   }
 }
 
@@ -738,24 +778,27 @@ resource "sg_runbook_sop" "cce_iac_alignment" {
 
 resource "sg_evidence_checklist" "aws_migrator_discovery_evidence" {
   name        = local.evidence_primary_name
-  description = "Proof-of-work for aws-cloud-discovery: cloud2code scan, tfstate split, reverse HCL, zero-diff plans, and multi-commit AWS discovery PR."
+  description = "Required proof for AWS discovery: scan completed, all resources accounted for, readable Terraform generated, format and validation passed, and pull request opened."
   approve     = true
   required_items = [
     "cloud2code_region_scan_completed",
     "cloud2code_tfstate_recorded",
     "monolith_resource_count_recorded",
     "aggregate_shard_count_matches_monolith",
-    "hcl_hydration_no_changes_per_group",
-    "multi_shard_plan_zero_diff_evidence",
+    "terraform_files_generated",
+    "terraform_format_passed",
+    "terraform_validation_passed",
     "iac_pr_url_recorded",
   ]
   optional_items = [
+    "terraform_zero_change_plan",
+    "grouping_readiness_analysis",
     "orphan_secondary_handoff_link",
     "cloud2code_log_path",
     "source_iac_branch_recorded",
   ]
   scoring = {
-    min_required         = 7
+    min_required         = 8
     confidence_threshold = 0.8
   }
   metadata = {

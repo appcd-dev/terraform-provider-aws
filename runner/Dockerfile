@@ -36,10 +36,11 @@ COPY agent-pipeline-config/modules/aios-agent-aws-migrator/templates/ingest-exec
   /src/agent-pipeline-config/modules/aios-agent-aws-migrator/templates/ingest-execute-series-embedded.sh.tftpl
 COPY agent-pipeline-config/modules/aios-agent-aws-migrator/templates/dbsplit-script-pack-env.sh.tftpl \
   /src/agent-pipeline-config/modules/aios-agent-aws-migrator/templates/dbsplit-script-pack-env.sh.tftpl
-COPY runner/embed-script-pack.sh runner/render_ingest_bootstrap.py /tmp/
-RUN chmod +x /tmp/embed-script-pack.sh \
+COPY runner/embed-script-pack.sh runner/render_ingest_bootstrap.py runner/sync-script-pack-from-env.sh /tmp/
+RUN chmod +x /tmp/embed-script-pack.sh /tmp/sync-script-pack-from-env.sh \
   && /tmp/embed-script-pack.sh \
-  && rm -rf /src /tmp/embed-script-pack.sh /tmp/render_ingest_bootstrap.py /tmp/install-tools.sh /tmp/versions.env
+  && install -m 0755 /tmp/sync-script-pack-from-env.sh /usr/local/bin/sync-script-pack-from-env.sh \
+  && rm -rf /src /tmp/embed-script-pack.sh /tmp/render_ingest_bootstrap.py /tmp/sync-script-pack-from-env.sh /tmp/install-tools.sh /tmp/versions.env
 
 ENV HOME=/home/runner \
   USER=runner \

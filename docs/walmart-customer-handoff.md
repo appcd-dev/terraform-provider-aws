@@ -15,6 +15,8 @@ tofu output dangerous_ops_policy_id
 
 This creates the `dangerous-ops` logic policy in Nile-Staging. No AWS/Azure CLI creds required.
 
+Optional phase 1b: set `enable_governance_codify = true` (and a GitHub integration name or `provision_github_integration` + token) to install `governance-rules-codify` without the migrator agent stack.
+
 ## Phase 2 (customer — before agent apply)
 
 Customer creates these in StackGen UI for workspace **Nile-Staging** (`bbc8f2a8-2586-45b7-ab64-6c69c9c34c02`):
@@ -29,9 +31,9 @@ Customer creates these in StackGen UI for workspace **Nile-Staging** (`bbc8f2a8-
 
 ### Runner prerequisites
 
-- Image: `ghcr.io/walmart-stackgen/nile-factory-runner` (see [`runner/README.md`](../../runner/README.md))
-- Script pack preloaded at the version from `tofu output script_pack_version` (after phase 2 apply)
-- Git + AWS credentials on the runner (customer configures via UI / vault sync — TF does not create runner secrets in the walmart path)
+- Image: `ghcr.io/walmart-stackgen/nile-factory-runner` (see [`runner/README.md`](../../runner/README.md) and Stackgen-Runner ACA)
+- Script pack is **baked into the ACA image** (Walmart disables Guild vault secret sync). Image tag pack version must match `tofu output script_pack_version` after phase 2.
+- Git + AWS credentials on the runner (customer configures via UI — TF does not create git/aws runner secrets in the walmart path)
 - Runner status **online** in StackGen UI before starting workflows
 
 ### Hand back exact names
@@ -58,8 +60,8 @@ tofu output script_pack_version
 tofu output discovery_workflow_name
 ```
 
-4. Confirm runner online and script pack version matches
-5. Start **`aws-migrator-discovery`** in StackGen UI
+4. Confirm runner online and ACA image pack tag matches `script_pack_version`
+5. Start **`aws-cloud-discovery`** (or the discovery workflow name from output) in StackGen UI
 
 ## Verify in UI
 
@@ -67,7 +69,7 @@ tofu output discovery_workflow_name
 - [ ] GitHub + AWS integrations enabled
 - [ ] Remote runner online
 - [ ] Agent `aws-migrator-architect` attached to integrations + runner (phase 2)
-- [ ] Workflows `aws-migrator-discovery`, `aws-migrator-azure-only`, `aws-migrator-gcp-only` visible
+- [ ] Workflows `aws-cloud-discovery`, `azure-migration-pr`, `gcp-migration-pr` visible (names may match module outputs)
 
 ## When to use `greenfield` instead
 

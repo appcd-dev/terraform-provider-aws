@@ -91,3 +91,22 @@ jobs:
           provenance: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Package script pack tarball
+        if: github.event_name != 'pull_request'
+        run: |
+          set -euo pipefail
+          chmod +x runner/package-script-pack.sh
+          runner/package-script-pack.sh "runner/dist/script-pack-${{ steps.pack.outputs.version }}.tar.gz"
+
+      - name: Publish script pack release
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: pack-${{ steps.pack.outputs.version }}
+          name: Script pack ${{ steps.pack.outputs.version }}
+          files: runner/dist/script-pack-${{ steps.pack.outputs.version }}.tar.gz
+          make_latest: false
+          overwrite_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -81,7 +81,7 @@ rules-intake   # dual-clone: Governance-and-Policy (read md) + Nile-Factory (man
 
 - **No remote runner** — git I/O via GitHub integration (`gh` / `git`).
 - **No dangerous_ops policy** on this agent.
-- **Validation** runs in **target** repo CI (`.github/workflows/rules-validate.yml` + `rules/run-tests.sh`), not inline in Guild.
+- **Validation** runs in **target** repo CI (`.github/workflows/rules-validate.yml` + `rules/run-tests.sh`), not in the GitHub sidecar. Set `require_local_opa_validation = true` only when the integration image ships `opa`.
 
 **Source:** [Governance-and-Policy](https://github.com/Walmart-StackGen/Governance-and-Policy) `governance/**/*.md`
 

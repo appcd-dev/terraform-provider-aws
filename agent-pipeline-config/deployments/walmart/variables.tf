@@ -21,10 +21,29 @@ variable "enable_agent_stack" {
   default     = false
 }
 
-variable "github_integration_name" {
-  description = "Existing GitHub Aiden integration name (required when enable_agent_stack is true)."
+variable "enable_governance_codify" {
+  description = "When true, installs governance-rules-codify agent + workflow (markdown → Rego PR). Does not require enable_agent_stack or a remote runner."
+  type        = bool
+  default     = false
+}
+
+variable "provision_github_integration" {
+  description = "When true and github_token is set, Terraform creates the GitHub Guild integration instead of looking up an existing one by name."
+  type        = bool
+  default     = false
+}
+
+variable "github_token" {
+  description = "GitHub PAT for provision_github_integration (repo + read:org). Pass via TF_VAR_github_token; do not commit."
   type        = string
+  sensitive   = true
   default     = ""
+}
+
+variable "github_integration_name" {
+  description = "GitHub Guild integration name — existing (lookup) or name to create when provision_github_integration is true. Default cloud-github when provisioning."
+  type        = string
+  default     = "cloud-github"
 }
 
 variable "aws_integration_name" {

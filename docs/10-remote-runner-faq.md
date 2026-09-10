@@ -220,7 +220,7 @@ cd agent-pipeline-config/deployments/greenfield
 tofu output -raw remote_runner_cli_start_command
 # run on a host that can reach walmart.cloud.stackgen.com outbound
 # wait until Guild shows online
-# script pack is baked in the Nile-Factory image; rebuild after pack bumps
+# script pack updates: bump version, publish release tarball, tofu apply — no redeploy
 ```
 
 Helm equivalent (pin the chart and image together):

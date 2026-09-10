@@ -2,6 +2,8 @@
 
 Use this skill in **`rules-codify`** after intake recorded `codify_inventory_json`.
 
+${opa_local_validation_summary}
+
 ## Goal (non-negotiable)
 
 Write **conftest/OPA policies that evaluate Terraform plan JSON** (output of `terraform show -json` / `tofu show -json`).
@@ -42,7 +44,7 @@ Never spawn a sub-agent whose goal includes `rules-pr`, push, or PR creation.
 | Who | Job |
 | --- | --- |
 | **Stage planner** | Bootstrap/branch sub-agent, then N parallel pack workers in one response; merge manifest. |
-| **Bootstrap sub-agent** | Scaffold + branch `{source_commit_sha}_{YYYYMMDDHHMMSS}` only. |
+| **Bootstrap sub-agent** | Scaffold via **create_files** + branch `{source_commit_sha}_{YYYYMMDDHHMMSS}` only. tool_names MUST include `${github_tool_prefix}_create_files`. |
 | **Pack-worker** | Read markdown → classify → `controls.json` → **IaC** `policy.rego` (if any enforce:true) → tests + terraform-shaped fixtures. |
 
 ### Sub-agent budget (minimum per pack worker)
@@ -70,7 +72,7 @@ content_sha256: <SHA256>
 3. Write controls.json. Only set enforce:true for obligations checkable on Terraform plan JSON.
 4. If any enforce:true: write policy.rego that iterates input.resource_changes (and tags/labels/attributes). FORBIDDEN: input.exception, input.resource.phase, invented process flags.
 5. policy_test.rego + conftest fixtures that LOOK LIKE terraform show -json (resource_changes with type, name, change.after.tags|labels).
-6. MUST run: opa test ${target_clone_dir}/<PACK_DIR>  — fix Rego until PASS. Do not note success if opa test fails.
+${opa_pack_worker_validation_step}
 7. If zero IaC-enforceable controls: controls.json only (all enforce:false); skip policy.rego; note iac_enforceable=false.
 8. Do NOT edit manifest or git commit. note(codify_pack_<SLUG>=JSON) with keys: doc_path, pack_dir, content_sha256, controls_count, enforce_count, iac_enforceable, policy_written, opa_test_passed.
 ```
@@ -198,13 +200,13 @@ test_fail_has_deny if {
 
 **Right:** `count(deny) == 0 with input as pass_plan` (same package) or `count(policy.deny) == 0 with input as pass_plan` from `package policy_test`.
 
-After writing files, run:
+After writing files, run when opa is available:
 
 ```bash
-opa test ${target_clone_dir}/<PACK_DIR>
+command -v opa && opa test ${target_clone_dir}/<PACK_DIR>
 ```
 
-Fix until PASS. Do not emit `codify_pack_*` until green.
+When opa is absent in the GitHub sidecar, skip local test and set `opa_test_passed=skipped_local`. CI validates on the PR. When opa is present, fix until PASS before noting success.
 
 ### 5. Conftest fixtures (must be terraform plan shaped)
 
@@ -258,32 +260,18 @@ Parent merges entries after workers finish. Sub-agents do not edit manifest.
 
 ## Bootstrap (when `bootstrap_needed=true` OR scaffold files missing)
 
-Write via absolute-path `create_files` (always ensure these exist before pack workers finish / before PR):
+${codify_bootstrap_scaffold_note}
 
-- `${target_clone_dir}/rules/README.md` — packs are **IaC** policies for Terraform plan JSON
-- `${target_clone_dir}/rules/manifest.json` — schema `nile-codify-manifest/v1`, `"entries": []` initially
-- `${target_clone_dir}/rules/run-tests.sh` — **copy verbatim**:
+**BOOTSTRAP FILES** content is in `${sop_governance_codify_name}` — write with create_files, not shell.
 
-```bash
-${rules_run_tests_sh}
-```
-
-- `${target_clone_dir}/.github/workflows/rules-validate.yml` — **copy verbatim**:
-
-```yaml
-${github_rules_validate_yml}
-```
-
-`chmod +x ${target_clone_dir}/rules/run-tests.sh`. Commit bootstrap on the codify branch.
-
-Parent **must** run `bash ${target_clone_dir}/rules/run-tests.sh` after merging packs and fix any failing packs before handoff. Fail closed if scaffold missing.
+${opa_method_run_tests_before_handoff}
 
 ## Quality bar (fail the stage if violated)
 
 - Every `enforce: true` control has Rego that reads `input.resource_changes` (or equivalent plan paths).
 - Zero process-schema denies (`input.exception`, invented readiness flags).
 - Fixtures are terraform plan JSON; pass fixture → no deny; fail fixture → deny.
-- `opa test` passes for every pack with `policy.rego`.
+${opa_method_quality_bar_opa_test}
 - `rules/run-tests.sh` and `.github/workflows/rules-validate.yml` exist on the branch.
 - Process-only docs: `enforce_count=0`, `iac_enforceable=false`, no fake Rego.
 - Prefer strong packs for **tagging-labeling-standard** and cloud policy/resource docs.

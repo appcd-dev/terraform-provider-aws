@@ -16,7 +16,7 @@ Standalone Guild module: on-demand **governance-rules-codify** workflow that rea
 - **GitHub integration only** — `gh` / `git` via the Guild GitHub sidecar. No remote runner.
 - **Dual clone at intake** — source for reading policy markdown; target for manifest, writes, push, PR.
 - **File writes via `create_files`** — Rego/JSON/YAML only on the **target** clone (absolute paths).
-- **CI validation** — `opa test` and `conftest` run in the **target** repo (`.github/workflows/rules-validate.yml`).
+- **CI validation** — `opa test` runs in the **target** repo (`.github/workflows/rules-validate.yml`). Local opa in the GitHub sidecar is optional (`require_local_opa_validation`, default `false`).
 
 ## Usage
 

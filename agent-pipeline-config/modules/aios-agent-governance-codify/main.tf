@@ -64,6 +64,28 @@ locals {
     codify_pr_execute_series_template     = local.codify_pr_execute_series_template
     codify_branch_execute_series_template = local.codify_branch_execute_series_template
     codify_intake_execute_series_template = local.codify_intake_execute_series_template
+    codify_bootstrap_scaffold_execute_series_template = local.codify_bootstrap_scaffold_execute_series_template
+    codify_ci_gate_execute_series_template            = local.codify_ci_gate_execute_series_template
+    codify_ci_push_execute_series_template            = local.codify_ci_push_execute_series_template
+    codify_scaffold_git_commit_execute_series_template = local.codify_scaffold_git_commit_execute_series_template
+    codify_scaffold_check_execute_series_template     = local.codify_scaffold_check_execute_series_template
+    codify_branch_recover_execute_series_template     = local.codify_branch_recover_execute_series_template
+    codify_handoff_verify_execute_series_template     = local.codify_handoff_verify_execute_series_template
+    codify_handoff_recovery_note                      = local.codify_handoff_recovery_note
+    codify_handoff_verify_note                        = local.codify_handoff_verify_note
+    ci_repair_max_iterations                          = var.ci_repair_max_iterations
+    ci_gate_timeout_seconds                           = var.ci_gate_timeout_seconds
+    ci_repair_loop_instructions                       = local.ci_repair_loop_instructions
+    codify_bootstrap_scaffold_note                    = local.codify_bootstrap_scaffold_note
+    codify_bootstrap_create_files_note                = local.codify_bootstrap_create_files_note
+    integration_shell_recovery_note                   = local.integration_shell_recovery_note
+    require_local_opa_validation          = var.require_local_opa_validation
+    opa_local_validation_summary          = trimspace(local.opa_local_validation_summary)
+    opa_pack_worker_validation_step       = trimspace(local.opa_pack_worker_validation_step)
+    opa_method_run_tests_before_handoff   = trimspace(local.opa_method_run_tests_before_handoff)
+    opa_method_quality_bar_opa_test       = local.opa_method_quality_bar_opa_test
+    opa_sop_bootstrap_before_handoff        = trimspace(local.opa_sop_bootstrap_before_handoff)
+    opa_sop_pr_preflight_run_tests          = trimspace(local.opa_sop_pr_preflight_run_tests)
   }
 
   rendered_persona = templatefile("${path.module}/personas/governance-codify-architect.md.tftpl", local.template_vars)

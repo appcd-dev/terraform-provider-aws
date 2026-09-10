@@ -1,0 +1,41 @@
+set -eu
+REPO='{{TARGET_REPO}}'
+PR='{{PR_NUMBER}}'
+CHECK='{{CHECK_NAME}}'
+TIMEOUT='{{CI_TIMEOUT_SECONDS}}'
+CLONE='{{CLONE_DIR}}'
+elapsed=0
+interval=25
+echo "ci_gate: waiting for $CHECK on $REPO#$PR (timeout=$${TIMEOUT}s)"
+while [ "$elapsed" -lt "$TIMEOUT" ]; do
+  checks="$(gh pr checks "$PR" --repo "$REPO" 2>&1 || true)"
+  echo "$checks"
+  if printf '%s\n' "$checks" | awk -v c="$CHECK" '$1==c && $2=="pass"{ok=1} END{exit !ok}'; then
+    echo "codify_ci_status=green"
+    exit 0
+  fi
+  if printf '%s\n' "$checks" | awk -v c="$CHECK" '$1==c && ($2=="fail" || $2=="failure"){bad=1} END{exit !bad}'; then
+    echo "codify_ci_status=failed"
+    break
+  fi
+  pending=0
+  if printf '%s\n' "$checks" | awk -v c="$CHECK" '$1==c && ($2=="pending" || $2=="in_progress" || $2=="queued"){pending=1} END{exit !pending}'; then
+    pending=1
+  fi
+  if [ "$pending" -eq 0 ] && printf '%s\n' "$checks" | grep -q "$CHECK"; then
+    :
+  fi
+  sleep "$interval"
+  elapsed=$((elapsed + interval))
+done
+if [ "$elapsed" -ge "$TIMEOUT" ]; then
+  echo "codify_ci_status=timeout"
+fi
+HEAD="$(gh pr view "$PR" --repo "$REPO" --json headRefName -q .headRefName)"
+RUN_ID="$(gh run list --repo "$REPO" --branch "$HEAD" --workflow rules-validate.yml --limit 5 --json databaseId,conclusion -q '.[0].databaseId' 2>/dev/null || true)"
+echo "=== ci_failed_logs run_id=$${RUN_ID} branch=$${HEAD} ==="
+if [ -n "$RUN_ID" ] && [ "$RUN_ID" != "null" ]; then
+  gh run view "$RUN_ID" --repo "$REPO" --log-failed 2>&1 | tail -400 || true
+fi
+printf '%s\n' "$checks" > /tmp/codify-ci-checks.txt
+exit 1

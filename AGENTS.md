@@ -43,7 +43,7 @@ Full list: [docs/02-glossary.md](docs/02-glossary.md).
 2. Bump `local.script_pack_version` in `main.tf` and matching `SCRIPT_PACK_VERSION` in `stage-runner.sh`
 3. Run `make test`
 4. Run `make catalog` and commit the updated catalog doc
-5. Apply pipeline config and re-preload the script pack on the runner
+5. Apply pipeline config (vault secret sync updates the runner on the next workflow preflight)
 
 Naming rules: [agent-pipeline-config/modules/aios-agent-aws-migrator/NAMING.md](agent-pipeline-config/modules/aios-agent-aws-migrator/NAMING.md).
 

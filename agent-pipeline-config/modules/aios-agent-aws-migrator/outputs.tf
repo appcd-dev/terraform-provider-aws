@@ -83,6 +83,17 @@ output "runner_gcp_env_secret_id" {
   sensitive   = true
 }
 
+output "runner_script_pack_env_secret_id" {
+  description = "Vault secret ID for SCRIPT_PACK_* runner sync (created or runner_script_pack_env_secret_id input)."
+  value       = local.runner_script_pack_env_secret_id
+  sensitive   = true
+}
+
+output "script_pack_tarball_url" {
+  description = "Tarball URL written into the runner script-pack vault secret for mothership sync."
+  value       = local.script_pack_tarball_url
+}
+
 output "require_gcp_live_plan" {
   description = "Whether gcp-iac-validate fails closed when GCP credentials are missing."
   value       = local.require_gcp_live_plan

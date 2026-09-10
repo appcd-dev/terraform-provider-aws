@@ -318,6 +318,30 @@ variable "remote_runner_secrets_sync_interval_seconds" {
   default     = 60
 }
 
+variable "remote_runner_script_pack_sync_enabled" {
+  description = "When true, creates a vault secret with SCRIPT_PACK_* metadata and binds it on the runner via sg_remote_runner_secrets so the pack refreshes without redeploying the runner container."
+  type        = bool
+  default     = true
+}
+
+variable "runner_script_pack_env_secret_id" {
+  description = "Pre-existing vault secret UUID with flat SCRIPT_PACK_* metadata. When set, the module does not create runner_script_pack."
+  type        = string
+  default     = ""
+}
+
+variable "script_pack_tarball_url" {
+  description = "HTTPS URL of the script-pack tarball for runner sync. Empty uses GitHub release pack-<script_pack_version>/script-pack.tar.gz on script_pack_release_repo."
+  type        = string
+  default     = ""
+}
+
+variable "script_pack_release_repo" {
+  description = "GitHub owner/repo for default script pack release downloads (private repos need GIT_TOKEN on the runner)."
+  type        = string
+  default     = "Walmart-StackGen/Nile-Factory"
+}
+
 variable "enable_cce" {
   description = "When true, attaches optional CCE iac-alignment runbook (requires `cce` on the remote runner image when used)."
   type        = bool

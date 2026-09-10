@@ -1,0 +1,26 @@
+cd {{CLONE_DIR}} && set -eu && python3 - <<'PY'
+import base64
+from pathlib import Path
+
+root = Path(".")
+(root / "rules").mkdir(parents=True, exist_ok=True)
+(root / ".github/workflows").mkdir(parents=True, exist_ok=True)
+
+readme = "# Nile governance OPA rules\n\nTerraform-plan OPA policies under rules/.\n"
+(root / "rules/README.md").write_text(readme)
+
+manifest_path = root / "rules/manifest.json"
+if not manifest_path.exists():
+    manifest_path.write_text('{\n  "schema": "nile-codify-manifest/v1",\n  "entries": []\n}\n')
+
+run_tests = base64.b64decode("{{RULES_RUN_TESTS_SH_B64}}")
+(root / "rules/run-tests.sh").write_bytes(run_tests)
+(root / "rules/run-tests.sh").chmod(0o755)
+
+workflow = base64.b64decode("{{GITHUB_RULES_VALIDATE_B64}}")
+(root / ".github/workflows/rules-validate.yml").write_bytes(workflow)
+print("bootstrap_scaffold_ok")
+PY
+chmod +x rules/run-tests.sh
+git add rules .github
+if git diff --cached --quiet; then echo "bootstrap_scaffold_unchanged"; else git commit -m "codify: sync rules validation scaffold"; fi

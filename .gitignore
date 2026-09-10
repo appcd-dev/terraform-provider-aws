@@ -16,6 +16,7 @@ agent-pipeline-config/tfvars/*.json
 
 # Local runner / Helm values often embed mothership tokens — never commit.
 **/runner-helm-values.yaml
+runner/dist/
 **/*-helm-values.local.yaml
 session-report.json
 **/session-report.json

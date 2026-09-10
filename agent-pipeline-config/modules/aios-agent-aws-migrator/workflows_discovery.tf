@@ -112,14 +112,14 @@ resource "sg_workflow" "aws_migrator_discovery" {
       },
       {
         stage_id    = "ingest-and-split"
-        description = "Consume cloud2code tfstate, invoke aws-migrator-tfstate-splitter-sop via tfstate_monolith_decomposer.py, score segregation quality, tune/rerun when needed"
-        note        = "One bootstrap command: preflight → download-state → tfstate_monolith_decomposer.py split → scaffold-registry → split quality score/tuning loop. Clean pass requires quality_score>=80; after bounded tuning a best candidate may soft-pass at score>=70 with no hard issues. See aws-migrator-orchestration-sop § *Script pack* and § *Split quality floors*."
+        description = "Organize the scanned resources into Terraform folders without losing or duplicating anything"
+        note        = "A correct split is required. The readiness score and tuning history are optional suggestions."
         required    = true
       },
       {
         stage_id    = "ingest-split-loop"
-        description = "Retry ingest/decomposition until count reconciliation and split quality pass or terminal blocked sentinel is emitted"
-        note        = "loop_stage only — no LLM. Exit on count_reconciliation_ok=true plus split_quality_pass=true, or terminal ingest blocked sentinel. script_pack_drift_possible is a warning, not a loop exit."
+        description = "Retry only when scanned resources are missing or duplicated"
+        note        = "Exit when every scanned resource appears exactly once. Readiness reports are optional."
         required    = false
       },
       {
@@ -130,14 +130,14 @@ resource "sg_workflow" "aws_migrator_discovery" {
       },
       {
         stage_id    = "registry-and-import-codegen"
-        description = "Script-first: registry scaffold + prepare-parallel-artifacts + IaC PR"
-        note        = "Runs iac-pr-pipeline (scaffold, batch_payloads.json, clone, cp sync, gh pr). Allocates a fresh branch starting with discovery/<workflow_run_id>; if that branch exists or has PR history, appends a timestamp/PID suffix. Does NOT run tofu hydrate — that is shell-converge-matrix."
+        description = "Generate readable Terraform files and prepare the pull request"
+        note        = "Creates the Terraform folders and pull request. Terraform checks run next."
         required    = true
       },
       {
         stage_id    = "shell-converge-matrix"
-        description = "Script-first: self-repairing hydrate-and-plan-matrix over sample groups (tofu init + generate-config-out + fmt/validate/test/lint/plan)"
-        note        = "ONE shell-converge-matrix-runner execute_series. Repairs runner disk/provider-cache init failures, emits hcl_hydration_status:*, hcl_init_status:*, and multi_plan_zero_diff_ok."
+        description = "Format and validate the generated Terraform, then check that it matches AWS"
+        note        = "The generated .tf files must pass Terraform format and validation. Report remaining changes in plain language."
         required    = true
       },
       {
@@ -160,8 +160,8 @@ resource "sg_workflow" "aws_migrator_discovery" {
       },
       {
         stage_id    = "final-gate-and-memory"
-        description = "Confirm counts + validation + zero plans; persist orphan_modularization_memory and handoff summary"
-        note        = "Merge secondary workflow results if any; final notify / PR / submit_evidence."
+        description = "Report the Terraform result and what would improve its readiness"
+        note        = "Lead with the pull request and validation result. Put optional improvements after the result."
         required    = true
       },
     ],
@@ -215,6 +215,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
         **Purpose:** create the monolithic AWS Terraform state for this workflow. This stage owns `monolith_state_uri`; downstream stages must not ask the operator for it.
         **Incremental bring-up execution:** `create_agent` is allowed (reactree). Spawn ONE `cloud2code-scan-runner` with CREATE_AGENT_EXPECTATION from the spawn context (exact `bash …/cloud2code-aws-scan.sh` one-liner; replace `AWS_REGION_PLACEHOLDER`). `tool_names` only `["${local.shell_tool_prefix}_execute_series"]`. Never invent `set -o pipefail` / `cloud2code aws scan` (sessions 127f2c35 / af38cc9e).
         **Hard evidence gate:** never report this stage complete from notes or reasoning alone. Completion requires a successful `${local.shell_tool_prefix}_execute_series` result containing `cloud2code_scan_ok: "true"`, a non-empty `monolith_state_uri`, and `monolith_resource_count` greater than zero. If those values are absent, record `stage_summary:cloud2code-scan-aws=blocked:missing_runner_evidence` and return blocked.
+        **Operator scan filters (mandatory):** when the query set `cloud2code_include`, `cloud2code_exclude`, or `cloud2code_tags`, copy each value into the matching `CLOUD2CODE_*=''` slot at the front of the one-liner before pasting it. That env prefix is the only path from the query to `cloud2code import aws`; leaving it empty scans the whole region regardless of what the operator asked for.
         **No Azure generation here:** this stage only creates the source AWS tfstate. Azure generation starts after AWS HCL convergence.
         **Success criteria:** final line must include `cloud2code_scan_ok: "true"`, `cloud2code_tfstate_path=...`, `monolith_state_uri=...`, and `monolith_resource_count=<N>`. Also `note` those keys and mirror them to `$HOME/.<workflow_run_id>/notes.json`.
         **Blocked sentinels:** emit and return on `blocked:missing_aws_region`, `blocked:remote_runner_cloud2code_missing`, `blocked:remote_runner_awscli_missing`, `blocked:remote_runner_jq_missing`, `blocked:cloud2code_scan_failed`, `blocked:cloud2code_tfstate_missing`, or `blocked:cloud2code_tfstate_invalid`. Never fabricate an empty tfstate.
@@ -274,21 +275,20 @@ resource "sg_workflow" "aws_migrator_discovery" {
         DBSPLIT_ALLOCATE_SHA256=${local.script_pack_allocate_sha256}
         DBSPLIT_DECOMPOSER_SHA256=${local.script_pack_decomposer_sha256}
         Budget: ≤ 1 remote-runner script subagent, ≤ $1.50, ≤ 60m (script_runner_timeout_seconds=${local.subagent_budgets.script_runner_timeout_seconds}).
-        **Incremental bring-up execution (mandatory):** this workspace runs stages in an execution mode that does not expose `create_agent`. Do **not** attempt `create_agent`, and never report this stage blocked because a subagent could not be spawned — run the runner work yourself with exactly **one** `${local.shell_tool_prefix}_execute_command` call, using the embedded ingest context below. Never author your own shell: `execute_command` runs under `/bin/sh` (dash), so `set -o pipefail` and nested single quotes in an LLM-composed command fail instantly (trace `28f93699`: 1 ms exit, no work performed).
+        **Incremental bring-up execution (mandatory):** `create_agent` is allowed (reactree). Put the exact command in CREATE_AGENT_EXPECTATION, or run it yourself with exactly **one** `${local.shell_tool_prefix}_execute_command` call, using the embedded ingest context below. Never author your own shell: `execute_command` runs under `/bin/sh` (dash), so `set -o pipefail` and nested single quotes in an LLM-composed command fail instantly (trace `28f93699`: 1 ms exit, no work performed).
         **Step 0 — consume cloud2code handoff:** call `read_notes` once for `cloud2code_tfstate_path`, `monolith_state_uri`, and `tfstate_file`, but do not block when platform notes are empty and do **not** pre-write `.work/spawn_monolith_uri` yourself. The bootstrap resolves `WORK_ROOT` from `WORKFLOW_RUN_ID` and `MONOLITH_URI` from `$HOME/.<workflow_run_id>/notes.json` (the authoritative disk mirror written by the scan bootstrap) on its own. **Do not ask the operator for `monolith_state_uri`**; this workflow creates it in `cloud2code-scan-aws`. When the bootstrap prints `blocked:missing_monolith_state_uri` (or `error=MONOLITH_URI_unset`), note that sentinel and return — never ask clarifying questions.
-        **Runbook authority:** this stage MUST use the workspace runbook **`${local.sop_tfstate_splitter_name}`** for the tfstate decomposition step, implemented in the script pack as **`tfstate_monolith_decomposer.py`**. The runner MUST NOT single-pass the split: it must run the decomposer, scaffold registry artifacts so `orphans_bundle` exists, score `split_quality_report`, inspect `split_tuning_history`, and rerun with tuned `tfstate_decomposer_*` controls when the report recommends an optimization. Default objective: preserve count reconciliation first, then minimize `metrics.orphan_count`, then reduce high-impact review items and fragmentation.
-        **Split quality floors:** clean pass requires `quality_score >= 80` with no hard issues; after bounded tuning the runner may soft-pass a best candidate at `quality_score >= 70` with no hard issues (`selection_reason=best_candidate_after_bounded_tuning`). Soft-pass is acceptable, not excellent — prefer improving grouping when practical.
+        **Required result:** every scanned resource must appear exactly once in a generated group, and each group must have a state file. The later stage must then generate readable `.tf` files and run Terraform checks. Missing split scoring or tuning reports are warnings, not blockers.
+        **Optional readiness analysis:** when available, use `split_quality_report` and `split_tuning_history` to improve grouping and write plain-language suggestions. Do not retry or stop solely because either report is missing or its score is low. Continue with the best correct split and record `split_quality_status=available|not_available`.
         **INGEST FAIL signature (trace f23d78e0 / ffc0a822 / 019e9036 / ea8f5ab7 / 28f93699):** heredoc paste, **`create_files`** with giant script payloads, LLM-authored shell in `execute_command`, or **`execute_series`** JSON paste → shell syntax errors. Use **exactly one `execute_command` call:** paste **`INGEST_BOOTSTRAP_EXECUTE_COMMAND`** verbatim (raw preloaded bootstrap at `${local.script_pack_preload_dir}/ingest-bootstrap.sh`; large scripts are preloaded in the same directory) — **`timeout_seconds=${local.subagent_budgets.script_runner_timeout_seconds}`** (never 60). Never call `${local.resolved_github_integration_name}_*` or `${local.resolved_aws_integration_name}_*` MCP tools for this work (trace 019e905a51fc). Trace **8c7ea4ad:** bootstrap **< 60s** + missing handoff → **`MONOLITH_URI_unset`**.
         **INGEST RETRY (max 1 retry):** re-run the **same single `execute_command` call** — never create_files, heredoc, or an LLM-authored script body. Missing `script_pack_version` after bootstrap **< 120s** → wrong tool order or timeout too low. After **two failed attempts**, emit **`blocked:three_runner_attempts_failed: "true"`** and **`blocked:ingest_script_pack_failed: "true"`**; do **NOT** fall back to inline python splitters.
-        **INGEST STOP RULE (mandatory after bootstrap success):** apply ONLY when `count_reconciliation_ok: "true"` AND `split_quality_pass: "true"` AND non-empty `split_quality_report` AND non-empty `logical_group_manifest_path`. Read handoff keys from **`$WORK_ROOT/notes.json`** or **`$WORK_ROOT/.work/ingest-handoff.txt`** — **NOT** from execute_command stdout (trace `88b0393c`: stdout truncated → empty keys). Then: (1) `note("stage_summary:ingest-and-split", "ok")` without overwriting handoff keys; (2) final message echoing reconcile and split-quality keys; (3) **RETURN immediately**.
+        **INGEST STOP RULE (mandatory after bootstrap success):** continue when `count_reconciliation_ok: "true"` and `logical_group_manifest_path` plus `group_state_paths` are non-empty. `split_quality_report`, `split_tuning_history`, and `split_quality_pass` are optional readiness signals. Read handoff keys from **`$WORK_ROOT/notes.json`** or **`$WORK_ROOT/.work/ingest-handoff.txt`** — **NOT** from execute_command stdout (trace `88b0393c`: stdout truncated → empty keys). Then: (1) `note("stage_summary:ingest-and-split", "ok")` without overwriting handoff keys; (2) report whether readiness analysis is available; (3) **RETURN immediately**.
         **Script pack (mandatory):** preloaded on the runner at **`${local.script_pack_preload_dir}`** with sha gates allocate=${local.script_pack_allocate_sha256}, decomposer=${local.script_pack_decomposer_sha256}, runner=${local.script_pack_runner_sha256}. The embedded context below delivers the short **`INGEST_BOOTSTRAP_EXECUTE_COMMAND`** — paste it into the single `execute_command`. See orchestration SOP § *Script pack*.
-        **Success criteria:** final line MUST include `count_reconciliation_ok: "true"` or `"false"` (quoted), `split_quality_pass: "true"` or `"false"` (quoted), `split_quality_score=<N>`, `tfstate_decomposer_orphan_count=<N>`, `script_pack_version: "${local.script_pack_version}"`, and `script_pack_verify_ok: "true"` when reconcile succeeded. If `logical_group_count` is 1 and group id is `ungrouped` with `monolith_resource_count > 5000`, emit **`script_pack_drift_possible: "true"`** (non-blocking warning — likely non-canonical inline python recovery; do not treat as a terminal blocker).
-        **Outputs:** `monolith_state_local_path`, `logical_group_manifest`, `group_state_paths`, `count_reconciliation_ok`, `logical_group_count`, `split_quality_report`, `split_tuning_history`, `split_tuning_iterations`, `tfstate_decomposer_orphan_count`, `review_items_path`, `layer_summary_path`, `script_pack_version`, DB anchor inventory paths. Echo group count + shared group ids in final message. Final line MUST include `count_reconciliation_ok: "true"` or `count_reconciliation_ok: "false"` and `split_quality_pass: "true"` or `split_quality_pass: "false"` (quoted strings).
+        **Success criteria:** final line MUST include `count_reconciliation_ok: "true"`, non-empty `logical_group_manifest_path` and `group_state_paths`, `split_quality_status=available|not_available`, `script_pack_version: "${local.script_pack_version}"`, and `script_pack_verify_ok: "true"`. If readiness analysis exists, also include its score and suggestions. If it does not, say "Readiness analysis was not generated; Terraform validation will still run."
+        **Outputs:** required: `monolith_state_local_path`, `logical_group_manifest`, `group_state_paths`, `count_reconciliation_ok`, `logical_group_count`, and `script_pack_version`. Optional: `split_quality_report`, `split_tuning_history`, `split_tuning_iterations`, `tfstate_decomposer_orphan_count`, `review_items_path`, and `layer_summary_path`. Use plain language in the final message.
         `note` `stage_summary:ingest-and-split` AND mirror all handoff keys to `$HOME/.<workflow_run_id>/notes.json`. Never `load_skill` / `submit_evidence` here.
 
-        The exact ingest bootstrap follows. It is embedded here so this stage can
-        run the single command itself when subagent creation is unavailable
-        instead of inventing a replacement command:
+        The exact ingest bootstrap follows. Put it in CREATE_AGENT_EXPECTATION
+        (or run the single command yourself). Never invent a replacement command:
 
         ${local.dbsplit_spawn_context_ingest}
       EOT
@@ -304,8 +304,8 @@ resource "sg_workflow" "aws_migrator_discovery" {
         exit_condition = "output_matches_regex"
         # Same rule as the scan loop: no stage_summary:...=blocked: catch-all,
         # so a transient platform denial retries instead of ending the run.
-        # script_pack_drift_possible is a warning only — omitted from exit_match.
-        exit_match = "count_reconciliation_ok[^\\n]{0,40}\"true\"[\\s\\S]*split_quality_pass[^\\n]{0,40}\"true\"|split_quality_pass[^\\n]{0,40}\"true\"[\\s\\S]*count_reconciliation_ok[^\\n]{0,40}\"true\"|blocked:missing_monolith_state_uri|blocked:three_runner_attempts_failed|blocked:ingest_script_pack_failed|script_pack_verify_ok[^\\n]{0,40}\"false\"|script_pack_error="
+        # Readiness reports are optional. A correct split exits the loop.
+        exit_match = "count_reconciliation_ok[^\\n]{0,40}\"true\"|blocked:missing_monolith_state_uri|blocked:three_runner_attempts_failed|blocked:ingest_script_pack_failed|script_pack_verify_ok[^\\n]{0,40}\"false\"|script_pack_error="
       }
     },
     {
@@ -318,9 +318,9 @@ resource "sg_workflow" "aws_migrator_discovery" {
         # Use emitted sentinel forms only. loop_stage FINISH reasons paste the
         # exit_match regex (e.g. script_pack_verify_ok[^\\n]{0,40}\"false\") and
         # must not trip this gate after a successful split.
-        match   = "blocked:missing_monolith_state_uri:\\s*\\\"true\\\"|blocked:three_runner_attempts_failed:\\s*\\\"true\\\"|blocked:ingest_script_pack_failed:\\s*\\\"true\\\"|stage_summary:ingest-and-split=blocked:|script_pack_verify_ok:\\s*\\\"false\\\"|count_reconciliation_ok:\\s*\\\"false\\\"|split_quality_pass:\\s*\\\"false\\\"|script_pack_error=[A-Za-z0-9_]"
+        match   = "blocked:missing_monolith_state_uri:\\s*\\\"true\\\"|blocked:three_runner_attempts_failed:\\s*\\\"true\\\"|blocked:ingest_script_pack_failed:\\s*\\\"true\\\"|stage_summary:ingest-and-split=blocked:|script_pack_verify_ok:\\s*\\\"false\\\"|count_reconciliation_ok:\\s*\\\"false\\\"|script_pack_error=[A-Za-z0-9_]"
         skip_to = "final-gate-and-memory"
-        reason  = "Ingest or split quality failure — skip registry, converge, destination, and orphan stages"
+        reason  = "The scanned resources could not be split correctly, so Terraform generation cannot continue"
       }
     },
     {
@@ -336,16 +336,15 @@ resource "sg_workflow" "aws_migrator_discovery" {
         try(var.workflow_skill_refs["aws-cloud-discovery::registry-and-import-codegen"], [])
       )
       note = <<-EOT
-        **Upstream blocked guard (step 0):** trip this guard **only** when the upstream output positively shows a failure — a cloud2code blocked sentinel, `blocked:missing_monolith_state_uri`, `blocked:three_runner_attempts_failed`, `blocked:ingest_script_pack_failed`, `count_reconciliation_ok` present and not `"true"`, `split_quality_pass` present and not `"true"`, or `stage_summary:ingest-and-split=blocked:`. A key that is simply **absent** is never a blocker: if `count_reconciliation_ok` and `split_quality_pass` both read `"true"`, proceed with the runner work even when no `stage_summary:ingest-and-split` line is present. When the guard does trip, emit one-line `notify({stage:'registry-and-import-codegen',error:'upstream_ingest_blocked'})` and **return** (no remediation prose).
-        **Incremental bring-up execution (mandatory):** this workspace runs stages in an execution mode that does not expose `create_agent`. Do **not** attempt `create_agent`, and never report this stage blocked because a subagent could not be spawned — run the runner work yourself using the embedded context below. Never author your own scaffold or PR shell.
+        **Upstream blocked guard (step 0):** stop only for a confirmed scan failure, a missing state file, a script-pack failure, or `count_reconciliation_ok` present and not `"true"`. Missing or low split-quality results are warnings. Continue when every scanned resource was assigned exactly once and group state files exist.
+        **Incremental bring-up execution (mandatory):** `create_agent` is allowed (reactree). Put the exact BEGIN/END body in CREATE_AGENT_EXPECTATION, or paste it yourself using the embedded context below. Never author your own scaffold or PR shell.
         **Script-first IaC PR (mandatory):** make **ONE** `${local.shell_tool_prefix}_execute_series` call that pastes IAC_PR_EXECUTE_SERIES verbatim. Pipeline: registry scaffold → prepare-parallel-artifacts → clone → cp sync groups → gh pr create.
         After it succeeds: `note()` stdout keys including `batch_payloads_path`, `pr_url`, `large_state_sample_group_ids`. Final message echoes `pr_url=` (may be empty on pr_blocker) and `stage_summary:registry-and-import-codegen`.
         **Hard evidence gate:** never report this stage complete from notes or reasoning alone. Completion requires a successful `${local.shell_tool_prefix}_execute_series` result carrying a non-empty `batch_payloads_path` plus either a `pr_url` or an explicit `pr_blocker` reason. Absent those, record `stage_summary:registry-and-import-codegen=blocked:missing_runner_evidence` and return blocked — a silent pass here starves `shell-converge-matrix` of the synced repo and shows up downstream as unexplained `fail_groups`.
         Forbidden: LLM-per-group scaffold, inline python, `create_files`, second execute_series, `*-probe`, `*-disk-mirror`.
 
-        The exact IaC PR series follows. It is embedded here so this stage can
-        run it itself when subagent creation is unavailable instead of
-        inventing a replacement command:
+        The exact IaC PR series follows. Put this BEGIN/END body in CREATE_AGENT_EXPECTATION
+        (or paste it yourself). Never invent a replacement command:
 
         ${local.dbsplit_spawn_context_registry}
       EOT
@@ -366,14 +365,13 @@ resource "sg_workflow" "aws_migrator_discovery" {
       )
       note = <<-EOT
         **Upstream blocked guard (step 0):** trip only on a positively present ingest failure sentinel (`blocked:ingest_script_pack_failed`, `blocked:three_runner_attempts_failed`, or `count_reconciliation_ok` present and not `"true"`) → one-line `notify({stage:'shell-converge-matrix',error:'upstream_ingest_blocked'})` and **return**. A missing key is not a blocker; when the ingest counters read `"true"`, run the converge series.
-        **Incremental bring-up execution (mandatory):** this workspace runs stages in an execution mode that does not expose `create_agent`. Do **not** attempt `create_agent`, and never report this stage blocked because a subagent could not be spawned — run the runner work yourself using the embedded context below.
+        **Incremental bring-up execution (mandatory):** `create_agent` is allowed (reactree). Put the exact BEGIN/END body in CREATE_AGENT_EXPECTATION, or paste it yourself using the embedded context below.
         **One series, then return:** make **ONE** `${local.shell_tool_prefix}_execute_series` call pasting CONVERGE_EXECUTE_SERIES verbatim — it runs `hydrate-and-plan-matrix` over `sample_group_ids.json`, performing repaired `tofu init` (provider cache / TF data moved to runner scratch when needed), import-code hydration, `tofu fmt -check`, `tofu validate`, `tofu test` when tests exist, `tflint` when installed, and final `tofu plan` zero-change verification. Then **RETURN** — no probes, no re-runs.
         **Forbidden agent names:** `*-probe`, `*-disk-mirror`, `*-extract-*`, `*-v2`, `hcl-hydrate-runner-batch-*` (script owns hydration).
-        After the series: parse stdout for `multi_plan_zero_diff_ok: "true"|"false"`, `hydrate_ok_groups=`, `hydrate_fail_groups=`, mirror `hcl_hydration_status:*` and `hcl_init_status:*` keys from notes/disk. If `multi_plan_zero_diff_ok` is `"false"`, do not mark a terminal blocker unless the output contains `blocked:remote_runner_tofu_missing`, `blocked:remote_runner_shell_unavailable`, or `stage_summary:shell-converge-matrix=blocked:`; let `shell-converge-loop` retry up to its cap. `note stage_summary:shell-converge-matrix`.
+        After the series: require `terraform_validation_ok: "true"`. Report `multi_plan_zero_diff_ok` separately as an optional stronger check. A valid generated configuration may continue even when the plan shows changes or could not run. Use `terraform_valid_groups`, `terraform_invalid_groups`, and `terraform_zero_change_groups` in plain-language output.
 
-        The exact converge series follows. It is embedded here so this stage can
-        run it itself when subagent creation is unavailable instead of
-        inventing a replacement command:
+        The exact converge series follows. Put this BEGIN/END body in CREATE_AGENT_EXPECTATION
+        (or paste it yourself). Never invent a replacement command:
 
         ${local.dbsplit_spawn_context_converge}
       EOT
@@ -389,7 +387,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
         loop_to        = "shell-converge-matrix"
         max_iterations = var.max_convergence_iterations
         exit_condition = "output_matches_regex"
-        exit_match     = "multi_plan_zero_diff_ok[^\\n]{0,40}\"true\"|blocked:remote_runner_tofu_missing|blocked:remote_runner_shell_unavailable|stage_summary:shell-converge-matrix=blocked:"
+        exit_match     = "terraform_validation_ok[^\\n]{0,40}\"true\"|blocked:remote_runner_tofu_missing|blocked:remote_runner_shell_unavailable|stage_summary:shell-converge-matrix=blocked:"
       }
       note = "Loop back to shell-converge-matrix until AWS Terraform validation converges to a zero-diff plan or a terminal runner/convergence blocker is recorded."
     },
@@ -438,12 +436,12 @@ resource "sg_workflow" "aws_migrator_discovery" {
         try(var.workflow_skill_refs["aws-migrator-discovery::final-gate-and-memory"], [])
       )
       note = <<-EOT
-        **Blocked / early-skip guards (step 0):** if notes contain cloud2code/ingest/registry blocked summaries, terminal runner blockers, or gate-skip markers (`stage_summary:orphans-secondary-pipeline=skipped:upstream_blocked`, preflight/scan/ingest/converge blocked sentinels) → one `notify` with the terminal reason + `stage_summary:final-gate-and-memory=blocked:<reason>` and **return**.
-        **Convergence guard (step 1):** only when no upstream terminal blocker: if `multi_plan_zero_diff_ok` is not `"true"` → `blocked:plan_not_converged`. Require a non-empty `pr_url` / `iac_pr_url` (multi-commit aws-cloud-discovery PR).
-        **Evidence gate:** `submit_evidence` for aws-cloud-discovery checklist items.
-        Final `notify` with discovery PR URL + per-group validation tables (or a single blocked rollup). Never emit owner "HCL AUTHOR".
+        **Required result:** report success when the scan completed, every scanned resource appears exactly once in the generated folders, readable `.tf` files exist, and Terraform format plus validation pass. A zero-change plan is the strongest result; if it could not run, report the exact checks that passed and what remains.
+        **Optional readiness analysis:** missing `split_quality_report`, `split_tuning_history`, a low grouping score, or orphan suggestions must not change a successful Terraform result into a failure. Put these under "Ways to improve readiness."
+        **Plain-language output:** avoid internal terms such as monolith, ingest, shard, hydration, convergence, decomposition, handoff, evidence gate, sentinel, DAG, or matrix. Say "scanned state," "Terraform folder," "generated file," "Terraform checks," and "readiness suggestion."
+        Final `notify` must include the pull request URL, number of scanned resources, number of Terraform folders, checks that passed, checks that did not run, and up to five concrete readiness suggestions.
         `note` `stage_summary:final-gate-and-memory` and mirror to `$HOME/.<workflow_run_id>/notes.json`.
-        **Final message format (mandatory — operator/UI rollup):** Title **`## final-gate-and-memory — COMPLETE`** on success, or **`## final-gate-and-memory — BLOCKED`** when step 0 trips. Include **Evidence Gate** table, **Convergence Guards** table (when applicable), discovery PR URL, and **`stage_summary:final-gate-and-memory=ok|blocked:<reason>`**.
+        **Final message format:** use `## Terraform ready` when required checks pass, `## Terraform needs work` when files exist but checks failed, or `## Could not generate Terraform` when no usable files exist. Use three short sections: "Result", "Checks", and "Ways to improve readiness". Keep internal note keys out of the operator message.
       EOT
     },
   ]

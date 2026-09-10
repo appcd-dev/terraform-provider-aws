@@ -28,7 +28,7 @@ tofu apply -var-file=../../tfvars/greenfield.tfvars
 ```
 
 4. Start / confirm the remote runner using this repo's image (`runner/README.md`) plus the module CLI/Helm token output.  
-5. **Rebuild and republish** `ghcr.io/walmart-stackgen/nile-factory-runner` after every `script_pack_version` bump (the image bakes the pack). `kubectl cp` preload still works as a hot-fix. SHA mismatch fails stages loudly.
+5. On **`script_pack_version` bumps**: `tofu apply` updates the vault secret; aiden-runner secret sync pushes new `SCRIPT_PACK_*` env keys; the next workflow's `runner-capability-preflight` downloads the tarball — **no runner redeploy**. Publish the matching GitHub release tarball (`publish-runner.yml` creates `pack-<version>`). Rebuild the runner image only when CLIs or `sync-script-pack-from-env.sh` change. `kubectl cp` preload still works as a hot-fix. SHA mismatch fails stages loudly.
 
 ## Trigger a run
 
@@ -40,17 +40,17 @@ tofu apply -var-file=../../tfvars/greenfield.tfvars
 Any edit under module `scripts/` or `mappings/` that the runner must execute:
 
 1. Bump `script_pack_version` (module) **and** `SCRIPT_PACK_VERSION` (`stage-runner.sh`) together.  
-2. `tofu apply` the deployment.  
-3. Rebuild/push the runner image (or preload pack onto a live runner).  
-4. Confirm stage logs show the new version / matching sha256.
+2. Merge to `main` so CI publishes `pack-<version>/script-pack.tar.gz` (or set `script_pack_tarball_url` if you host elsewhere).  
+3. `tofu apply` the deployment (updates the script-pack vault secret bound on the runner).  
+4. Start a workflow; preflight syncs the pack within the secrets-sync TTL (~60s). Confirm stage logs show the new version / matching sha256.
 
-Skipping preload is the most common “it works on my laptop JSON but fails in Guild” bug.
+Skipping apply (vault secret still on old version) is the most common pack-stale failure in Guild.
 
 ## Troubleshooting matrix
 
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
-| `preload_sha256_mismatch` | Runner pack stale | Re-preload; verify version string |
+| `preload_sha256_mismatch` | Runner pack stale | Re-apply deployment (vault sync) or run a workflow so preflight re-syncs; verify version string |
 | `skipped:missing_credentials` / hard fail on plan | No `ARM_*` / GCP ADC | Attach destination secrets; or disable require-live-plan only if policy allows |
 | Generate/validate loop forever | Hard env error treated as soft | Fix pack/creds; don’t expect LLM to invent credentials |
 | Empty / tiny destination PR | Wrong AWS branch or empty groups | Confirm `aws/groups` in source branch |

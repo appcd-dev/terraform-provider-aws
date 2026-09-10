@@ -48,9 +48,7 @@ while IFS= read -r policy_file; do
       status=1
     fi
   fi
-done <<EOF
-$(find "$repo_root/rules" -name 'policy.rego' -type f | sort)
-EOF
+done < <(find "$repo_root/rules" -name 'policy.rego' -type f | sort)
 
 if [ "$policy_count" -eq 0 ]; then
   echo "No policy.rego files under rules/ — nothing to validate"

@@ -4,9 +4,22 @@
 # Phase 1 (enable_agent_stack = false): StackGen-only bootstrap — dangerous-ops
 # policy and optional Azure OpenAI models. No AWS/Azure CLI creds required.
 #
+# Phase 1b (enable_governance_codify = true): GitHub integration (optional
+# provision_github_integration) + governance-rules-codify workflow only.
+#
 # Phase 2 (enable_agent_stack = true): attach agent + workflows to integrations
 # and a remote runner the customer creates in the StackGen UI. TF never creates
-# cloud integrations or registers a runner.
+# cloud integrations or registers a runner (except optional GitHub provision).
+
+locals {
+  provision_github = var.provision_github_integration && trimspace(var.github_token) != ""
+  use_existing_github = !local.provision_github && (
+    var.enable_agent_stack || var.enable_governance_codify
+  )
+  resolved_github_integration_name = local.provision_github ? module.github_integration[0].integration_name : (
+    local.use_existing_github ? data.sg_guild_integration.github[0].name : ""
+  )
+}
 
 resource "sg_policy" "dangerous_ops" {
   name        = "dangerous-ops"
@@ -20,8 +33,8 @@ resource "terraform_data" "agent_stack_prerequisites" {
 
   lifecycle {
     precondition {
-      condition     = trimspace(var.github_integration_name) != ""
-      error_message = "enable_agent_stack requires github_integration_name — customer must create the GitHub integration in StackGen UI first."
+      condition     = local.provision_github || trimspace(var.github_integration_name) != ""
+      error_message = "enable_agent_stack requires github_integration_name (existing UI integration) or provision_github_integration with github_token."
     }
     precondition {
       condition     = trimspace(var.aws_integration_name) != ""
@@ -34,11 +47,34 @@ resource "terraform_data" "agent_stack_prerequisites" {
   }
 }
 
+resource "terraform_data" "governance_codify_prerequisites" {
+  count = var.enable_governance_codify ? 1 : 0
+
+  lifecycle {
+    precondition {
+      condition     = local.provision_github || trimspace(var.github_integration_name) != ""
+      error_message = "enable_governance_codify requires github_integration_name (existing UI integration) or provision_github_integration with github_token."
+    }
+  }
+}
+
+module "github_integration" {
+  count  = local.provision_github ? 1 : 0
+  source = "../../modules/aios-integration-github"
+
+  integration_name = trimspace(var.github_integration_name) != "" ? trimspace(var.github_integration_name) : "cloud-github"
+  github_token     = var.github_token
+  description      = "GitHub SCM integration for governance codify and IaC PR workflows (Nile-Staging)."
+}
+
 data "sg_guild_integration" "github" {
-  count = var.enable_agent_stack ? 1 : 0
+  count = local.use_existing_github ? 1 : 0
   name  = trimspace(var.github_integration_name)
 
-  depends_on = [terraform_data.agent_stack_prerequisites]
+  depends_on = [
+    terraform_data.agent_stack_prerequisites,
+    terraform_data.governance_codify_prerequisites,
+  ]
 }
 
 data "sg_guild_integration" "aws" {
@@ -63,7 +99,7 @@ module "aws_migrator" {
     dangerous_ops = sg_policy.dangerous_ops.id
   }
 
-  existing_github_integration_name = data.sg_guild_integration.github[0].name
+  existing_github_integration_name = local.resolved_github_integration_name
   existing_aws_integration_name    = data.sg_guild_integration.aws[0].name
   existing_azure_integration_name  = trimspace(var.azure_integration_name)
   existing_gcp_integration_name    = trimspace(var.gcp_integration_name)
@@ -75,6 +111,10 @@ module "aws_migrator" {
   create_remote_runner          = false
   remote_runner_name            = data.sg_remote_runner.customer[0].name
   remote_runner_attach_to_agent = true
+  # Walmart Guild rejects Generic/env vault secrets; pack is baked into the ACA
+  # nile-factory-runner image (Stackgen-Runner), not synced via mothership.
+  remote_runner_script_pack_sync_enabled = false
+  remote_runner_secret_sync_enabled      = false
 
   azure_only_source_branch = var.azure_only_source_branch
   gcp_only_source_branch   = var.gcp_only_source_branch
@@ -89,10 +129,10 @@ module "aws_migrator" {
 }
 
 module "governance_codify" {
-  count  = var.enable_agent_stack ? 1 : 0
+  count  = var.enable_governance_codify || var.enable_agent_stack ? 1 : 0
   source = "../../modules/aios-agent-governance-codify"
 
-  existing_github_integration_name = data.sg_guild_integration.github[0].name
+  existing_github_integration_name = local.resolved_github_integration_name
   default_source_repository_url    = "https://github.com/Walmart-StackGen/Governance-and-Policy.git"
   default_source_ref               = "main"
   default_target_repository_url    = "https://github.com/Walmart-StackGen/Nile-Factory.git"

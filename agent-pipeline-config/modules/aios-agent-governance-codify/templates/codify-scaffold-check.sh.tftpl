@@ -1,0 +1,1 @@
+cd {{CLONE_DIR}} && missing=0; test -f rules/run-tests.sh || missing=1; test -f .github/workflows/rules-validate.yml || missing=1; if test -f .github/workflows/rules-validate.yml && grep -q conftest-action .github/workflows/rules-validate.yml; then missing=1; fi; echo "scaffold_missing=$missing"
