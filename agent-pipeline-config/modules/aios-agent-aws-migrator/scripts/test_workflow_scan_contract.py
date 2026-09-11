@@ -43,17 +43,22 @@ def main() -> None:
     main_tf = (MODULE / "main.tf").read_text()
     persona = (MODULE / "personas" / "aws-migrator-architect.md.tftpl").read_text()
     guard = (MODULE / "_persona_guard.tf").read_text()
+    contract = (MODULE / "templates" / "discovery-stage-contract.md.tftpl").read_text()
+    scan_sop = (MODULE / "templates" / "cloud2code-aws-region-scan.md.tftpl").read_text()
 
-    # Workflow must not bind SOPs as runbooks. Use [] so Terraform clears
-    # previously applied refs; null is a no-op on update (stale SOP replay).
-    assert "[]" in workflow.split("runbook_refs =", 1)[1].split("\n", 1)[0]
-    assert "runbook_refs = null" not in workflow
-    assert "runbook_refs     = null" not in workflow
-    assert "skill_refs       = null" not in workflow
-    assert "local.sop_" not in workflow
+    # Explicit generic contract SOP bypasses smart-runbook discovery.
+    assert "sg_runbook_sop.discovery_stage_contract.name" in workflow
+    assert "discovery_stage_contract" in main_tf
+    assert "runbook_refs = [sg_runbook_sop.discovery_stage_contract.name]" in workflow
+    assert "local.sop_" not in workflow or "local.sop_discovery" in main_tf
 
-    # Persona: identity + hard rules only. No stage table, no SOP load list,
-    # no mandatory read_notes protocol, no plan-and-delegate default.
+    # Contract and scan SOP must stay Generic under Guild classifier signals:
+    # <2 numbered steps, no must/shall/do-not-skip pairs with verify cues.
+    assert not re.search(r"(?m)^\s*\d+[\.\)]\s+\S", contract)
+    assert not re.search(r"(?m)^\s*\d+[\.\)]\s+\S", scan_sop)
+    assert "## Procedure" not in scan_sop
+
+    # Persona: identity + hard rules only.
     assert len(persona) <= MAX_PERSONA, len(persona)
     assert "Stage Ownership" not in persona
     assert "Stage Entry Protocol" not in persona
@@ -61,12 +66,13 @@ def main() -> None:
     assert "plan and delegate" not in persona.lower()
     assert "never execute" not in persona.lower()
     assert "current stage note is the execution plan" in persona
+    assert "Prescriptive Runbook Step" in persona
     assert "*.md.tftpl" in guard
 
     # Scan: paste-first, one body, no create_agent, skills empty.
     scan = _binding(workflow, "cloud2code-scan-aws")
     assert "skill_refs       = []" in scan or "skill_refs = []" in scan
-    assert "runbook_refs     = []" in scan or "runbook_refs = []" in scan
+    assert "discovery_stage_contract.name" in scan
     assert "${local.aws_migrator_spawn_context_cloud2code}" in scan
     assert "create_agent" in scan.lower()
     assert "do not create_agent" in scan.lower() or "Do not create_agent" in scan
@@ -94,7 +100,7 @@ def main() -> None:
 
     # Preflight: short contract, working_dir guidance stays in spawn context.
     preflight = _binding(workflow, "runner-capability-preflight")
-    assert "runbook_refs = []" in preflight
+    assert "discovery_stage_contract.name" in preflight
     assert "${local.aws_migrator_spawn_context_preflight}" in preflight
     assert "session " not in preflight.lower()
     assert len(_heredoc_body(preflight, "note")) <= MAX_BINDING_NOTE
@@ -107,10 +113,10 @@ def main() -> None:
     assert "stage_summary:runner-capability-preflight=blocked:" not in gate_match
     assert "blocked:remote_runner_script_pack_missing" in gate_match
 
-    # Ingest: skills empty, one bootstrap body, unquoted false on blocked gate.
+    # Ingest: skills empty, one bootstrap body, concrete false on blocked gate.
     ingest = _binding(workflow, "ingest-and-split")
     assert "skill_refs       = []" in ingest or "skill_refs = []" in ingest
-    assert "runbook_refs     = []" in ingest or "runbook_refs = []" in ingest
+    assert "discovery_stage_contract.name" in ingest
     assert "${local.dbsplit_spawn_context_ingest}" in ingest
     assert "session " not in ingest.lower() and "trace " not in ingest.lower()
     assert len(_heredoc_body(ingest, "note")) <= MAX_BINDING_NOTE
@@ -122,8 +128,6 @@ def main() -> None:
     ingest_match = _string_assign(ingest_gate, "match")
     assert "script_pack_verify_ok=false" in ingest_match
     assert "count_reconciliation_ok=false" in ingest_match
-    # Must not use the flexible [^\\n] form: loop FINISH reasons embed exit_match
-    # text and false-skipped a clean split (session cec82df8).
     assert "script_pack_verify_ok[^\\\\n]{0,40}false" not in ingest_match
     assert "count_reconciliation_ok[^\\\\n]{0,40}false" not in ingest_match
 

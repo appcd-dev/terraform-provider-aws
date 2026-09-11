@@ -67,9 +67,10 @@ resource "sg_workflow" "aws_migrator_discovery" {
     { field = "intent", values = ["aws-cloud-discovery", "aws-cloud2code-discovery", "cloud2code-aws-scan", "aws-region-to-terraform", "aws-brownfield-iac-discovery"], type = "passive" },
   ]
 
-  # Stage DAG owns the sequence. Do not bind SOPs as runbooks/skills: Guild then
-  # executes them as step lists inside a single stage.
-  runbook_refs = []
+  # Explicit generic contract bypasses smart-runbook discovery (Unleash
+  # aios.guild.smart_runbook.discovery.enabled). Empty refs auto-match
+  # cloud2code-aws-region-scan-sop and DecomposeExecute it inside preflight.
+  runbook_refs = [sg_runbook_sop.discovery_stage_contract.name]
 
   stages = concat(
     [
@@ -164,7 +165,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
     {
       stage_id     = "runner-capability-preflight"
       agent_ref    = sg_agent.aws_migrator_architect.name
-      runbook_refs = []
+      runbook_refs = [sg_runbook_sop.discovery_stage_contract.name]
       skill_refs   = try(var.workflow_skill_refs["aws-cloud-discovery::runner-capability-preflight"], [])
       note         = <<-EOT
         Purpose: fail fast if the remote runner lacks tools or the script pack.
@@ -194,7 +195,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
       stage_id         = "cloud2code-scan-aws"
       stage_depends_on = ["preflight-blocked-gate"]
       agent_ref        = sg_agent.aws_migrator_architect.name
-      runbook_refs     = []
+      runbook_refs     = [sg_runbook_sop.discovery_stage_contract.name]
       skill_refs       = []
       note             = <<-EOT
         Purpose: create monolith_state_uri for this run. Downstream stages must not ask the operator for it.
@@ -236,7 +237,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
       stage_id         = "ingest-and-split"
       agent_ref        = sg_agent.aws_migrator_architect.name
       stage_depends_on = ["scan-blocked-gate"]
-      runbook_refs     = []
+      runbook_refs     = [sg_runbook_sop.discovery_stage_contract.name]
       skill_refs       = []
       note             = <<-EOT
         Purpose: every scanned resource exactly once, each group has a state file. Split-quality scores are optional.
@@ -279,7 +280,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
       stage_id         = "registry-and-import-codegen"
       agent_ref        = sg_agent.aws_migrator_architect.name
       stage_depends_on = ["ingest-blocked-gate"]
-      runbook_refs     = []
+      runbook_refs     = [sg_runbook_sop.discovery_stage_contract.name]
       skill_refs       = try(var.workflow_skill_refs["aws-cloud-discovery::registry-and-import-codegen"], [])
       note             = <<-EOT
         Purpose: AWS group Terraform on a branch, plus pr_url or a concrete pr_blocker. Soft split-quality scores are warnings.
@@ -294,7 +295,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
       stage_id         = "shell-converge-matrix"
       agent_ref        = sg_agent.aws_migrator_architect.name
       stage_depends_on = ["registry-and-import-codegen"]
-      runbook_refs     = []
+      runbook_refs     = [sg_runbook_sop.discovery_stage_contract.name]
       skill_refs = concat(
         try(var.workflow_skill_refs["aws-cloud-discovery::shell-converge-matrix"], []),
         try(var.workflow_skill_refs["aws-cloud-discovery::hcl-hydrate-per-group"], []),
@@ -313,8 +314,8 @@ resource "sg_workflow" "aws_migrator_discovery" {
       action_type      = "loop_stage"
       agent_ref        = ""
       stage_depends_on = ["shell-converge-matrix"]
-      runbook_refs     = []
-      skill_refs       = []
+      runbook_refs     = null
+      skill_refs       = null
       action_config = {
         loop_to        = "shell-converge-matrix"
         max_iterations = var.max_convergence_iterations
@@ -339,7 +340,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
       stage_id         = "orphans-secondary-pipeline"
       agent_ref        = sg_agent.aws_migrator_architect.name
       stage_depends_on = ["converge-blocked-gate"]
-      runbook_refs     = []
+      runbook_refs     = [sg_runbook_sop.discovery_stage_contract.name]
       skill_refs       = try(var.workflow_skill_refs["aws-cloud-discovery::orphans-secondary-pipeline"], [])
       note             = <<-EOT
         Max 2 tool turns: read_notes → if upstream blocked, note skipped:upstream_blocked and return; if orphans_bundle empty, note skipped:empty_orphans_bundle and return; else hand off to the orphan workflow.
@@ -350,7 +351,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
       stage_id         = "final-gate-and-memory"
       agent_ref        = sg_agent.aws_migrator_architect.name
       stage_depends_on = ["orphans-secondary-pipeline"]
-      runbook_refs     = []
+      runbook_refs     = [sg_runbook_sop.discovery_stage_contract.name]
       skill_refs = concat(
         try(var.workflow_skill_refs["aws-cloud-discovery::final-gate-and-memory"], []),
         try(var.workflow_skill_refs["aws-migrator-discovery::final-gate-and-memory"], [])

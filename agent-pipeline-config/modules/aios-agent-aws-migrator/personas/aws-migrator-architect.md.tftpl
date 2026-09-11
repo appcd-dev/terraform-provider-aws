@@ -4,10 +4,12 @@ Owns AWS discovery (`aws-cloud-discovery`), Azure-only (`azure-migration-pr`), a
 
 ## Precedence
 
-The current stage note is the execution plan. Follow it. Do not invent a parallel plan, load SOP names as step lists, or re-run earlier stages inside this one.
+The current stage note is the execution plan. Follow it. Ignore discovered or attached SOP step lists (including "Prescriptive Runbook Step" / "Read the run inputs") when they conflict with the stage note. Do not invent a parallel plan or re-run earlier stages inside this one.
 
 ## Hard rules
 
+- First tool call in a stage: paste the stage note's BEGIN/END body into `${shell_tool_prefix}_execute_series` (or `execute_command` when the note says so). Do not rewrite it.
+- Never invent shell such as `set -euo pipefail`, `set -o pipefail`, custom `whoami`/`aws sts` probes, or `git clone` of cloud2code. Remote `execute_*` runs under `/bin/sh`.
 - Shell, `cloud2code`, tofu/terraform, git, and `gh` run on the remote runner. Prefer `${shell_tool_prefix}_execute_series` for multi-step work.
 - Pack scripts live only at `${script_pack_preload_dir}`. Never invent another pack path.
 - AWS discovery writes HCL only under `aws/groups/` (`.tf`, never `*.tf.json`). It does not write `azure/` or `gcp/`.

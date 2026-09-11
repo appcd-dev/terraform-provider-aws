@@ -23,8 +23,9 @@ locals {
   workflow_secondary_name  = "aws-migrator-orphan-iac-module-authoring${local.suffix}"
   webhook_name             = "github-aws-migrator-receiver${local.suffix}"
 
-  sop_cloud2code_scan_name    = "cloud2code-aws-region-scan-sop${local.suffix}"
-  sop_orchestration_name      = "aws-migrator-orchestration-sop${local.suffix}"
+  sop_cloud2code_scan_name           = "cloud2code-aws-region-scan-sop${local.suffix}"
+  sop_discovery_stage_contract_name  = "aws-cloud-discovery-stage-contract-sop${local.suffix}"
+  sop_orchestration_name             = "aws-migrator-orchestration-sop${local.suffix}"
   sop_shard_extraction_name   = "aws-migrator-terraform-state-shard-extraction-sop${local.suffix}"
   sop_tfstate_splitter_name   = "aws-migrator-tfstate-splitter-sop${local.suffix}"
   sop_registry_reverse_name   = "aws-migrator-terraform-registry-reverse-iac-sop${local.suffix}"
@@ -732,6 +733,15 @@ resource "sg_runbook_sop" "cloud2code_aws_region_scan" {
   name        = local.sop_cloud2code_scan_name
   approve     = true
   description = trimspace(local.rendered_templates["cloud2code-aws-region-scan.md"])
+}
+
+# Generic (no numbered Procedure). Bound explicitly on aws-cloud-discovery so
+# Guild smart-runbook discovery cannot auto-pick cloud2code/orchestration SOPs
+# and DecomposeExecute them inside preflight (session 577ff7ec).
+resource "sg_runbook_sop" "discovery_stage_contract" {
+  name        = local.sop_discovery_stage_contract_name
+  approve     = true
+  description = trimspace(local.rendered_templates["discovery-stage-contract.md"])
 }
 
 resource "sg_runbook_sop" "aws_migrator_orchestration" {
