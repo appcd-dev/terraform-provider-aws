@@ -59,6 +59,8 @@ EOT
   dbsplit_spawn_context_registry = <<-EOT
 ${local.dbsplit_spawn_context_base}
 
+IAC_PR_RUNNER_RULE: the canonical command body is the BEGIN/END block below. It is not a file on the runner and never was. Do not search ${local.runner_work_home}/.{{workflow_run_id}}, state/, run/, or any find -maxdepth for it, and do not report pr_blocker=canonical_iac_pr_execute_series_missing because a search came up empty (session db2ba4fc did exactly that after a successful 911-resource scan). Paste the block as commands[0].command on ${local.shell_tool_prefix}_execute_series.
+
 ---BEGIN IAC_PR_EXECUTE_SERIES---
 ${local.iac_pr_execute_series_body}
 ---END IAC_PR_EXECUTE_SERIES---

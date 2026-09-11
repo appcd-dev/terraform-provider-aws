@@ -339,7 +339,9 @@ resource "sg_workflow" "aws_migrator_discovery" {
       note             = <<-EOT
         Stop only for a confirmed scan/ingest failure (`count_reconciliation_ok` present and not `"true"`, missing state, script-pack failure). Soft split-quality scores are warnings.
         Goal: AWS group Terraform on a branch, plus `pr_url` or a concrete `pr_blocker`.
-        **Must paste IAC_PR_EXECUTE_SERIES** below (pack: scaffold → artifacts → clone → sync → `gh pr create`). Do not hand-roll `git clone` / `gh pr create`. `create_agent` is fine.
+        **Must paste IAC_PR_EXECUTE_SERIES** below (pack: scaffold → artifacts → clone → sync → `gh pr create`). Do not hand-roll `git clone` / `gh pr create`.
+        **The body is in this note, not on the runner.** Session db2ba4fc searched the work root, `state/`, `run/`, and `find -maxdepth 3` for a file named `IAC_PR_EXECUTE_SERIES`, found nothing, and reported `pr_blocker=canonical_iac_pr_execute_series_missing` after a clean scan of 911 resources. No such file exists. Read the BEGIN/END block below and paste it as `commands[0].command`. Never emit that blocker because you could not find a file.
+        **Do not call `create_agent` for the paste.** The scan stage lost the same body across that boundary (session 1967a572). Call `${local.shell_tool_prefix}_execute_series` yourself.
         If clone fails with `could not read Username for 'https://github.com'`: the runner has SCM vault key `token`, not `GIT_TOKEN`. Re-run IAC_PR (it aliases `token`) or `export GIT_TOKEN="$token" GH_TOKEN="$token"` and retry — that is not a terminal `pr_blocker`.
         If clone/PR/fmt fails: read the runner output and keep fixing on the runner until `batch_payloads_path` exists and you have `pr_url` or a real `pr_blocker`. Prefer notes/inputs (`iac_repository_url`, `default_branch`) over asking the operator.
         Then `note()` `batch_payloads_path`, `pr_url`/`pr_blocker`, `large_state_sample_group_ids`, `stage_summary:registry-and-import-codegen`.

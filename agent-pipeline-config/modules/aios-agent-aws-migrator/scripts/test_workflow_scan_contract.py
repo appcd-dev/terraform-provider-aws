@@ -42,6 +42,15 @@ def main() -> None:
     preflight_context = context.split("aws_migrator_spawn_context_preflight = <<-EOT", 1)[1].split("EOT", 1)[0]
     assert "Leave working_dir unset" in preflight_context
 
+    registry_context = context.split("dbsplit_spawn_context_registry = <<-EOT", 1)[1].split("EOT", 1)[0]
+    assert "IAC_PR_RUNNER_RULE" in registry_context
+    assert "not a file on the runner" in registry_context
+
+    registry_stage = workflow.split('stage_id         = "registry-and-import-codegen"', 1)[1]
+    registry_stage = registry_stage.split('stage_id         = "shell-converge-matrix"', 1)[0]
+    assert "The body is in this note, not on the runner" in registry_stage
+    assert "Do not call `create_agent` for the paste" in registry_stage
+
     main_tf = (MODULE / "main.tf").read_text()
     command = main_tf.split("cloud2code_scan_execute_series_body =", 1)[1].split(
         "\n", 1
