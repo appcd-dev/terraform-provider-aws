@@ -1,9 +1,63 @@
 # Use pack_dest (not work_root): models paste this heredoc and have rewritten
 # `$work_root` → `$work_ROOT` / `$WORK_ROOT` under set -u (session 318b1f36),
 # which aborts gcp-source-fetch before any clone evidence is written.
+
+# When the ACA/image bake lags the module pack version (Walmart disables vault
+# sync), pull the GitHub release tarball into script_pack_preload_dir using the
+# runner's GIT_TOKEN / gh.
+dbsplit_fetch_script_pack_tarball() {
+  local preload_dir="${script_pack_preload_dir}"
+  local pack_url="${script_pack_tarball_url}"
+  local version="${script_pack_version}"
+  local release_repo="${script_pack_release_repo}"
+  if [ -f "$preload_dir/stage-runner.sh" ] && [ -f "$preload_dir/allocate_manifest.py" ]; then
+    return 0
+  fi
+  local tok="$${GIT_TOKEN:-$${GITHUB_TOKEN:-$${GH_TOKEN:-$${token:-}}}}"
+  if [ -z "$tok" ]; then
+    echo "script_pack_error=fetch_missing_token path=$preload_dir" >&2
+    return 1
+  fi
+  export GIT_TOKEN="$tok" GH_TOKEN="$${GH_TOKEN:-$tok}" GITHUB_TOKEN="$${GITHUB_TOKEN:-$tok}"
+  # templatefile only escapes $${…}; bare $(mktemp) is the correct shell form.
+  local tmp
+  tmp="$(mktemp -d)"
+  # Prefer gh (handles private release assets); curl fallback for public mirrors.
+  if command -v gh >/dev/null 2>&1; then
+    if ! gh release download "pack-$${version}" -R "$release_repo" -p "script-pack-$${version}.tar.gz" -D "$tmp" 2>"$tmp/gh.err"; then
+      echo "script_pack_error=gh_release_download_failed version=$${version} repo=$release_repo" >&2
+      cat "$tmp/gh.err" >&2 || true
+      rm -rf "$tmp"
+      return 1
+    fi
+  elif command -v curl >/dev/null 2>&1; then
+    if ! curl -fsSL -H "Authorization: Bearer $${tok}" -H "Accept: application/octet-stream" "$pack_url" -o "$tmp/script-pack-$${version}.tar.gz"; then
+      echo "script_pack_error=curl_download_failed url=$pack_url" >&2
+      rm -rf "$tmp"
+      return 1
+    fi
+  else
+    echo "script_pack_error=fetch_tool_missing" >&2
+    rm -rf "$tmp"
+    return 1
+  fi
+  mkdir -p "$preload_dir"
+  if ! tar -xzf "$tmp/script-pack-$${version}.tar.gz" -C "$preload_dir"; then
+    echo "script_pack_error=tar_extract_failed path=$preload_dir" >&2
+    rm -rf "$tmp"
+    return 1
+  fi
+  chmod +x "$preload_dir/stage-runner.sh" "$preload_dir/run-destination-stage.sh" "$preload_dir/runner-capability-preflight.sh" 2>/dev/null || true
+  rm -rf "$tmp"
+  echo "script_pack_fetch=ok path=$preload_dir version=$${version}"
+}
+
 dbsplit_copy_preloaded_script_pack() {
   local pack_dest="$${1:?PACK_DEST}"
   local preload_dir="${script_pack_preload_dir}"
+  if [ ! -d "$preload_dir" ] || [ ! -f "$preload_dir/stage-runner.sh" ]; then
+    dbsplit_fetch_script_pack_tarball || return 1
+  fi
   if [ ! -d "$preload_dir" ]; then
     echo "script_pack_error=preload_missing path=$preload_dir" >&2
     return 1

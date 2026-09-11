@@ -224,6 +224,8 @@ locals {
     {
       script_pack_version                 = local.script_pack_version
       script_pack_preload_dir             = local.script_pack_preload_dir
+      script_pack_tarball_url             = local.script_pack_tarball_url
+      script_pack_release_repo            = trimspace(var.script_pack_release_repo)
       script_pack_allocate_sha256         = local.script_pack_allocate_sha256
       script_pack_decomposer_sha256       = local.script_pack_decomposer_sha256
       script_pack_runner_sha256           = local.script_pack_runner_sha256
@@ -436,7 +438,12 @@ locals {
   # on the ACA image (session 6dac05f9: Permission denied).
   runner_git_env_prefix                           = "GIT_TOKEN=\"$${GIT_TOKEN:-$${GITHUB_TOKEN:-$${GH_TOKEN:-$${token:-}}}}\"; export GIT_TOKEN; export GH_TOKEN=\"$${GH_TOKEN:-$${GIT_TOKEN}}\" GITHUB_TOKEN=\"$${GITHUB_TOKEN:-$${GIT_TOKEN}}\" GIT_TERMINAL_PROMPT=0"
   runner_git_credential_bootstrap                 = "mkdir -p \"$${HOME}/.aws-migrator/bin\"; echo IyEvYmluL3NoCmNhc2UgIiQxIiBpbgpnZXQpCiAgdG9rPSIke0dJVF9UT0tFTjotJHtHSVRIVUJfVE9LRU46LSR7R0hfVE9LRU46LSR7dG9rZW46LX19fX0iCiAgWyAtbiAiJHRvayIgXSB8fCBleGl0IDAKICBwcmludGYgInVzZXJuYW1lPXgtYWNjZXNzLXRva2VuXG5wYXNzd29yZD0lc1xuIiAiJHRvayIKICA7Owplc2FjCg== | base64 -d > \"$${HOME}/.aws-migrator/bin/git-credential-stackgen\"; chmod 0755 \"$${HOME}/.aws-migrator/bin/git-credential-stackgen\"; git config --global credential.helper \"$${HOME}/.aws-migrator/bin/git-credential-stackgen\""
-  runner_capability_preflight_execute_series_body = "${local.runner_git_env_prefix}; ${local.runner_git_credential_bootstrap}; bash ${local.script_pack_preload_dir}/runner-capability-preflight.sh '{{workflow_run_id}}'"
+  # Walmart ACA bakes packs into the image and disables vault sync. When /opt lags
+  # the module version, fetch the GitHub release tarball before preflight.
+  # OpenTofu only escapes $${…} → ${…}; bare $$( stays literal $$( and breaks mktemp.
+  # Use unescaped $(mktemp -d) here (not a TF interpolation).
+  runner_script_pack_fetch_bootstrap = "PRELOAD_DIR='${local.script_pack_preload_dir}'; PACK_VER='${local.script_pack_version}'; PACK_REPO='${trimspace(var.script_pack_release_repo)}'; PACK_URL='${local.script_pack_tarball_url}'; if [ ! -f \"$${PRELOAD_DIR}/runner-capability-preflight.sh\" ]; then TOK=\"$${GIT_TOKEN:-$${GITHUB_TOKEN:-$${GH_TOKEN:-$${token:-}}}}\"; export GIT_TOKEN=\"$${TOK}\" GH_TOKEN=\"$${GH_TOKEN:-$${TOK}}\" GITHUB_TOKEN=\"$${GITHUB_TOKEN:-$${TOK}}\"; TMP=$(mktemp -d); if command -v gh >/dev/null 2>&1; then gh release download \"pack-$${PACK_VER}\" -R \"$${PACK_REPO}\" -p \"script-pack-$${PACK_VER}.tar.gz\" -D \"$${TMP}\"; else curl -fsSL -H \"Authorization: Bearer $${TOK}\" -H \"Accept: application/octet-stream\" \"$${PACK_URL}\" -o \"$${TMP}/script-pack-$${PACK_VER}.tar.gz\"; fi; mkdir -p \"$${PRELOAD_DIR}\"; tar -xzf \"$${TMP}/script-pack-$${PACK_VER}.tar.gz\" -C \"$${PRELOAD_DIR}\"; chmod +x \"$${PRELOAD_DIR}\"/*.sh 2>/dev/null || true; rm -rf \"$${TMP}\"; echo \"script_pack_fetch=ok path=$${PRELOAD_DIR} version=$${PACK_VER}\"; fi"
+  runner_capability_preflight_execute_series_body = "${local.runner_git_env_prefix}; ${local.runner_git_credential_bootstrap}; ${local.runner_script_pack_fetch_bootstrap}; bash ${local.script_pack_preload_dir}/runner-capability-preflight.sh '{{workflow_run_id}}'"
   # Scan one-liner: thin wrapper so mangled env-only pastes still work
   # (session 32e2ad9f set workflow_run_id=/aws_region= and dropped argv;
   # session 6dac05f9 invented `cloud2code aws discover`). Always ends in
