@@ -35,14 +35,27 @@ cp "$MODULE/mappings/aws-to-gcp.json" "$DEST/mappings/"
 chmod +x "$DEST/stage-runner.sh" "$DEST/run-destination-stage.sh" \
   "$DEST/runner-capability-preflight.sh" "$DEST/cloud2code-aws-scan.sh"
 
-# Agents keep shortening the scan script name and the command then dies with
-# exit 127 before any scan runs: `cloud2code-scan` (session 90cf9291) and
-# `pack.sh` (session 8478c357). Accept the near-miss names and run the real
-# script with the same arguments.
-for alias_name in cloud2code-scan cloud2code-scan.sh cloud2code-aws-scan pack.sh; do
+# Agents keep renaming the scan script and the command dies with exit 127
+# before any scan runs: pack.sh (session 8478c357), cloud2code-scan (90cf9291),
+# cloud2code-scan-aws (1c98a1b9). One listed the directory, saw the real names,
+# and still did not retry with one. So accept the whole plausible name space and
+# run the real script.
+for alias_name in \
+  cloud2code-scan cloud2code-scan.sh \
+  cloud2code-aws-scan \
+  cloud2code-scan-aws cloud2code-scan-aws.sh \
+  cloud2code-aws cloud2code-aws.sh \
+  cloud2code cloud2code.sh \
+  aws-scan aws-scan.sh \
+  scan-aws scan-aws.sh \
+  scan scan.sh \
+  run-scan run-scan.sh \
+  cloud2code_aws_scan.sh cloud2code_scan_aws.sh \
+  pack.sh; do
+  [ -e "$DEST/$alias_name" ] && continue
   cat >"$DEST/$alias_name" <<'ALIAS'
 #!/usr/bin/env bash
-# Alias for cloud2code-aws-scan.sh. Kept so a mangled script name still scans.
+# Alias for cloud2code-aws-scan.sh. Kept so a renamed script still scans.
 set -euo pipefail
 exec bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cloud2code-aws-scan.sh" "$@"
 ALIAS
