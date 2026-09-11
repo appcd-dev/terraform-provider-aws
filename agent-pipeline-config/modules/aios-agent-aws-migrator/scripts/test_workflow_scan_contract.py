@@ -44,8 +44,12 @@ def main() -> None:
     persona = (MODULE / "personas" / "aws-migrator-architect.md.tftpl").read_text()
     guard = (MODULE / "_persona_guard.tf").read_text()
 
-    # Workflow must not bind SOPs as runbooks.
-    assert "null" in workflow.split("runbook_refs =", 1)[1].split("\n", 1)[0]
+    # Workflow must not bind SOPs as runbooks. Use [] so Terraform clears
+    # previously applied refs; null is a no-op on update (stale SOP replay).
+    assert "[]" in workflow.split("runbook_refs =", 1)[1].split("\n", 1)[0]
+    assert "runbook_refs = null" not in workflow
+    assert "runbook_refs     = null" not in workflow
+    assert "skill_refs       = null" not in workflow
     assert "local.sop_" not in workflow
 
     # Persona: identity + hard rules only. No stage table, no SOP load list,
@@ -59,9 +63,10 @@ def main() -> None:
     assert "current stage note is the execution plan" in persona
     assert "*.md.tftpl" in guard
 
-    # Scan: paste-first, one body, no create_agent, skills null.
+    # Scan: paste-first, one body, no create_agent, skills empty.
     scan = _binding(workflow, "cloud2code-scan-aws")
-    assert "skill_refs       = null" in scan or "skill_refs = null" in scan
+    assert "skill_refs       = []" in scan or "skill_refs = []" in scan
+    assert "runbook_refs     = []" in scan or "runbook_refs = []" in scan
     assert "${local.aws_migrator_spawn_context_cloud2code}" in scan
     assert "create_agent" in scan.lower()
     assert "do not create_agent" in scan.lower() or "Do not create_agent" in scan
@@ -89,6 +94,7 @@ def main() -> None:
 
     # Preflight: short contract, working_dir guidance stays in spawn context.
     preflight = _binding(workflow, "runner-capability-preflight")
+    assert "runbook_refs = []" in preflight
     assert "${local.aws_migrator_spawn_context_preflight}" in preflight
     assert "session " not in preflight.lower()
     assert len(_heredoc_body(preflight, "note")) <= MAX_BINDING_NOTE
@@ -101,9 +107,10 @@ def main() -> None:
     assert "stage_summary:runner-capability-preflight=blocked:" not in gate_match
     assert "blocked:remote_runner_script_pack_missing" in gate_match
 
-    # Ingest: skills null, one bootstrap body, unquoted false on blocked gate.
+    # Ingest: skills empty, one bootstrap body, unquoted false on blocked gate.
     ingest = _binding(workflow, "ingest-and-split")
-    assert "skill_refs       = null" in ingest or "skill_refs = null" in ingest
+    assert "skill_refs       = []" in ingest or "skill_refs = []" in ingest
+    assert "runbook_refs     = []" in ingest or "runbook_refs = []" in ingest
     assert "${local.dbsplit_spawn_context_ingest}" in ingest
     assert "session " not in ingest.lower() and "trace " not in ingest.lower()
     assert len(_heredoc_body(ingest, "note")) <= MAX_BINDING_NOTE
@@ -113,8 +120,25 @@ def main() -> None:
 
     ingest_gate = _binding(workflow, "ingest-blocked-gate")
     ingest_match = _string_assign(ingest_gate, "match")
-    assert "count_reconciliation_ok[^\\\\n]{0,40}false" in ingest_match
-    assert "script_pack_verify_ok[^\\\\n]{0,40}false" in ingest_match
+    assert "script_pack_verify_ok=false" in ingest_match
+    assert "count_reconciliation_ok=false" in ingest_match
+    # Must not use the flexible [^\\n] form: loop FINISH reasons embed exit_match
+    # text and false-skipped a clean split (session cec82df8).
+    assert "script_pack_verify_ok[^\\\\n]{0,40}false" not in ingest_match
+    assert "count_reconciliation_ok[^\\\\n]{0,40}false" not in ingest_match
+
+    finish = (
+        'output matches regex "count_reconciliation_ok[^\\n]{0,40}true|'
+        "blocked:missing_monolith_state_uri|script_pack_verify_ok[^\\n]{0,40}false|"
+        'script_pack_error=" — loop complete'
+    )
+    gate_re = ingest_match.encode("utf-8").decode("unicode_escape")
+    assert not re.search(gate_re, finish), finish
+    assert re.search(gate_re, "count_reconciliation_ok=false\n")
+    assert re.search(gate_re, 'script_pack_verify_ok: "false"\n')
+    assert not re.search(
+        gate_re, "count_reconciliation_ok=true\nscript_pack_verify_ok=true\n"
+    )
 
     # Registry: paste from note, no create_agent, body once.
     registry = _binding(workflow, "registry-and-import-codegen")

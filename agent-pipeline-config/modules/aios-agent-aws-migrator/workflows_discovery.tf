@@ -69,7 +69,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
 
   # Stage DAG owns the sequence. Do not bind SOPs as runbooks/skills: Guild then
   # executes them as step lists inside a single stage.
-  runbook_refs = null
+  runbook_refs = []
 
   stages = concat(
     [
@@ -164,7 +164,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
     {
       stage_id     = "runner-capability-preflight"
       agent_ref    = sg_agent.aws_migrator_architect.name
-      runbook_refs = null
+      runbook_refs = []
       skill_refs   = try(var.workflow_skill_refs["aws-cloud-discovery::runner-capability-preflight"], [])
       note         = <<-EOT
         Purpose: fail fast if the remote runner lacks tools or the script pack.
@@ -194,8 +194,8 @@ resource "sg_workflow" "aws_migrator_discovery" {
       stage_id         = "cloud2code-scan-aws"
       stage_depends_on = ["preflight-blocked-gate"]
       agent_ref        = sg_agent.aws_migrator_architect.name
-      runbook_refs     = null
-      skill_refs       = null
+      runbook_refs     = []
+      skill_refs       = []
       note             = <<-EOT
         Purpose: create monolith_state_uri for this run. Downstream stages must not ask the operator for it.
         First call: `${local.shell_tool_prefix}_execute_series` with BEGIN/END CLOUD2CODE_SCAN_EXECUTE_SERIES. Do not create_agent, load_skill, or read_notes first. On loop GO_BACK, paste again — do not re-plan.
@@ -236,8 +236,8 @@ resource "sg_workflow" "aws_migrator_discovery" {
       stage_id         = "ingest-and-split"
       agent_ref        = sg_agent.aws_migrator_architect.name
       stage_depends_on = ["scan-blocked-gate"]
-      runbook_refs     = null
-      skill_refs       = null
+      runbook_refs     = []
+      skill_refs       = []
       note             = <<-EOT
         Purpose: every scanned resource exactly once, each group has a state file. Split-quality scores are optional.
         First call: one `${local.shell_tool_prefix}_execute_command` with BEGIN/END INGEST_BOOTSTRAP_EXECUTE_COMMAND (working_dir=/, full timeout). create_agent is allowed with the same body. Do not ask for monolith_state_uri; do not invent shell; do not use GitHub/AWS MCP tools.
@@ -266,9 +266,11 @@ resource "sg_workflow" "aws_migrator_discovery" {
       stage_depends_on = ["ingest-split-loop"]
       action_config = {
         condition = "output_matches_regex"
-        # Accept quoted and unquoted false; runner prints unquoted keys.
-        # Keep blocked:…: "true" and stage_summary forms so loop FINISH cannot false-skip.
-        match   = "blocked:missing_monolith_state_uri:\\s*\\\"true\\\"|blocked:three_runner_attempts_failed:\\s*\\\"true\\\"|blocked:ingest_script_pack_failed:\\s*\\\"true\\\"|stage_summary:ingest-and-split=blocked:|script_pack_verify_ok[^\\n]{0,40}false|count_reconciliation_ok[^\\n]{0,40}false|script_pack_error=[A-Za-z0-9_]"
+        # Emitted forms only. Do not use script_pack_verify_ok[^\\n]{0,40}false here:
+        # loop FINISH reasons paste the exit_match pattern text, and that substring
+        # false-skipped a clean split (session cec82df8: count_reconciliation_ok=true,
+        # 89 groups) straight to final-gate.
+        match   = "blocked:missing_monolith_state_uri:\\s*\\\"true\\\"|blocked:three_runner_attempts_failed:\\s*\\\"true\\\"|blocked:ingest_script_pack_failed:\\s*\\\"true\\\"|stage_summary:ingest-and-split=blocked:|script_pack_verify_ok:\\s*\\\"false\\\"|script_pack_verify_ok=false|count_reconciliation_ok:\\s*\\\"false\\\"|count_reconciliation_ok=false|script_pack_error=[A-Za-z0-9_]"
         skip_to = "final-gate-and-memory"
         reason  = "The scanned resources could not be split correctly, so Terraform generation cannot continue"
       }
@@ -277,7 +279,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
       stage_id         = "registry-and-import-codegen"
       agent_ref        = sg_agent.aws_migrator_architect.name
       stage_depends_on = ["ingest-blocked-gate"]
-      runbook_refs     = null
+      runbook_refs     = []
       skill_refs       = try(var.workflow_skill_refs["aws-cloud-discovery::registry-and-import-codegen"], [])
       note             = <<-EOT
         Purpose: AWS group Terraform on a branch, plus pr_url or a concrete pr_blocker. Soft split-quality scores are warnings.
@@ -292,7 +294,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
       stage_id         = "shell-converge-matrix"
       agent_ref        = sg_agent.aws_migrator_architect.name
       stage_depends_on = ["registry-and-import-codegen"]
-      runbook_refs     = null
+      runbook_refs     = []
       skill_refs = concat(
         try(var.workflow_skill_refs["aws-cloud-discovery::shell-converge-matrix"], []),
         try(var.workflow_skill_refs["aws-cloud-discovery::hcl-hydrate-per-group"], []),
@@ -311,8 +313,8 @@ resource "sg_workflow" "aws_migrator_discovery" {
       action_type      = "loop_stage"
       agent_ref        = ""
       stage_depends_on = ["shell-converge-matrix"]
-      runbook_refs     = null
-      skill_refs       = null
+      runbook_refs     = []
+      skill_refs       = []
       action_config = {
         loop_to        = "shell-converge-matrix"
         max_iterations = var.max_convergence_iterations
@@ -337,7 +339,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
       stage_id         = "orphans-secondary-pipeline"
       agent_ref        = sg_agent.aws_migrator_architect.name
       stage_depends_on = ["converge-blocked-gate"]
-      runbook_refs     = null
+      runbook_refs     = []
       skill_refs       = try(var.workflow_skill_refs["aws-cloud-discovery::orphans-secondary-pipeline"], [])
       note             = <<-EOT
         Max 2 tool turns: read_notes → if upstream blocked, note skipped:upstream_blocked and return; if orphans_bundle empty, note skipped:empty_orphans_bundle and return; else hand off to the orphan workflow.
@@ -348,7 +350,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
       stage_id         = "final-gate-and-memory"
       agent_ref        = sg_agent.aws_migrator_architect.name
       stage_depends_on = ["orphans-secondary-pipeline"]
-      runbook_refs     = null
+      runbook_refs     = []
       skill_refs = concat(
         try(var.workflow_skill_refs["aws-cloud-discovery::final-gate-and-memory"], []),
         try(var.workflow_skill_refs["aws-migrator-discovery::final-gate-and-memory"], [])
