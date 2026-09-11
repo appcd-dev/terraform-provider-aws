@@ -206,16 +206,16 @@ resource "sg_workflow" "aws_migrator_discovery" {
       stage_id         = "cloud2code-scan-aws"
       stage_depends_on = ["preflight-blocked-gate"]
       agent_ref        = sg_agent.aws_migrator_architect.name
-      # Keep SOPs as skills below. Prescriptive runbook bindings execute the
-      # whole document and bypass this stage's bounded scan contract.
+      # Prescriptive runbook bindings execute the whole document and bypass
+      # this stage's bounded scan contract.
       runbook_refs = null
-      skill_refs = concat(
-        [local.sop_cloud2code_scan_name, local.sop_orchestration_name],
-        try(var.workflow_skill_refs["aws-cloud-discovery::cloud2code-scan-aws"], []),
-      )
-      note = <<-EOT
+      # The stage carries the complete executable contract. Extra scan skills
+      # caused the agent to search generic prose, then claim the canonical body
+      # was unavailable even though it was embedded below (session 1967a572).
+      skill_refs = null
+      note       = <<-EOT
         **Purpose:** create the monolithic AWS Terraform state for this workflow. This stage owns `monolith_state_uri`; downstream stages must not ask the operator for it.
-        **Incremental bring-up execution:** `create_agent` is allowed (reactree). Spawn ONE `cloud2code-scan-runner` with CREATE_AGENT_EXPECTATION from the spawn context. `tool_names` only `["${local.shell_tool_prefix}_execute_series"]`.
+        **Execution:** do not call `create_agent`. Session 1967a572 proved the child context can omit the command body: the child invented `set -euo pipefail` under `/bin/sh`, then `cloud2code scan aws`, and never called the pack script. Your first tool call must be `${local.shell_tool_prefix}_execute_series` with the exact direct command below.
         **Paste rule (mandatory):** `commands[0].command` MUST be exactly the BEGIN/END `CLOUD2CODE_SCAN_EXECUTE_SERIES` body (starts with `CLOUD2CODE_INCLUDE=` and contains `bash -c` + `cloud2code-aws-scan.sh`). That script runs `cloud2code import aws` — there is no `cloud2code aws` subcommand. Do not rewrite it into env-only invocations or append `&&`.
         **FORBIDDEN (session 6dac05f9 / 32e2ad9f / 127f2c35 / af38cc9e):** inventing `set -euo pipefail` wrappers, `cloud2code aws`, `cloud2code aws discover`, `cloud2code aws scan`, custom SCAN_LOG/STATE_OUT shells, dropping `bash -c`, or calling `cloud2code-aws-scan.sh` with no args / trailing `&&`. Those fail with `Error: unknown command "aws"` or `blocked:missing_aws_region` and produce no tfstate.
         **Substitute before paste (mandatory):** replace `AWS_REGION_PLACEHOLDER` with the region AND replace `{{workflow_run_id}}` with the real id from the stagerunner `[Workflow execution]` header (e.g. `wf-aws-cloud-discovery-…`). Do **not** leave the brace token literal — Guild often does not expand it inside agent-pasted `execute_series` (session b2177674 wrote `/home/runner/.{{workflow_run_id}}/` and then could not self-diagnose).
@@ -231,8 +231,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
         **Success criteria:** final line must include `cloud2code_scan_ok: "true"`, `cloud2code_tfstate_path=...`, `monolith_state_uri=...`, and `monolith_resource_count=<N>`. Also `note` those keys and mirror them to `$HOME/.<workflow_run_id>/notes.json`.
 
         The exact spawn/direct-fallback context follows. It is embedded here so
-        the architect can execute the same bootstrap when subagent creation is
-        unavailable instead of inventing a replacement command:
+        the architect executes the pack script without inventing a replacement:
 
         ${local.aws_migrator_spawn_context_cloud2code}
       EOT
