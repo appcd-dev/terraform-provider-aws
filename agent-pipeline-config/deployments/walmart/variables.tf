@@ -94,6 +94,18 @@ variable "gcp_only_source_branch" {
   default     = "fixture/opa-gcp-source-mini"
 }
 
+variable "model_names" {
+  description = "Existing Guild model names to attach to aws-migrator-architect (and governance-codify when enabled). Use customer-registered names from the agent Models tab. When empty and Azure OpenAI models are registered by this stack, those names are used; otherwise Guild defaults apply and an empty list can clear UI selections on apply."
+  type        = list(string)
+  default     = []
+}
+
+variable "non_trivial_model_names" {
+  description = "Optional override passed to aws-migrator for paste-heavy sub-agents. When empty, model_names is filtered to drop efficiency-tier names (mini|flash|nano|haiku)."
+  type        = list(string)
+  default     = []
+}
+
 variable "azure_openai_api_url" {
   description = "Azure OpenAI resource endpoint. Empty skips Azure OpenAI provider/models."
   type        = string
