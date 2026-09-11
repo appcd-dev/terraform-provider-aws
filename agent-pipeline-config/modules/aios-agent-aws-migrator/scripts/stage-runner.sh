@@ -1860,8 +1860,14 @@ cmd_count_reconcile() {
   echo "aggregate_group_resource_count=${aggregate}"
 }
 
+# SCM github vault sync injects `token` (not GIT_TOKEN/GH_TOKEN). Accept all aliases.
+resolve_git_token() {
+  printf '%s' "${GIT_TOKEN:-${GITHUB_TOKEN:-${GH_TOKEN:-${token:-}}}}"
+}
+
 bootstrap_gh() {
-  local git_token="${GIT_TOKEN:-${GITHUB_TOKEN:-${GH_TOKEN:-}}}"
+  local git_token
+  git_token="$(resolve_git_token)"
   export GIT_TOKEN="$git_token" GH_TOKEN="$git_token" GITHUB_TOKEN="$git_token"
   export GIT_TERMINAL_PROMPT=0
   if [ -z "$git_token" ]; then
@@ -1878,7 +1884,8 @@ bootstrap_gh() {
 
 git_clone_url() {
   local url="${1:?REPO_CLONE_URL}"
-  local git_token="${GIT_TOKEN:-${GITHUB_TOKEN:-${GH_TOKEN:-}}}"
+  local git_token
+  git_token="$(resolve_git_token)"
   if [[ "$url" =~ ^git@ ]]; then
     printf '%s' "$url"
     return 0
@@ -2586,7 +2593,7 @@ cmd_clone_iac_repo() {
   repo_dir="$(resolve_repo_dir "$work_root")"
   mkdir -p "$(dirname "$repo_dir")"
   clone_url="$(git_clone_url "$repo_url")"
-  git_token="${GIT_TOKEN:-${GITHUB_TOKEN:-${GH_TOKEN:-}}}"
+  git_token="$(resolve_git_token)"
 
   if [[ "$repo_url" =~ ^https:// ]] && [ -z "$git_token" ] && [[ ! "$clone_url" =~ ^https://[^/@]+@ ]]; then
     record_git_credentials_blocker "$work_root" "GIT_TOKEN_missing_for_https_clone"
@@ -2689,7 +2696,7 @@ cmd_azure_source_fetch() {
   local source_dir clone_url git_token repo_full
   source_dir="${work_root}/source_repo"
   clone_url="$(git_clone_url "$repo_url")"
-  git_token="${GIT_TOKEN:-${GITHUB_TOKEN:-${GH_TOKEN:-}}}"
+  git_token="$(resolve_git_token)"
   repo_full="$(repo_full_name_from_url "$repo_url")"
 
   if [[ "$repo_url" =~ ^https:// ]] && [ -z "$git_token" ] && [[ ! "$clone_url" =~ ^https://[^/@]+@ ]]; then
@@ -5282,7 +5289,7 @@ cmd_gcp_source_fetch() {
   local source_dir clone_url git_token repo_full
   source_dir="${work_root}/source_repo"
   clone_url="$(git_clone_url "$repo_url")"
-  git_token="${GIT_TOKEN:-${GITHUB_TOKEN:-${GH_TOKEN:-}}}"
+  git_token="$(resolve_git_token)"
   repo_full="$(repo_full_name_from_url "$repo_url")"
 
   if [[ "$repo_url" =~ ^https:// ]] && [ -z "$git_token" ] && [[ ! "$clone_url" =~ ^https://[^/@]+@ ]]; then
@@ -6704,6 +6711,61 @@ cmd_commit_pr() {
   echo "aws_discovery_pr_commit_count=${commits}"
 }
 
+adopt_decomposition_handoff() {
+  local work_root="${1:?WORK_ROOT}"
+  if [ -f "${work_root}/logical_group_manifest.json" ] && [ -d "${work_root}/groups" ]; then
+    return 0
+  fi
+
+  local manifest_path source_root
+  manifest_path="$(read_note "$work_root" "logical_group_manifest_path" 2>/dev/null || true)"
+  if [ -f "$manifest_path" ] && [ -d "$(dirname "$manifest_path")/groups" ]; then
+    source_root="$(cd "$(dirname "$manifest_path")" && pwd)"
+  else
+    manifest_path="${work_root}/decomposition/logical_group_manifest.json"
+    source_root="${work_root}/decomposition"
+  fi
+  if [ ! -f "$manifest_path" ] || [ ! -d "${source_root}/groups" ]; then
+    return 0
+  fi
+  source_root="$(cd "$source_root" && pwd)"
+  if [ "$source_root" = "$work_root" ]; then
+    return 0
+  fi
+
+  local artifact
+  for artifact in \
+    logical_group_manifest.json \
+    shard_manifest.json \
+    per_group_resource_counts.json \
+    group_state_paths.json \
+    reconcile_result.json \
+    split_quality_report.json \
+    split_tuning_history.json \
+    review_items.json \
+    layer_summary.json; do
+    if [ -f "${source_root}/${artifact}" ] && [ ! -e "${work_root}/${artifact}" ]; then
+      cp -a "${source_root}/${artifact}" "${work_root}/${artifact}"
+    fi
+  done
+  if [ -d "${source_root}/groups" ] && [ ! -e "${work_root}/groups" ]; then
+    cp -a "${source_root}/groups" "${work_root}/groups"
+  fi
+
+  if [ -f "${work_root}/reconcile_result.json" ]; then
+    mirror_note "$work_root" "count_reconciliation_ok" \
+      "$(jq -r '.count_reconciliation_ok // false' "${work_root}/reconcile_result.json")"
+    mirror_note "$work_root" "monolith_resource_count" \
+      "$(jq -r '.monolith_resource_count // 0' "${work_root}/reconcile_result.json")"
+    mirror_note "$work_root" "aggregate_group_resource_count" \
+      "$(jq -r '.aggregate_group_resource_count // 0' "${work_root}/reconcile_result.json")"
+  fi
+  mirror_note "$work_root" "logical_group_manifest_path" "${work_root}/logical_group_manifest.json"
+  mirror_note "$work_root" "group_state_paths" "${work_root}/group_state_paths.json"
+  mirror_note "$work_root" "decomposition_handoff_adopted_from" "$source_root"
+  echo "decomposition_handoff_adopted_from=${source_root}"
+}
+
 cmd_iac_pr_pipeline() {
   local work_root="${1:?WORK_ROOT}"
   local repo_url="${2:-${IAC_REPOSITORY_URL:-}}"
@@ -6711,6 +6773,9 @@ cmd_iac_pr_pipeline() {
   local workflow_run_id="${4:-${WORKFLOW_RUN_ID:-}}"
 
   require_embedded_invocation || return 1
+  # Compatibility for a worker that wrote a valid split under
+  # $WORK_ROOT/decomposition instead of using the canonical ingest bootstrap.
+  adopt_decomposition_handoff "$work_root"
 
   local reconcile_ok
   reconcile_ok="$(read_note "$work_root" "count_reconciliation_ok" 2>/dev/null || true)"

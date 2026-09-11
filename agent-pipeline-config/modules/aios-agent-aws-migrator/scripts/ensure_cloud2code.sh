@@ -44,7 +44,16 @@ ensure_cloud2code() {
     return 1
   fi
 
-  install_dir="${CLOUD2CODE_INSTALL_DIR:-$HOME/.local/bin}"
+  install_dir="${CLOUD2CODE_INSTALL_DIR:-}"
+  if [ -z "$install_dir" ]; then
+    # Prefer writable aws-migrator bin; $HOME/.local/bin is often root-owned on ACA
+    # (session 6dac05f9 Permission denied).
+    if mkdir -p "$HOME/.aws-migrator/bin" 2>/dev/null && [ -w "$HOME/.aws-migrator/bin" ]; then
+      install_dir="$HOME/.aws-migrator/bin"
+    else
+      install_dir="$HOME/.local/bin"
+    fi
+  fi
   archive_url="${release_base}/v${version}/cloud2code_${version}_${target_os}_${target_arch}.tar.gz"
   tmp_dir="$(mktemp -d)"
 

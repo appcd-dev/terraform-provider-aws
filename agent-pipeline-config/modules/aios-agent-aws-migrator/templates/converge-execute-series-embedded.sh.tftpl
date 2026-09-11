@@ -6,6 +6,11 @@ WORK_ROOT="$ABS_WORK_ROOT"
 export DBSPLIT_EMBEDDED=1
 export DBSPLIT_ALLOCATE_SHA256="${script_pack_allocate_sha256}"
 export DBSPLIT_DECOMPOSER_SHA256="${script_pack_decomposer_sha256}"
+# SCM github vault sync exposes `token` (session 8da4f049). Alias for git/gh.
+export GIT_TOKEN="$${GIT_TOKEN:-$${GITHUB_TOKEN:-$${GH_TOKEN:-$${token:-}}}}"
+export GH_TOKEN="$${GH_TOKEN:-$${GIT_TOKEN}}"
+export GITHUB_TOKEN="$${GITHUB_TOKEN:-$${GIT_TOKEN}}"
+export GIT_TERMINAL_PROMPT=0
 
 ${dbsplit_script_pack_preload_helpers}
 

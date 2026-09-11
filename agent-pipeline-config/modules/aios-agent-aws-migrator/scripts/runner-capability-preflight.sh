@@ -81,6 +81,33 @@ if ! command -v git >/dev/null 2>&1; then
   emit_blocked "blocked:remote_runner_git_missing" "git_missing"
 fi
 
+# SCM github vault sync exposes `token`, not GIT_TOKEN (session 8da4f049).
+# Alias into git/gh env and install a durable credential helper so later
+# execute_series shells (including hand-rolled git clone) can authenticate.
+# Prefer $HOME/.aws-migrator/bin — $HOME/.local/bin is often not writable on ACA
+# (session 6dac05f9: Permission denied).
+_git_tok="${GIT_TOKEN:-${GITHUB_TOKEN:-${GH_TOKEN:-${token:-}}}}"
+if [ -n "$_git_tok" ]; then
+  export GIT_TOKEN="$_git_tok" GH_TOKEN="${GH_TOKEN:-$_git_tok}" GITHUB_TOKEN="${GITHUB_TOKEN:-$_git_tok}"
+  export GIT_TERMINAL_PROMPT=0
+  _cred_dir="${HOME}/.aws-migrator/bin"
+  mkdir -p "$_cred_dir"
+  cat >"${_cred_dir}/git-credential-stackgen" <<'GCEOF'
+#!/bin/sh
+case "$1" in
+get)
+  tok="${GIT_TOKEN:-${GITHUB_TOKEN:-${GH_TOKEN:-${token:-}}}}"
+  [ -n "$tok" ] || exit 0
+  printf "username=x-access-token\npassword=%s\n" "$tok"
+  ;;
+esac
+GCEOF
+  chmod 0755 "${_cred_dir}/git-credential-stackgen"
+  git config --global credential.helper "${_cred_dir}/git-credential-stackgen"
+  unset _cred_dir
+fi
+unset _git_tok
+
 if ! command -v tofu >/dev/null 2>&1 && ! command -v terraform >/dev/null 2>&1; then
   emit_blocked "blocked:remote_runner_tofu_missing" "tofu_missing"
 fi

@@ -99,6 +99,10 @@ coalesce_value() {
 }
 
 AWS_REGION="$(coalesce_value aws_region AWS_REGION)"
+# Tolerate LLM-mangled env aliases (session 32e2ad9f used aws_region= without argv).
+if [ -z "$AWS_REGION" ]; then
+  AWS_REGION="${aws_region:-${AWS_DEFAULT_REGION:-}}"
+fi
 CLOUD2CODE_INCLUDE="$(coalesce_value cloud2code_include CLOUD2CODE_INCLUDE)"
 CLOUD2CODE_EXCLUDE="$(coalesce_value cloud2code_exclude CLOUD2CODE_EXCLUDE)"
 # Default exclude: catalog non_applicable types that never map to Azure/GCP as

@@ -1,1 +1,1 @@
-SOURCE_PR='' SOURCE_IAC_BRANCH='${gcp_only_source_branch}' WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 REQUIRE_GCP_LIVE_PLAN='${require_gcp_live_plan}' bash ${script_pack_preload_dir}/run-destination-stage.sh gcp-source-fetch '{{workflow_run_id}}'
+${runner_git_env_prefix} SOURCE_PR='' SOURCE_IAC_BRANCH='${gcp_only_source_branch}' WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 REQUIRE_GCP_LIVE_PLAN='${require_gcp_live_plan}' bash ${script_pack_preload_dir}/run-destination-stage.sh gcp-source-fetch '{{workflow_run_id}}'

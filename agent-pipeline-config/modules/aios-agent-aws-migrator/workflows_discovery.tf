@@ -171,9 +171,9 @@ resource "sg_workflow" "aws_migrator_discovery" {
     {
       stage_id  = "runner-capability-preflight"
       agent_ref = sg_agent.aws_migrator_architect.name
-      runbook_refs = [
-        sg_runbook_sop.aws_migrator_orchestration.name,
-      ]
+      # Stage sequencing already implements the orchestration SOP. Binding it as
+      # a prescriptive runbook makes Guild execute all 20 SOP steps in this stage.
+      runbook_refs = null
       skill_refs = concat(
         [local.sop_orchestration_name],
         try(var.workflow_skill_refs["aws-cloud-discovery::runner-capability-preflight"], []),
@@ -203,26 +203,28 @@ resource "sg_workflow" "aws_migrator_discovery" {
       stage_id         = "cloud2code-scan-aws"
       stage_depends_on = ["preflight-blocked-gate"]
       agent_ref        = sg_agent.aws_migrator_architect.name
-      runbook_refs = [
-        sg_runbook_sop.cloud2code_aws_region_scan.name,
-        sg_runbook_sop.aws_migrator_orchestration.name,
-      ]
+      # Keep SOPs as skills below. Prescriptive runbook bindings execute the
+      # whole document and bypass this stage's bounded scan contract.
+      runbook_refs = null
       skill_refs = concat(
         [local.sop_cloud2code_scan_name, local.sop_orchestration_name],
         try(var.workflow_skill_refs["aws-cloud-discovery::cloud2code-scan-aws"], []),
       )
       note = <<-EOT
         **Purpose:** create the monolithic AWS Terraform state for this workflow. This stage owns `monolith_state_uri`; downstream stages must not ask the operator for it.
-        **Incremental bring-up execution:** `create_agent` is allowed (reactree). Spawn ONE `cloud2code-scan-runner` with CREATE_AGENT_EXPECTATION from the spawn context (exact `bash …/cloud2code-aws-scan.sh` one-liner). `tool_names` only `["${local.shell_tool_prefix}_execute_series"]`. Never invent `set -o pipefail` / `cloud2code aws scan` (sessions 127f2c35 / af38cc9e).
+        **Incremental bring-up execution:** `create_agent` is allowed (reactree). Spawn ONE `cloud2code-scan-runner` with CREATE_AGENT_EXPECTATION from the spawn context. `tool_names` only `["${local.shell_tool_prefix}_execute_series"]`.
+        **Paste rule (mandatory):** `commands[0].command` MUST be exactly the BEGIN/END `CLOUD2CODE_SCAN_EXECUTE_SERIES` body (starts with `CLOUD2CODE_INCLUDE=` and contains `bash -c` + `cloud2code-aws-scan.sh`). That script runs `cloud2code import aws` — there is no `cloud2code aws` subcommand. Do not rewrite it into env-only invocations or append `&&`.
+        **FORBIDDEN (session 6dac05f9 / 32e2ad9f / 127f2c35 / af38cc9e):** inventing `set -euo pipefail` wrappers, `cloud2code aws`, `cloud2code aws discover`, `cloud2code aws scan`, custom SCAN_LOG/STATE_OUT shells, dropping `bash -c`, or calling `cloud2code-aws-scan.sh` with no args / trailing `&&`. Those fail with `Error: unknown command "aws"` or `blocked:missing_aws_region` and produce no tfstate.
         **Substitute before paste (mandatory):** replace `AWS_REGION_PLACEHOLDER` with the region AND replace `{{workflow_run_id}}` with the real id from the stagerunner `[Workflow execution]` header (e.g. `wf-aws-cloud-discovery-…`). Do **not** leave the brace token literal — Guild often does not expand it inside agent-pasted `execute_series` (session b2177674 wrote `/home/runner/.{{workflow_run_id}}/` and then could not self-diagnose).
         **Operator scan filters (mandatory):** when the query set `cloud2code_include`, `cloud2code_exclude`, or `cloud2code_tags`, copy each value into the matching `CLOUD2CODE_*=''` slot at the front of the one-liner before pasting it. That env prefix is the only path from the query to `cloud2code import aws`; leaving it empty scans the whole region regardless of what the operator asked for.
-        **Self-heal on failure (mandatory):** if the runner returns `blocked:cloud2code_scan_failed`, `blocked:cloud2code_workflow_run_id_unresolved`, or a missing tfstate sentinel, do **not** stop at the sentinel. Read `cloud2code_log_tail_*` from the same tool result (or `tail` `$HOME/.<real_workflow_run_id>/.work/cloud2code.log` via `${local.shell_tool_prefix}_execute_command`). Classify and fix, then re-run the scan one-liner in this stage:
+        **Self-heal on failure (mandatory):** if the runner returns `blocked:cloud2code_scan_failed`, `blocked:cloud2code_workflow_run_id_unresolved`, a missing tfstate sentinel, **or** `unknown command "aws" for "cloud2code"`, do **not** stop and do **not** invent another wrapper. Discard the bad command, paste the pack one-liner again (only substitution: real workflow_run_id + region + operator filters), and re-run:
+        - `unknown command "aws"` / invented `cloud2code aws*` → you ignored the pack one-liner; paste BEGIN/END body only and retry
         - literal `{{workflow_run_id}}` / unresolved id → paste the real id and retry
         - outdated / missing `cloud2code` → rely on pack `ensure_cloud2code` (pin 0.5.2+) and retry
         - unsupported `--exclude` / filter errors → drop bad types from `CLOUD2CODE_EXCLUDE` or narrow `CLOUD2CODE_INCLUDE` and retry
-        - transient AWS / runner blips → retry the same one-liner once
-        Only emit a terminal `blocked:cloud2code_scan_failed: "true"` after at least one remediation attempt (or when the log shows a clearly non-retryable cause such as missing AWS credentials with no alternate path). Never fabricate an empty tfstate.
-        **Hard evidence gate:** never report this stage complete from notes or reasoning alone. Completion requires a successful `${local.shell_tool_prefix}_execute_series` result containing `cloud2code_scan_ok: "true"`, a non-empty `monolith_state_uri`, and `monolith_resource_count` greater than zero. If those values are absent after remediation, record `stage_summary:cloud2code-scan-aws=blocked:missing_runner_evidence` (retryable) rather than inventing success.
+        - transient AWS / runner blips → retry the same pack one-liner once
+        Only emit a terminal `blocked:cloud2code_scan_failed: "true"` after at least one remediation attempt that used the pack one-liner (or when the log shows a clearly non-retryable cause such as missing AWS credentials with no alternate path). Never fabricate an empty tfstate.
+        **Hard evidence gate:** never report this stage complete from notes or reasoning alone. Completion requires a successful `${local.shell_tool_prefix}_execute_series` result containing `cloud2code_scan_ok: "true"`, a non-empty `monolith_state_uri`, and `monolith_resource_count` greater than zero. If those values are absent after remediation, record `stage_summary:cloud2code-scan-aws=blocked:missing_runner_evidence` (retryable) rather than inventing success. Do **not** invent custom summaries like `blocked — scan command invalid` — that skips the scan loop without healing.
         **Success criteria:** final line must include `cloud2code_scan_ok: "true"`, `cloud2code_tfstate_path=...`, `monolith_state_uri=...`, and `monolith_resource_count=<N>`. Also `note` those keys and mirror them to `$HOME/.<workflow_run_id>/notes.json`.
 
         The exact spawn/direct-fallback context follows. It is embedded here so
@@ -245,7 +247,9 @@ resource "sg_workflow" "aws_migrator_discovery" {
         # Import failures (`blocked:cloud2code_scan_failed`) are retryable: the
         # agent must read the log tail, remediate, and re-run (session b2177674
         # exited the loop on the first failure without healing).
-        exit_match = "cloud2code_scan_ok[^\\n]{0,40}\"true\"|blocked:missing_aws_region|blocked:remote_runner_cloud2code_missing|blocked:remote_runner_awscli_missing|blocked:remote_runner_jq_missing"
+        # Runner output uses cloud2code_scan_ok=true while agent summaries may
+        # quote the value. Matching the true token accepts both forms.
+        exit_match = "cloud2code_scan_ok[^\\n]{0,40}true|blocked:missing_aws_region|blocked:remote_runner_cloud2code_missing|blocked:remote_runner_awscli_missing|blocked:remote_runner_jq_missing"
       }
     },
     {
@@ -267,10 +271,9 @@ resource "sg_workflow" "aws_migrator_discovery" {
       stage_id         = "ingest-and-split"
       agent_ref        = sg_agent.aws_migrator_architect.name
       stage_depends_on = ["scan-blocked-gate"]
-      runbook_refs = [
-        sg_runbook_sop.aws_migrator_orchestration.name,
-        sg_runbook_sop.tfstate_splitter.name,
-      ]
+      # The stage note owns the exact ingest bootstrap. A prescriptive runbook
+      # can replace it with hand-written decomposition commands and wrong paths.
+      runbook_refs = null
       skill_refs = concat(
         [local.sop_orchestration_name, local.sop_tfstate_splitter_name],
         try(var.workflow_skill_refs["aws-cloud-discovery::ingest-and-split"], []),
@@ -310,7 +313,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
         # Same rule as the scan loop: no stage_summary:...=blocked: catch-all,
         # so a transient platform denial retries instead of ending the run.
         # Readiness reports are optional. A correct split exits the loop.
-        exit_match = "count_reconciliation_ok[^\\n]{0,40}\"true\"|blocked:missing_monolith_state_uri|blocked:three_runner_attempts_failed|blocked:ingest_script_pack_failed|script_pack_verify_ok[^\\n]{0,40}\"false\"|script_pack_error="
+        exit_match = "count_reconciliation_ok[^\\n]{0,40}true|blocked:missing_monolith_state_uri|blocked:three_runner_attempts_failed|blocked:ingest_script_pack_failed|script_pack_verify_ok[^\\n]{0,40}false|script_pack_error="
       }
     },
     {
@@ -332,10 +335,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
       stage_id         = "registry-and-import-codegen"
       agent_ref        = sg_agent.aws_migrator_architect.name
       stage_depends_on = ["ingest-blocked-gate"]
-      runbook_refs = [
-        sg_runbook_sop.terraform_registry_reverse_iac.name,
-        sg_runbook_sop.aws_migrator_orchestration.name,
-      ]
+      runbook_refs     = null
       skill_refs = concat(
         [local.sop_orchestration_name, local.sop_registry_reverse_name],
         try(var.workflow_skill_refs["aws-cloud-discovery::registry-and-import-codegen"], [])
@@ -343,7 +343,8 @@ resource "sg_workflow" "aws_migrator_discovery" {
       note = <<-EOT
         Stop only for a confirmed scan/ingest failure (`count_reconciliation_ok` present and not `"true"`, missing state, script-pack failure). Soft split-quality scores are warnings.
         Goal: AWS group Terraform on a branch, plus `pr_url` or a concrete `pr_blocker`.
-        Start with IAC_PR_EXECUTE_SERIES below (pack: scaffold → artifacts → clone → sync → `gh pr create`). `create_agent` is fine.
+        **Must paste IAC_PR_EXECUTE_SERIES** below (pack: scaffold → artifacts → clone → sync → `gh pr create`). Do not hand-roll `git clone` / `gh pr create`. `create_agent` is fine.
+        If clone fails with `could not read Username for 'https://github.com'`: the runner has SCM vault key `token`, not `GIT_TOKEN`. Re-run IAC_PR (it aliases `token`) or `export GIT_TOKEN="$token" GH_TOKEN="$token"` and retry — that is not a terminal `pr_blocker`.
         If clone/PR/fmt fails: read the runner output and keep fixing on the runner until `batch_payloads_path` exists and you have `pr_url` or a real `pr_blocker`. Prefer notes/inputs (`iac_repository_url`, `default_branch`) over asking the operator.
         Then `note()` `batch_payloads_path`, `pr_url`/`pr_blocker`, `large_state_sample_group_ids`, `stage_summary:registry-and-import-codegen`.
 
@@ -354,11 +355,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
       stage_id         = "shell-converge-matrix"
       agent_ref        = sg_agent.aws_migrator_architect.name
       stage_depends_on = ["registry-and-import-codegen"]
-      runbook_refs = [
-        sg_runbook_sop.terraform_registry_reverse_iac.name,
-        sg_runbook_sop.terraform_substate_convergence.name,
-        sg_runbook_sop.aws_migrator_orchestration.name,
-      ]
+      runbook_refs     = null
       skill_refs = concat(
         [local.sop_orchestration_name, local.sop_registry_reverse_name, local.sop_substate_converge_name],
         try(var.workflow_skill_refs["aws-cloud-discovery::shell-converge-matrix"], []),
@@ -407,10 +404,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
       stage_id         = "orphans-secondary-pipeline"
       agent_ref        = sg_agent.aws_migrator_architect.name
       stage_depends_on = ["converge-blocked-gate"]
-      runbook_refs = [
-        sg_runbook_sop.aws_migrator_orchestration.name,
-        sg_runbook_sop.orphan_iac_module_bootstrap.name,
-      ]
+      runbook_refs     = null
       skill_refs = concat(
         [local.sop_orchestration_name, local.sop_orphan_bootstrap_name],
         try(var.workflow_skill_refs["aws-cloud-discovery::orphans-secondary-pipeline"], [])
@@ -424,10 +418,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
       stage_id         = "final-gate-and-memory"
       agent_ref        = sg_agent.aws_migrator_architect.name
       stage_depends_on = ["orphans-secondary-pipeline"]
-      runbook_refs = [
-        sg_runbook_sop.aws_migrator_orchestration.name,
-        sg_runbook_sop.orphan_iac_module_bootstrap.name,
-      ]
+      runbook_refs     = null
       skill_refs = concat(
         [local.sop_orchestration_name, local.sop_orphan_bootstrap_name],
         try(var.workflow_skill_refs["aws-cloud-discovery::final-gate-and-memory"], []),
