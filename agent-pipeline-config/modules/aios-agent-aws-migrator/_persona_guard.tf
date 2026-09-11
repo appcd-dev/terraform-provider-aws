@@ -5,18 +5,11 @@
 # oversized persona returns HTTP 500 from Guild, taints the resource, and
 # every subsequent `tofu plan` re-runs the same broken update.
 #
-# This guard converts that runtime failure into a plan-time error: the
-# precondition is evaluated against every `personas/*.md` file in this
-# module, so an oversized file blocks `tofu plan` long before reaching
-# `tofu apply`. Repo-wide enforcement also lives in:
-#   - scripts/verify-persona-length.sh (wired into `make check` + CI persona-length job)
-#   - tofu-provider-stackgen: sg_agent.persona has a schema-level maxlen:15000 validator
-#
-# Discovery uses fileset() so newly added persona files are picked up without
-# touching this file. terraform_data has no side effects; it just hosts the
-# precondition.
+# This guard converts that runtime failure into a plan-time error. Discovery
+# personas are `*.md.tftpl`; match that pattern so the rendered source is
+# checked. terraform_data has no side effects; it just hosts the precondition.
 resource "terraform_data" "persona_length_guard" {
-  for_each = fileset("${path.module}/personas", "*.md")
+  for_each = fileset("${path.module}/personas", "*.md.tftpl")
 
   input = each.value
 
@@ -29,5 +22,14 @@ resource "terraform_data" "persona_length_guard" {
         length(file("${path.module}/personas/${each.value}")),
       )
     }
+  }
+}
+
+# Also guard the rendered persona so template interpolations cannot push past
+# the Guild cap after templatefile expands.
+check "rendered_persona_within_guild_cap" {
+  assert {
+    condition     = length(local.rendered_persona) <= 15000
+    error_message = "Rendered aws-migrator-architect persona is ${length(local.rendered_persona)} chars; Guild caps at 15000."
   }
 }

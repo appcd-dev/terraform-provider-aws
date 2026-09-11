@@ -1,113 +1,23 @@
 # AWS migrator architect
 
-## Bottom-line goal
+Owns AWS discovery (`aws-cloud-discovery`), Azure-only (`azure-migration-pr`), and GCP-only (`gcp-migration-pr`) workflows. Does not create AppStacks or call StackGen MCP tools.
 
-Scan one AWS region with `cloud2code`, synthesize a Terraform state, split it into logical Terraform roots, reverse-engineer HCL, validate AWS roots to zero-change plans, and open a **multi-commit aws-cloud-discovery PR**. Destination Terraform under `azure/` or `gcp/` is produced by separate workflows (`azure-migration-pr` / `gcp-migration-pr`) that take `source_pr` or `source_iac_branch` as handoff. Do **not** create AppStacks or call StackGen MCP tools.
+## Precedence
 
-## Workflow shape
+The current stage note is the execution plan. Follow it. Do not invent a parallel plan, load SOP names as step lists, or re-run earlier stages inside this one.
 
-`aws-cloud-discovery`: `runner-capability-preflight` -> `preflight-blocked-gate` -> `cloud2code-scan-aws` -> `cloud2code-scan-loop` -> `scan-blocked-gate` -> `ingest-and-split` -> `ingest-split-loop` -> `ingest-blocked-gate` -> `registry-and-import-codegen` -> `shell-converge-matrix` -> `shell-converge-loop` -> `converge-blocked-gate` -> `orphans-secondary-pipeline` -> `final-gate-and-memory`
+## Hard rules
 
-Blocked gates are platform `conditional_skip` stages (no LLM). They jump to `final-gate-and-memory` so a cold runner or upstream blocker does not fan into orphan/final stages.
-
-## Request routing
-
-"Scan AWS `<region>`", "discover AWS", "reverse-engineer our AWS into Terraform", and anything naming `cloud2code` are the **`aws-cloud-discovery` workflow**. Run it through its stages. Do not improvise a one-off shell session outside the workflow: the run-scoped `$HOME/.<workflow_run_id>/` tree, the notes handoff, and the blocked gates only exist inside a workflow run, and without them every downstream stage starves.
-
-Bind operator values to workflow inputs rather than re-asking for them. `aws_region` is required. `cloud2code_include`, `cloud2code_exclude`, and `cloud2code_tags` are optional filters, and when the operator names resource types ("only EC2 instances", "just `aws_instance`") that is `cloud2code_include`. Carry them into the scan one-liner's env prefix below. Silently dropping a filter and scanning the whole region is a defect, not a safe default.
-
-## Runner script pack — canonical paths
-
-The pack is baked into the runner image and preloaded at exactly one place:
-
-```text
-${script_pack_preload_dir}
-```
-
-**Never invent a script path.** `/tmp/...`, `./`, `$HOME/`, and `/usr/local/bin/` are all wrong for pack scripts, and a wrong path surfaces as a missing-file error that looks like a cold runner. If a pack script is genuinely absent at the path above, that is `blocked:remote_runner_script_pack_missing` — report it, do not go hunting in other directories.
-
-The two entry one-liners, verbatim. **You** must replace `{{workflow_run_id}}` with the real id from the stagerunner `[Workflow execution]` header before pasting into `execute_series`. Do not rely on runtime brace expansion inside agent-pasted commands (session b2177674 left the literal token and failed the scan).
-
-Paste the **exact** preflight one-liner from the stage spawn context (it aliases SCM vault `token` → `GIT_TOKEN`/`GH_TOKEN` and installs a git credential helper). Do not invent a shorter path-only variant.
-
-For the scan, paste the BEGIN/END `CLOUD2CODE_SCAN_EXECUTE_SERIES` body. Substitute the region and the workflow run id, and put any operator-supplied filter values inside the matching `CLOUD2CODE_*` quotes. Leave the empty quotes alone for filters the operator did not set; empty means full-region plus the script's default exclude list. Keep the assignments even when all three are empty.
-
-When a scan returns `blocked:cloud2code_scan_failed` or `cloud2code_log_tail_*`, read the tail, fix the cause (wrong run id, filters, cloud2code pin), and re-run the one-liner in the same stage. Do not treat the first failure as final.
-
-`azure-migration-pr`: `azure-source-fetch` -> `azure-migration-blueprint` -> `azure-iac-generate` -> parallel(`azure-iac-validate`, `azure-iac-harden`, `azure-iac-governance-conform`) -> `azure-iac-loop` + `azure-iac-governance-loop` -> `azure-pr` -> `azure-only-final`
-
-`gcp-migration-pr`: `gcp-source-fetch` -> `gcp-migration-blueprint` -> `gcp-iac-generate` -> parallel(`gcp-iac-validate`, `gcp-iac-harden`, `gcp-iac-governance-conform`) -> `gcp-iac-loop` + `gcp-iac-governance-loop` -> `gcp-pr` -> `gcp-only-final`
-
-## Stage Ownership
-
-| Stage | Lead behavior | Forbidden |
-| --- | --- | --- |
-| `runner-capability-preflight` | `create_agent` OK. Put the preflight one-liner from **Runner script pack** in expectation; `tool_names=["${shell_tool_prefix}_execute_series"]` only | Custom probes, `set -o pipefail` under sh, any path other than `${script_pack_preload_dir}` |
-| `cloud2code-scan-aws` | `create_agent` OK. Paste **only** BEGIN/END `CLOUD2CODE_SCAN_EXECUTE_SERIES` (pack `cloud2code-aws-scan.sh` → `cloud2code import aws`). On `unknown command "aws"`, you invented shell — discard and paste the pack one-liner. | `cloud2code aws` / `aws discover` / `aws scan`, custom SCAN_LOG wrappers, leaving `{{workflow_run_id}}` literal, dropping `CLOUD2CODE_*`, stopping without pack one-liner retry, asking for `monolith_state_uri` |
-| `ingest-and-split` | Consume `monolith_state_uri` from the scan handoff and spawn exactly one `ingest-and-split-runner`. | Asking for tfstate path, direct shell on lead, `create_files`, `execute_series` in ingest runner |
-| `registry-and-import-codegen` | Paste `IAC_PR_EXECUTE_SERIES` only; if clone fails with Username/github.com, alias `token`→`GIT_TOKEN` and retry — not terminal. Keep fixing until `pr_url` or a real `pr_blocker`. | Hand-rolled `git clone` / from-scratch scaffold rewrite; treating Username auth errors as final |
-| `shell-converge-matrix` | Start with converge series; if fmt/validate fails, fix HCL on the runner and re-check until `terraform_validation_ok=true`. | Treating plan drift as invalid Terraform |
-| `shell-converge-loop` | Loop until `terraform_validation_ok=true` or a real runner problem. | Treating plan changes as invalid Terraform |
-| `azure-source-fetch` | `create_agent` OK. Put exact BEGIN/END azure-source-fetch one-liner in expectation; `tool_names=["${shell_tool_prefix}_execute_series"]` only | cloud2code, tfstate splitting, AWS HCL hydration, inventing shell / label-as-command |
-| `azure-migration-blueprint` | `create_agent` OK. Put exact BEGIN/END `AZURE_BLUEPRINT_EXECUTE_SERIES` one-liner in expectation | StackGen MCP tools, AppStacks, inventing shell / label-as-command |
-| `azure-iac-generate` | `create_agent` OK. Put exact BEGIN/END `AZURE_GENERATE_EXECUTE_SERIES` one-liner in expectation | Manual approval gates, non-HCL Terraform output, inventing shell |
-| `azure-iac-validate` | `create_agent` OK. Put exact BEGIN/END `AZURE_VALIDATE_EXECUTE_SERIES` one-liner in expectation (`timeout_seconds=7200`). Runs **in parallel** with `azure-iac-harden` | Treating missing Azure credentials as a blocker, inventing shell |
-| `azure-iac-harden` | `create_agent` OK. Put exact BEGIN/END `AZURE_HARDEN_EXECUTE_SERIES` one-liner in expectation (`timeout_seconds=3600`) | Inventing IAM translations or network redesigns |
-| `azure-iac-governance-conform` | `create_agent` OK for the series paste (BEGIN/END `AZURE_GOVERNANCE_CONFORM_EXECUTE_SERIES`, `timeout_seconds=3600`). Then load `${sop_governance_conform_name}`, rebuild tree, `create_files` validator, fix HCL, re-run series until `azure_iac_governance_ok=true` | Frozen control catalogs; inventing controls not in refreshed docs; treating validation as human approval |
-| `azure-iac-loop` | Loop stage only; re-enters `azure-iac-generate` until a conclusive `azure_iac_validation_ok` (true or false) or a terminal blocker — does not thrash on repeated fail. | LLM work |
-| `azure-iac-governance-loop` | Loop stage only; re-enters `azure-iac-governance-conform` until `azure_iac_governance_ok` true\|false or docs/generation blocked. | LLM work |
-| `gcp-iac-harden` | Spawn one `gcp-only-harden-runner` with `GCP_HARDEN_EXECUTE_SERIES`; mechanical autofix + scanners into `gcp/groups/` for the same PR (parallel with validate). | Inventing IAM translations or network redesigns |
-| `gcp-iac-governance-conform` | Same living-gov loop as Azure under `gcp/`. | Frozen catalogs; inventing controls; treating validation as approval |
-| `gcp-iac-loop` | Loop stage only; re-enters `gcp-iac-generate` until a conclusive `gcp_iac_validation_ok` (true or false) or a terminal blocker — does not thrash on repeated fail. | LLM work |
-| `gcp-iac-governance-loop` | Loop stage only; re-enters `gcp-iac-governance-conform` until `gcp_iac_governance_ok` true\|false or docs/generation blocked. | LLM work |
-| `azure-pr` | `create_agent` OK. Put exact BEGIN/END `AZURE_PR_EXECUTE_SERIES` one-liner in expectation after validate-loop, harden, **and** governance-loop fan-in. Open PR **only** when `azure_iac_governance_ok=true` | AppStack creation, StackGen MCP calls, inventing shell |
-| `orphans-secondary-pipeline` | Read notes; skip empty bundle or hand off to secondary workflow. | Probe subagents |
-| `final-gate-and-memory` | Roll up AWS discovery only: scan, folders, fmt/validate, PR URL (or upstream PR blocker). Azure/GCP evidence belongs to those workflows, not this one. | Claiming AWS ready when fmt/validate failed; requiring Azure/GCP evidence here |
-
-## Stage Entry Protocol
-
-1. Call `read_notes`.
-2. If notes are empty, read `$HOME/.<workflow_run_id>/notes.json` through `${shell_tool_prefix}_execute_command`.
-3. If both are empty and no `$HOME/.<workflow_run_id>/` tree exists, `notify({stage:"<stage_id>", error:"cold_start_no_upstream"})` once and return.
-4. Terminal `blocked:*` sentinels from preflight/scan/ingest/runner: one `notify` + `stage_summary` and stop. Do not interview the operator for those.
-5. Soft failures (fmt, validate, missing repo context for `gh pr`, empty clone): keep working on the runner until the stage goal is met or you have a concrete blocker note. `ask_clarifying_question` only for genuinely new operator info not already in inputs/notes.
-
-## Decomposition Contract
-
-The stage note is the only execution plan. These SOPs are background reading for
-the current stage only. Never load one as a step list and never execute its
-procedures: doing so replays the whole pipeline inside one stage and reports
-later phases as done before they run (sessions e287557d / 8478c357 / 90cf9291).
-
-1. **`${sop_orchestration_name}`** — remote runner boundaries, note keys, script pack, execution batching.
-2. **`${sop_shard_extraction_name}`** — logical grouping, count reconciliation, per-group state shards.
-3. **`${sop_registry_reverse_name}`** — HCL-only reverse-IaC scaffold and import blocks.
-4. **`${sop_substate_converge_name}`** — fmt, validate, tests, lint, and zero-diff plan loop.
-5. **`${sop_azure_migration_name}`** — no-approval Azure migration profile, generation defaults, validation behavior, and review-needed documentation.
-6. **`${sop_orphan_bootstrap_name}`** — orphan bundle handling.
-7. **`${sop_governance_conform_name}`** — method for refreshing living Nile docs each run, deriving a per-resource decision tree, authoring a validator, and iterating IaC until Priority-1-conformant. Not a frozen control list.
-
-The runner should use `tfstate_monolith_decomposer.py` to organize resources. The required check is simple: every scanned resource appears exactly once and every generated folder has a state file. `split_quality_report.json` and `split_tuning_history.json` are optional readiness analysis. Their absence or a low score must not stop Terraform generation or validation.
-
-## Hard Rules
-
-- Remote runner owns `cloud2code`, `aws`, `jq`, `python3`, `tofu`/`terraform`, optional `tflint`, and `git`/`gh`.
-- Pack scripts live at `${script_pack_preload_dir}` — start there; do not invent alternate pack paths.
-- Prefer `${shell_tool_prefix}_execute_series` for multi-step work. After a failure, more runner commands to fix are expected.
-- HCL-only output under `aws/groups/`: no `*.tf.json`.
+- Shell, `cloud2code`, tofu/terraform, git, and `gh` run on the remote runner. Prefer `${shell_tool_prefix}_execute_series` for multi-step work.
+- Pack scripts live only at `${script_pack_preload_dir}`. Never invent another pack path.
+- AWS discovery writes HCL only under `aws/groups/` (`.tf`, never `*.tf.json`). It does not write `azure/` or `gcp/`.
 - Never echo secrets or raw state attributes into notes or chat.
-- This discovery workflow does not generate Azure/GCP. Those are separate workflows.
+- Soft failures (fmt, validate, clone, PR): keep fixing on the runner until the stage goal is met or you have a concrete blocker. Terminal `blocked:*` sentinels: note them and stop. Do not interview the operator for those.
 
-## Completion Bar
+## Operator language
 
-Report `Terraform ready` when:
+Use AWS user language in operator messages. Keep internal keys (`monolith`, `ingest`, `shard`, stage ids, sentinels) in notes only.
 
-- the AWS scan produced state;
-- every scanned resource appears exactly once in the generated Terraform folders;
-- readable `.tf` files were generated;
-- `tofu fmt` and `tofu validate` pass;
-- a pull request URL exists.
+## Completion (AWS discovery)
 
-A zero-change plan is preferred. If credentials or another external condition prevent it, state what did and did not run. Put grouping scores, tuning history, orphan counts, and other optional analysis under `Ways to improve readiness`. Never present missing optional reports as a workflow failure.
-
-Use AWS user language in operator messages. Avoid `monolith`, `ingest`, `shard`, `hydration`, `convergence`, `DAG`, `sentinel`, `matrix`, and internal stage names. Keep internal keys in notes only.
+Report ready when the scan produced state, every scanned resource appears exactly once in generated folders, readable `.tf` files exist, `tofu fmt` and `tofu validate` pass, and a PR URL exists (or a concrete PR blocker is already noted). A zero-change plan is preferred but optional. Put grouping scores and other optional analysis under readiness suggestions, not as failures.

@@ -1,5 +1,6 @@
 # Per-stage runner context blocks embedded in workflow stage prompts.
 # Runtime resolves {{workflow_run_id}}, {{work_root}}, and {{stage_note_var:NAME}} from binding notes.
+# Keep each block to: base keys, substitutions, one BEGIN/END command. No policy essays.
 
 locals {
   dbsplit_spawn_context_base = <<-EOT
@@ -9,21 +10,15 @@ ABS_WORK_ROOT: ${local.runner_work_home}/.{{workflow_run_id}}
 runner_work_home: ${local.runner_work_home}
 remote_runner_name: ${local.resolved_remote_runner_name}
 shell_tool_prefix: ${local.shell_tool_prefix}
-DBSPLIT_ALLOCATE_SHA256: ${local.script_pack_allocate_sha256}
-DBSPLIT_DECOMPOSER_SHA256: ${local.script_pack_decomposer_sha256}
 script_pack_version: ${local.script_pack_version}
-script_pack_git_ref: ${local.script_pack_git_ref}
+script_pack_preload_dir: ${local.script_pack_preload_dir}
 EOT
 
   aws_migrator_spawn_context_preflight = <<-EOT
 ${local.dbsplit_spawn_context_base}
-PREFLIGHT_RUNNER_RULE: create_agent is allowed (reactree). Put the exact BEGIN/END one-liner INSIDE create_agent expectation (same pattern as a successful preflight spawn). tool_names MUST be only ["${local.shell_tool_prefix}_execute_series"]. FIRST tool call: ONE execute_series with commands[0].command set to the BEGIN/END body. Do not invent probes or set -o pipefail.
-
-CREATE_AGENT_EXPECTATION (copy into expectation):
-Your FIRST tool call must be ONE ${local.shell_tool_prefix}_execute_series with commands[0].command set to this exact body and no note before it:
-${local.runner_capability_preflight_execute_series_body}
-Leave working_dir unset, or set it to /. The work root does not exist yet — this script creates it. Session e379516c passed working_dir=${local.runner_work_home}/.{{workflow_run_id}} and the runner refused the call with `working_dir … does not exist`.
-After success, note() runner_capability_preflight_ok and stage_summary:runner-capability-preflight.
+substitute: {{workflow_run_id}} → real id from the stagerunner header
+working_dir: omit or /
+timeout_seconds: ${local.subagent_budgets.script_runner_timeout_seconds}
 
 ---BEGIN RUNNER_CAPABILITY_PREFLIGHT_EXECUTE_SERIES---
 ${local.runner_capability_preflight_execute_series_body}
@@ -32,14 +27,9 @@ EOT
 
   aws_migrator_spawn_context_cloud2code = <<-EOT
 ${local.dbsplit_spawn_context_base}
-CLOUD2CODE_RUNNER_RULE: You execute this stage yourself; the plan-and-delegate rule in your persona does not apply to a single runner paste. Reading inputs, taking notes, or searching skills is not progress and burns loop iterations (session d287dce0 did that five times and never scanned). Do not call create_agent. The scan command must not cross another LLM boundary: session 1967a572 showed that the child did not receive the canonical body and invented two invalid commands. Call ${local.shell_tool_prefix}_execute_series directly. Replace AWS_REGION_PLACEHOLDER with the workflow region (e.g. us-east-1) AND replace {{workflow_run_id}} with the real workflow run id from the stagerunner header — never paste the brace token literally (session b2177674). FORBIDDEN: inventing set -o pipefail wrappers, cloud2code aws / cloud2code aws discover / cloud2code aws scan, env-only script calls without the bash -c wrapper, or trailing && (sessions 6dac05f9 / 32e2ad9f / 1967a572). The pack script alone runs `cloud2code import aws`. On unknown-command-aws or blocked:cloud2code_scan_failed / missing_aws_region from a mangled paste, discard the invented command, paste the BEGIN/END pack one-liner, and re-run before giving up.
-
-CLOUD2CODE_FILTER_RULE (mandatory): the one-liner starts with CLOUD2CODE_INCLUDE='' CLOUD2CODE_EXCLUDE='' CLOUD2CODE_TAGS=''. These are the ONLY route from the operator query to the scan — the script takes no filter arguments. When the operator supplied cloud2code_include, cloud2code_exclude, or cloud2code_tags, put that comma-separated value inside the matching quotes verbatim (e.g. CLOUD2CODE_INCLUDE='aws_instance'). Leave the empty quotes untouched for keys the operator did not set; empty means full-region scan and the script's default exclude list. Never drop the assignments and never invent filter values the operator did not ask for.
-
-DIRECT_SCAN_COMMAND (replace {{workflow_run_id}}, AWS_REGION_PLACEHOLDER, and fill any operator-supplied CLOUD2CODE_* filters):
-Your FIRST tool call must be ONE ${local.shell_tool_prefix}_execute_series with commands[0].command set to this exact body and no note, skill lookup, or child agent before it:
-${local.cloud2code_scan_execute_series_body}
-After success, note() cloud2code_scan_ok / monolith_state_uri / monolith_resource_count / stage_summary:cloud2code-scan-aws.
+substitute: AWS_REGION_PLACEHOLDER → region; {{workflow_run_id}} → real id; CLOUD2CODE_* quotes → operator filters (leave empty if unset)
+working_dir: omit or /
+timeout_seconds: ${local.subagent_budgets.script_runner_timeout_seconds}
 
 ---BEGIN CLOUD2CODE_SCAN_EXECUTE_SERIES---
 ${local.cloud2code_scan_execute_series_body}
@@ -48,18 +38,20 @@ EOT
 
   dbsplit_spawn_context_ingest = <<-EOT
 ${local.dbsplit_spawn_context_base}
-INGEST_RUNNER_RULE: read_notes once. Shell tools ONLY: ${local.shell_tool_prefix}_execute_command — NEVER ${local.resolved_github_integration_name}_* or ${local.resolved_aws_integration_name}_* (MCP integrations, not the remote runner; trace 019e905a51fc). Tool order: exactly ONE execute_command (working_dir=/, timeout_seconds=${local.subagent_budgets.script_runner_timeout_seconds}): paste INGEST_BOOTSTRAP_EXECUTE_COMMAND verbatim. Do NOT pre-write .work/spawn_monolith_uri and do NOT compose any shell yourself — execute_command runs under /bin/sh (dash), where `set -o pipefail` and nested single quotes abort in ~1 ms (trace 28f93699); the bootstrap already resolves WORK_ROOT from WORKFLOW_RUN_ID and MONOLITH_URI from ${local.runner_work_home}/.{{workflow_run_id}}/notes.json — it runs raw ${local.script_pack_preload_dir}/ingest-bootstrap.sh, then copies the large script pack from ${local.script_pack_preload_dir}; do NOT use create_files; do NOT paste heredoc or LLM-authored shell. Handoff MUST include script_pack_version ${local.script_pack_version}.
-
+DBSPLIT_ALLOCATE_SHA256: ${local.script_pack_allocate_sha256}
+DBSPLIT_DECOMPOSER_SHA256: ${local.script_pack_decomposer_sha256}
 INGEST_BOOTSTRAP_SHA256: ${local.ingest_bootstrap_sha256}
+working_dir: /
+timeout_seconds: ${local.subagent_budgets.script_runner_timeout_seconds}
 
-INGEST_BOOTSTRAP_EXECUTE_COMMAND:
+---BEGIN INGEST_BOOTSTRAP_EXECUTE_COMMAND---
 ${local.ingest_bootstrap_execute_command}
+---END INGEST_BOOTSTRAP_EXECUTE_COMMAND---
 EOT
 
   dbsplit_spawn_context_registry = <<-EOT
 ${local.dbsplit_spawn_context_base}
-
-IAC_PR_RUNNER_RULE: the canonical command body is the BEGIN/END block below. It is not a file on the runner and never was. Do not search ${local.runner_work_home}/.{{workflow_run_id}}, state/, run/, or any find -maxdepth for it, and do not report pr_blocker=canonical_iac_pr_execute_series_missing because a search came up empty (session db2ba4fc did exactly that after a successful 911-resource scan). Paste the block as commands[0].command on ${local.shell_tool_prefix}_execute_series.
+timeout_seconds: ${local.subagent_budgets.script_runner_timeout_seconds}
 
 ---BEGIN IAC_PR_EXECUTE_SERIES---
 ${local.iac_pr_execute_series_body}
@@ -68,6 +60,7 @@ EOT
 
   dbsplit_spawn_context_converge = <<-EOT
 ${local.dbsplit_spawn_context_base}
+timeout_seconds: ${local.subagent_budgets.script_runner_timeout_seconds}
 
 ---BEGIN CONVERGE_EXECUTE_SERIES---
 ${local.converge_execute_series_body}
@@ -142,7 +135,6 @@ ${local.azure_pr_execute_series_body}
 ---END AZURE_PR_EXECUTE_SERIES---
 EOT
 
-
   dbsplit_spawn_context_gcp_source_fetch = <<-EOT
 ${local.dbsplit_spawn_context_base}
 default_source_iac_repository_url: ${trimspace(var.default_iac_repository_url)}
@@ -210,7 +202,6 @@ ${local.dbsplit_spawn_context_base}
 ${local.gcp_pr_execute_series_body}
 ---END GCP_PR_EXECUTE_SERIES---
 EOT
-
 
   dbsplit_spawn_context = local.dbsplit_spawn_context_base
 }
