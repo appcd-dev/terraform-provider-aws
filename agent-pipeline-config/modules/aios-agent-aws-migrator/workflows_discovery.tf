@@ -69,17 +69,11 @@ resource "sg_workflow" "aws_migrator_discovery" {
     { field = "intent", values = ["aws-cloud-discovery", "aws-cloud2code-discovery", "cloud2code-aws-scan", "aws-region-to-terraform", "aws-brownfield-iac-discovery"], type = "passive" },
   ]
 
-  # The orchestration SOP is deliberately absent. Stages already implement its
-  # sequence, and a workflow-level binding makes every stage inherit it as a
-  # prescriptive runbook, so each stage replays all 20 procedures instead of
-  # doing its own work (session e287557d). It stays in per-stage skill_refs.
-  runbook_refs = [
-    sg_runbook_sop.cloud2code_aws_region_scan.name,
-    sg_runbook_sop.tfstate_splitter.name,
-    sg_runbook_sop.terraform_registry_reverse_iac.name,
-    sg_runbook_sop.terraform_substate_convergence.name,
-    sg_runbook_sop.orphan_iac_module_bootstrap.name,
-  ]
+  # The stage DAG and notes implement the SOP sequence. Workflow or stage skill
+  # bindings make Guild execute those SOPs prescriptively inside each stage:
+  # session 8478c357 ran scan, split, reverse-IaC, and validation during
+  # runner-capability-preflight. Keep the SOP resources as documentation only.
+  runbook_refs = null
 
   stages = concat(
     [
@@ -177,11 +171,8 @@ resource "sg_workflow" "aws_migrator_discovery" {
       # Stage sequencing already implements the orchestration SOP. Binding it as
       # a prescriptive runbook makes Guild execute all 20 SOP steps in this stage.
       runbook_refs = null
-      skill_refs = concat(
-        [local.sop_orchestration_name],
-        try(var.workflow_skill_refs["aws-cloud-discovery::runner-capability-preflight"], []),
-      )
-      note = <<-EOT
+      skill_refs   = try(var.workflow_skill_refs["aws-cloud-discovery::runner-capability-preflight"], [])
+      note         = <<-EOT
         **Purpose:** fail fast when the remote runner lacks tools or the script pack is not preloaded — before cloud2code or ingest burn cost.
         **Incremental bring-up execution:** `create_agent` is allowed (reactree). Spawn ONE preflight worker with CREATE_AGENT_EXPECTATION from the spawn context (exact `bash …/runner-capability-preflight.sh` one-liner in expectation). `tool_names` only `["${local.shell_tool_prefix}_execute_series"]`. Never invent probes — `execute_*` runs under `/bin/sh` (sessions dcfbdaa2 / 6741e13a). If shell tools are absent, emit `blocked:remote_runner_shell_unavailable: "true"` and return.
         **Hard evidence gate:** completion requires `runner_capability_preflight_ok: "true"`. Absent that, record `stage_summary:runner-capability-preflight=blocked:missing_runner_evidence` and return blocked.
@@ -277,7 +268,6 @@ resource "sg_workflow" "aws_migrator_discovery" {
       # can replace it with hand-written decomposition commands and wrong paths.
       runbook_refs = null
       skill_refs = concat(
-        [local.sop_orchestration_name, local.sop_tfstate_splitter_name],
         try(var.workflow_skill_refs["aws-cloud-discovery::ingest-and-split"], []),
         try(var.workflow_skill_refs["aws-cloud-discovery::ingest-monolith"], []),
       )
@@ -338,11 +328,8 @@ resource "sg_workflow" "aws_migrator_discovery" {
       agent_ref        = sg_agent.aws_migrator_architect.name
       stage_depends_on = ["ingest-blocked-gate"]
       runbook_refs     = null
-      skill_refs = concat(
-        [local.sop_orchestration_name, local.sop_registry_reverse_name],
-        try(var.workflow_skill_refs["aws-cloud-discovery::registry-and-import-codegen"], [])
-      )
-      note = <<-EOT
+      skill_refs       = try(var.workflow_skill_refs["aws-cloud-discovery::registry-and-import-codegen"], [])
+      note             = <<-EOT
         Stop only for a confirmed scan/ingest failure (`count_reconciliation_ok` present and not `"true"`, missing state, script-pack failure). Soft split-quality scores are warnings.
         Goal: AWS group Terraform on a branch, plus `pr_url` or a concrete `pr_blocker`.
         **Must paste IAC_PR_EXECUTE_SERIES** below (pack: scaffold → artifacts → clone → sync → `gh pr create`). Do not hand-roll `git clone` / `gh pr create`. `create_agent` is fine.
@@ -359,7 +346,6 @@ resource "sg_workflow" "aws_migrator_discovery" {
       stage_depends_on = ["registry-and-import-codegen"]
       runbook_refs     = null
       skill_refs = concat(
-        [local.sop_orchestration_name, local.sop_registry_reverse_name, local.sop_substate_converge_name],
         try(var.workflow_skill_refs["aws-cloud-discovery::shell-converge-matrix"], []),
         try(var.workflow_skill_refs["aws-cloud-discovery::hcl-hydrate-per-group"], []),
       )
@@ -410,11 +396,8 @@ resource "sg_workflow" "aws_migrator_discovery" {
       agent_ref        = sg_agent.aws_migrator_architect.name
       stage_depends_on = ["converge-blocked-gate"]
       runbook_refs     = null
-      skill_refs = concat(
-        [local.sop_orchestration_name, local.sop_orphan_bootstrap_name],
-        try(var.workflow_skill_refs["aws-cloud-discovery::orphans-secondary-pipeline"], [])
-      )
-      note = <<-EOT
+      skill_refs       = try(var.workflow_skill_refs["aws-cloud-discovery::orphans-secondary-pipeline"], [])
+      note             = <<-EOT
         **Max 2 tool turns:** `read_notes` (+ disk mirror fallback) → if upstream blocked sentinels are present → `note stage_summary:orphans-secondary-pipeline=skipped:upstream_blocked` and **return**. If `orphans_bundle` empty → `note stage_summary:orphans-secondary-pipeline=skipped:empty_orphans_bundle` and **return**. Else build `secondary_workflow_payload` and notify/start orphan workflow.
         **Forbidden:** `*-entry-probe`, `*-disk-mirror`, `*-bundle-snapshot` subagents.
       EOT
@@ -425,7 +408,6 @@ resource "sg_workflow" "aws_migrator_discovery" {
       stage_depends_on = ["orphans-secondary-pipeline"]
       runbook_refs     = null
       skill_refs = concat(
-        [local.sop_orchestration_name, local.sop_orphan_bootstrap_name],
         try(var.workflow_skill_refs["aws-cloud-discovery::final-gate-and-memory"], []),
         try(var.workflow_skill_refs["aws-migrator-discovery::final-gate-and-memory"], [])
       )

@@ -9,6 +9,10 @@ MODULE = Path(__file__).resolve().parent.parent
 
 def main() -> None:
     workflow = (MODULE / "workflows_discovery.tf").read_text()
+    workflow_runbooks = workflow.split("runbook_refs =", 1)[1].split("\n", 1)[0]
+    assert "null" in workflow_runbooks
+    assert "local.sop_" not in workflow
+
     scan_stage = workflow.split('stage_id         = "cloud2code-scan-aws"', 1)[1]
     scan_stage = scan_stage.split('stage_id         = "cloud2code-scan-loop"', 1)[0]
     assert "do not call `create_agent`" in scan_stage
