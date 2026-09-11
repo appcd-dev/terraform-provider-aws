@@ -87,7 +87,7 @@ locals {
   script_pack_tarball_url = trimspace(var.script_pack_tarball_url) != "" ? trimspace(var.script_pack_tarball_url) : "https://github.com/${trimspace(var.script_pack_release_repo)}/releases/download/pack-${local.script_pack_version}/script-pack.tar.gz"
 
   create_runner_script_pack_env_secret = var.remote_runner_script_pack_sync_enabled && trimspace(var.runner_script_pack_env_secret_id) == ""
-  runner_script_pack_env_secret_id = local.create_runner_script_pack_env_secret ? sg_secret.runner_script_pack[0].id : trimspace(var.runner_script_pack_env_secret_id)
+  runner_script_pack_env_secret_id     = local.create_runner_script_pack_env_secret ? sg_secret.runner_script_pack[0].id : trimspace(var.runner_script_pack_env_secret_id)
 
   runner_generic_secret_ref_ids_base = distinct(concat(
     var.remote_runner_generic_secret_ref_ids,
@@ -155,35 +155,35 @@ locals {
     ],
   ))
 
-  stage_runner_script                 = trimspace(file("${path.module}/scripts/stage-runner.sh"))
-  allocate_manifest_script            = file("${path.module}/scripts/allocate_manifest.py")
-  tfstate_monolith_decomposer         = file("${path.module}/scripts/tfstate_monolith_decomposer.py")
-  azure_mapping_catalog_script        = file("${path.module}/scripts/azure_mapping_catalog.py")
-  azure_mapping_catalog_json          = file("${path.module}/mappings/aws-to-azure.json")
-  gcp_mapping_catalog_script          = file("${path.module}/scripts/gcp_mapping_catalog.py")
-  gcp_mapping_catalog_json            = file("${path.module}/mappings/aws-to-gcp.json")
-  ensure_cloud2code_script            = file("${path.module}/scripts/ensure_cloud2code.sh")
-  script_pack_version                 = "20260911.5"
-  script_pack_git_ref                 = "main"
+  stage_runner_script          = trimspace(file("${path.module}/scripts/stage-runner.sh"))
+  allocate_manifest_script     = file("${path.module}/scripts/allocate_manifest.py")
+  tfstate_monolith_decomposer  = file("${path.module}/scripts/tfstate_monolith_decomposer.py")
+  azure_mapping_catalog_script = file("${path.module}/scripts/azure_mapping_catalog.py")
+  azure_mapping_catalog_json   = file("${path.module}/mappings/aws-to-azure.json")
+  gcp_mapping_catalog_script   = file("${path.module}/scripts/gcp_mapping_catalog.py")
+  gcp_mapping_catalog_json     = file("${path.module}/mappings/aws-to-gcp.json")
+  ensure_cloud2code_script     = file("${path.module}/scripts/ensure_cloud2code.sh")
+  script_pack_version          = "20260911.5"
+  script_pack_git_ref          = "main"
   # Baked into the runner image under /opt, not under HOME. The ACA Azure Files
   # share mounts over /home/runner, so a pack under HOME depends on the
   # entrypoint copying it into the share on every revision. That copy failed
   # silently in session 8ea42edd: /opt held 20260911.4 while preflight looked
   # under HOME and reported the pack missing. /opt cannot be masked.
-  script_pack_preload_dir             = "/opt/aws-migrator/script-pack/${local.script_pack_version}"
+  script_pack_preload_dir = "/opt/aws-migrator/script-pack/${local.script_pack_version}"
 
   # Nile-Factory runner image (GHCR). Bakes script pack + opa/tofu/cloud2code; pin pack-* tag to script_pack_version.
   nile_factory_runner_image_repository = "ghcr.io/walmart-stackgen/nile-factory-runner"
   nile_factory_runner_image_tag        = "pack-${local.script_pack_version}"
   nile_factory_runner_image            = "${local.nile_factory_runner_image_repository}:${local.nile_factory_runner_image_tag}"
   nile_factory_runner_allowed_clis     = ""
-  script_pack_allocate_sha256         = sha256(local.allocate_manifest_script)
-  script_pack_decomposer_sha256       = sha256(local.tfstate_monolith_decomposer)
-  script_pack_runner_sha256           = sha256(file("${path.module}/scripts/stage-runner.sh"))
-  script_pack_catalog_py_sha256       = sha256(local.azure_mapping_catalog_script)
-  script_pack_catalog_json_sha256     = sha256(local.azure_mapping_catalog_json)
-  script_pack_gcp_catalog_py_sha256   = sha256(local.gcp_mapping_catalog_script)
-  script_pack_gcp_catalog_json_sha256 = sha256(local.gcp_mapping_catalog_json)
+  script_pack_allocate_sha256          = sha256(local.allocate_manifest_script)
+  script_pack_decomposer_sha256        = sha256(local.tfstate_monolith_decomposer)
+  script_pack_runner_sha256            = sha256(file("${path.module}/scripts/stage-runner.sh"))
+  script_pack_catalog_py_sha256        = sha256(local.azure_mapping_catalog_script)
+  script_pack_catalog_json_sha256      = sha256(local.azure_mapping_catalog_json)
+  script_pack_gcp_catalog_py_sha256    = sha256(local.gcp_mapping_catalog_script)
+  script_pack_gcp_catalog_json_sha256  = sha256(local.gcp_mapping_catalog_json)
 
   # Exclude efficiency/mini models from the agent so create_agent sub-agents do not route to gpt-*-mini / flash for paste-heavy work.
   filtered_non_trivial_model_names = [
@@ -433,8 +433,8 @@ locals {
   # credential helper so IAC_PR and hand-rolled git clone both auth (session 8da4f049).
   # Write under $HOME/.aws-migrator/bin — $HOME/.local/bin is often not writable
   # on the ACA image (session 6dac05f9: Permission denied).
-  runner_git_env_prefix           = "GIT_TOKEN=\"$${GIT_TOKEN:-$${GITHUB_TOKEN:-$${GH_TOKEN:-$${token:-}}}}\"; export GIT_TOKEN; export GH_TOKEN=\"$${GH_TOKEN:-$${GIT_TOKEN}}\" GITHUB_TOKEN=\"$${GITHUB_TOKEN:-$${GIT_TOKEN}}\" GIT_TERMINAL_PROMPT=0"
-  runner_git_credential_bootstrap = "mkdir -p \"$${HOME}/.aws-migrator/bin\"; echo IyEvYmluL3NoCmNhc2UgIiQxIiBpbgpnZXQpCiAgdG9rPSIke0dJVF9UT0tFTjotJHtHSVRIVUJfVE9LRU46LSR7R0hfVE9LRU46LSR7dG9rZW46LX19fX0iCiAgWyAtbiAiJHRvayIgXSB8fCBleGl0IDAKICBwcmludGYgInVzZXJuYW1lPXgtYWNjZXNzLXRva2VuXG5wYXNzd29yZD0lc1xuIiAiJHRvayIKICA7Owplc2FjCg== | base64 -d > \"$${HOME}/.aws-migrator/bin/git-credential-stackgen\"; chmod 0755 \"$${HOME}/.aws-migrator/bin/git-credential-stackgen\"; git config --global credential.helper \"$${HOME}/.aws-migrator/bin/git-credential-stackgen\""
+  runner_git_env_prefix                           = "GIT_TOKEN=\"$${GIT_TOKEN:-$${GITHUB_TOKEN:-$${GH_TOKEN:-$${token:-}}}}\"; export GIT_TOKEN; export GH_TOKEN=\"$${GH_TOKEN:-$${GIT_TOKEN}}\" GITHUB_TOKEN=\"$${GITHUB_TOKEN:-$${GIT_TOKEN}}\" GIT_TERMINAL_PROMPT=0"
+  runner_git_credential_bootstrap                 = "mkdir -p \"$${HOME}/.aws-migrator/bin\"; echo IyEvYmluL3NoCmNhc2UgIiQxIiBpbgpnZXQpCiAgdG9rPSIke0dJVF9UT0tFTjotJHtHSVRIVUJfVE9LRU46LSR7R0hfVE9LRU46LSR7dG9rZW46LX19fX0iCiAgWyAtbiAiJHRvayIgXSB8fCBleGl0IDAKICBwcmludGYgInVzZXJuYW1lPXgtYWNjZXNzLXRva2VuXG5wYXNzd29yZD0lc1xuIiAiJHRvayIKICA7Owplc2FjCg== | base64 -d > \"$${HOME}/.aws-migrator/bin/git-credential-stackgen\"; chmod 0755 \"$${HOME}/.aws-migrator/bin/git-credential-stackgen\"; git config --global credential.helper \"$${HOME}/.aws-migrator/bin/git-credential-stackgen\""
   runner_capability_preflight_execute_series_body = "${local.runner_git_env_prefix}; ${local.runner_git_credential_bootstrap}; bash ${local.script_pack_preload_dir}/runner-capability-preflight.sh '{{workflow_run_id}}'"
   # Scan one-liner: thin wrapper so mangled env-only pastes still work
   # (session 32e2ad9f set workflow_run_id=/aws_region= and dropped argv;

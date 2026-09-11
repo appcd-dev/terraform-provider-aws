@@ -150,9 +150,9 @@ resource "sg_workflow" "aws_migrator_gcp_only" {
       EOT
     },
     {
-      stage_id         = "gcp-iac-validate"
-      action_config    = {}
-      agent_ref        = sg_agent.aws_migrator_architect.name
+      stage_id      = "gcp-iac-validate"
+      action_config = {}
+      agent_ref     = sg_agent.aws_migrator_architect.name
       # Serial chain: generate → harden → validate → governance (fan-out was no-op on ai.dev).
       stage_depends_on = ["gcp-iac-harden"]
       runbook_refs = [

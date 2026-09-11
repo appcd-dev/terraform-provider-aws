@@ -22,6 +22,7 @@ PREFLIGHT_RUNNER_RULE: create_agent is allowed (reactree). Put the exact BEGIN/E
 CREATE_AGENT_EXPECTATION (copy into expectation):
 Your FIRST tool call must be ONE ${local.shell_tool_prefix}_execute_series with commands[0].command set to this exact body and no note before it:
 ${local.runner_capability_preflight_execute_series_body}
+Leave working_dir unset, or set it to /. The work root does not exist yet — this script creates it. Session e379516c passed working_dir=${local.runner_work_home}/.{{workflow_run_id}} and the runner refused the call with `working_dir … does not exist`.
 After success, note() runner_capability_preflight_ok and stage_summary:runner-capability-preflight.
 
 ---BEGIN RUNNER_CAPABILITY_PREFLIGHT_EXECUTE_SERIES---
