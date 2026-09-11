@@ -168,11 +168,10 @@ resource "sg_workflow" "aws_migrator_discovery" {
       runbook_refs = [sg_runbook_sop.discovery_stage_contract.name]
       skill_refs   = try(var.workflow_skill_refs["aws-cloud-discovery::runner-capability-preflight"], [])
       note         = <<-EOT
-        Purpose: fail fast if the remote runner lacks tools or the script pack.
-        First call: `${local.shell_tool_prefix}_execute_series` with BEGIN/END RUNNER_CAPABILITY_PREFLIGHT_EXECUTE_SERIES. create_agent is allowed; put the same body in expectation. tool_names only that series tool. working_dir omit or /.
-        On a rejected call (bad working_dir / bad args): retry once with working_dir unset. Then blocked.
-        Done when runner output has `runner_capability_preflight_ok: "true"`. Else `stage_summary:runner-capability-preflight=blocked:missing_runner_evidence`.
-        Terminal: blocked:remote_runner_{jq,awscli,python3,git,tofu,opa,cloud2code,script_pack,shell}_* .
+        Goal: confirm the remote runner has the tools and script pack this workflow needs.
+        Done when: the runner reports the preflight succeeded.
+        How: prefer the BEGIN/END pack command in this note (paste into `${local.shell_tool_prefix}_execute_series`). create_agent is fine if you put that same body in the expectation. Prefer working_dir omit or `/`. If the call is rejected for working_dir or args, retry once with working_dir unset.
+        Prefer the pack command over inventing shell.
 
         ${local.aws_migrator_spawn_context_preflight}
       EOT
@@ -184,9 +183,9 @@ resource "sg_workflow" "aws_migrator_discovery" {
       stage_depends_on = ["runner-capability-preflight"]
       action_config = {
         condition = "output_matches_regex"
-        # missing_runner_evidence intentionally omitted: worker mishandled the call,
-        # not a missing tool. Guild rejects a loop_stage on the entry stage.
-        match   = "blocked:remote_runner_jq_missing|blocked:remote_runner_awscli_missing|blocked:remote_runner_python3_missing|blocked:remote_runner_git_missing|blocked:remote_runner_tofu_missing|blocked:remote_runner_opa_missing|blocked:remote_runner_cloud2code_missing|blocked:remote_runner_script_pack_missing|blocked:remote_runner_shell_unavailable"
+        # Emitted sentinel forms only (same class as ingest/converge gates).
+        # missing_runner_evidence omitted: worker mishandled the call, not a missing tool.
+        match   = "blocked:remote_runner_jq_missing:\\s*\\\"true\\\"|blocked:remote_runner_awscli_missing:\\s*\\\"true\\\"|blocked:remote_runner_python3_missing:\\s*\\\"true\\\"|blocked:remote_runner_git_missing:\\s*\\\"true\\\"|blocked:remote_runner_tofu_missing:\\s*\\\"true\\\"|blocked:remote_runner_opa_missing:\\s*\\\"true\\\"|blocked:remote_runner_cloud2code_missing:\\s*\\\"true\\\"|blocked:remote_runner_script_pack_missing:\\s*\\\"true\\\"|blocked:remote_runner_shell_unavailable:\\s*\\\"true\\\""
         skip_to = "final-gate-and-memory"
         reason  = "Runner capability preflight failed — skip scan, ingest, destination, and orphan stages"
       }
@@ -198,11 +197,10 @@ resource "sg_workflow" "aws_migrator_discovery" {
       runbook_refs     = [sg_runbook_sop.discovery_stage_contract.name]
       skill_refs       = []
       note             = <<-EOT
-        Purpose: create monolith_state_uri for this run. Downstream stages must not ask the operator for it.
-        First call: `${local.shell_tool_prefix}_execute_series` with BEGIN/END CLOUD2CODE_SCAN_EXECUTE_SERIES. Do not create_agent, load_skill, or read_notes first. On loop GO_BACK, paste again — do not re-plan.
-        Substitute: region for AWS_REGION_PLACEHOLDER, real workflow_run_id for {{workflow_run_id}}, operator filters into CLOUD2CODE_* quotes (leave empty if unset). Never append &&. Pack runs `cloud2code import aws` — there is no `cloud2code aws` subcommand.
-        On mangled paste / unknown command / blocked:cloud2code_scan_failed: discard and paste the same BEGIN/END body again. Terminal blocked:cloud2code_scan_failed only after that retry, or non-retryable credentials.
-        Done when runner output has cloud2code_scan_ok true, non-empty monolith_state_uri, and monolith_resource_count > 0. Else stage_summary:cloud2code-scan-aws=blocked:missing_runner_evidence. note those keys.
+        Goal: scan the AWS region into Terraform state so later stages have a state file path. Do not ask the operator for that path.
+        Done when: the scan succeeded, the state path is non-empty, and the resource count is greater than zero.
+        How: prefer the BEGIN/END pack command in this note (paste into `${local.shell_tool_prefix}_execute_series`). create_agent is fine with the same body. Swap the region placeholder and workflow run id; leave filter quotes empty when the operator did not set filters. Do not append `&&` or invent a different cloud2code invocation.
+        On a mangled paste or scan failure: paste the same BEGIN/END body once more before giving up. Prefer the pack command over inventing shell.
 
         ${local.aws_migrator_spawn_context_cloud2code}
       EOT
@@ -240,10 +238,10 @@ resource "sg_workflow" "aws_migrator_discovery" {
       runbook_refs     = [sg_runbook_sop.discovery_stage_contract.name]
       skill_refs       = []
       note             = <<-EOT
-        Purpose: every scanned resource exactly once, each group has a state file. Split-quality scores are optional.
-        First call: one `${local.shell_tool_prefix}_execute_command` with BEGIN/END INGEST_BOOTSTRAP_EXECUTE_COMMAND (working_dir=/, full timeout). create_agent is allowed with the same body. Do not ask for monolith_state_uri; do not invent shell; do not use GitHub/AWS MCP tools.
-        On failure: retry that same paste once. Then blocked:three_runner_attempts_failed and blocked:ingest_script_pack_failed. If bootstrap prints blocked:missing_monolith_state_uri, note it and return.
-        Done when count_reconciliation_ok true, non-empty group paths, and script_pack_verify_ok true. note stage_summary:ingest-and-split and handoff keys. Never submit_evidence here.
+        Goal: put every scanned resource into exactly one group folder, each with its own state file. Split-quality scores are optional.
+        Done when: reconciliation succeeds, group paths are present, and the script pack verified.
+        How: prefer the BEGIN/END pack command in this note (one `${local.shell_tool_prefix}_execute_command`, working_dir `/`, full timeout). create_agent is fine with the same body. Do not ask the operator for the state path; do not invent shell; do not use GitHub or AWS MCP tools for this stage.
+        On failure: retry that same paste once. Prefer the pack command over inventing shell.
 
         ${local.dbsplit_spawn_context_ingest}
       EOT
@@ -283,10 +281,10 @@ resource "sg_workflow" "aws_migrator_discovery" {
       runbook_refs     = [sg_runbook_sop.discovery_stage_contract.name]
       skill_refs       = try(var.workflow_skill_refs["aws-cloud-discovery::registry-and-import-codegen"], [])
       note             = <<-EOT
-        Purpose: AWS group Terraform on a branch, plus pr_url or a concrete pr_blocker. Soft split-quality scores are warnings.
-        First call: `${local.shell_tool_prefix}_execute_series` with BEGIN/END IAC_PR_EXECUTE_SERIES. Do not create_agent. Do not hand-roll clone/PR. The body is in this note, not a file on the runner.
-        Username/github.com clone errors: re-run the same series (it aliases token → GIT_TOKEN). Not a terminal pr_blocker.
-        Keep fixing on the runner until batch_payloads_path exists and you have pr_url or a real pr_blocker. note those keys and stage_summary:registry-and-import-codegen.
+        Goal: open a PR with the generated AWS Terraform folders, or leave a concrete reason the PR could not open.
+        Done when: the batch payloads exist and you have a PR URL or a real PR blocker.
+        How: prefer the BEGIN/END pack command in this note (paste into `${local.shell_tool_prefix}_execute_series`). create_agent is fine with the same body. Do not hand-roll clone or PR steps. Soft split-quality scores are warnings, not blockers.
+        Prefer the pack command over inventing shell.
 
         ${local.dbsplit_spawn_context_registry}
       EOT
@@ -301,10 +299,10 @@ resource "sg_workflow" "aws_migrator_discovery" {
         try(var.workflow_skill_refs["aws-cloud-discovery::hcl-hydrate-per-group"], []),
       )
       note = <<-EOT
-        Purpose: terraform_validation_ok true on sampled groups. Zero-change plan is optional.
-        First call: BEGIN/END CONVERGE_EXECUTE_SERIES. create_agent is allowed.
-        If fmt/validate fails: fix HCL on the runner and re-check until validation passes or blocked:remote_runner_tofu_missing / blocked:remote_runner_shell_unavailable.
-        note terraform_validation_ok, group lists, stage_summary:shell-converge-matrix.
+        Goal: Terraform fmt and validate succeed on the sampled groups. A zero-change plan is nice but optional.
+        Done when: validation is true for the sample, or the runner truly cannot run tofu/shell.
+        How: prefer the BEGIN/END pack command in this note. create_agent is fine, especially for fixing HCL on the runner. If fmt or validate fails, fix the generated files and re-run the pack rather than respawning the same goal unchanged.
+        Prefer the pack command over inventing shell.
 
         ${local.dbsplit_spawn_context_converge}
       EOT
@@ -320,9 +318,12 @@ resource "sg_workflow" "aws_migrator_discovery" {
         loop_to        = "shell-converge-matrix"
         max_iterations = var.max_convergence_iterations
         exit_condition = "output_matches_regex"
-        exit_match     = "terraform_validation_ok[^\\n]{0,40}true|blocked:remote_runner_tofu_missing|blocked:remote_runner_shell_unavailable|stage_summary:shell-converge-matrix=blocked:"
+        # Soft terraform_validation_ok=false keeps GO_BACK. Do not exit on
+        # stage_summary:…=blocked: — FINISH reasons paste exit_match text and
+        # false-skipped to final-gate (session 03c3512c).
+        exit_match = "terraform_validation_ok[^\\n]{0,40}true|blocked:remote_runner_tofu_missing|blocked:remote_runner_shell_unavailable"
       }
-      note = "loop_stage only — no LLM. Exit on terraform_validation_ok true or a terminal runner/stage_summary blocker."
+      note = "loop_stage only — no LLM. Exit on terraform_validation_ok true or a terminal runner blocker."
     },
     {
       stage_id         = "converge-blocked-gate"
@@ -331,9 +332,11 @@ resource "sg_workflow" "aws_migrator_discovery" {
       stage_depends_on = ["shell-converge-loop"]
       action_config = {
         condition = "output_matches_regex"
-        match     = "blocked:remote_runner_tofu_missing:\\s*\\\"true\\\"|blocked:remote_runner_shell_unavailable:\\s*\\\"true\\\"|stage_summary:shell-converge-matrix=blocked:"
-        skip_to   = "final-gate-and-memory"
-        reason    = "Shell converge blocked — skip orphan and final destination stages"
+        # Emitted forms only. Never share a bare substring with exit_match that
+        # FINISH reasons embed (same class of bug as ingest-blocked-gate).
+        match   = "blocked:remote_runner_tofu_missing:\\s*\\\"true\\\"|blocked:remote_runner_shell_unavailable:\\s*\\\"true\\\""
+        skip_to = "final-gate-and-memory"
+        reason  = "Shell converge blocked — skip orphan and final destination stages"
       }
     },
     {
@@ -343,8 +346,9 @@ resource "sg_workflow" "aws_migrator_discovery" {
       runbook_refs     = [sg_runbook_sop.discovery_stage_contract.name]
       skill_refs       = try(var.workflow_skill_refs["aws-cloud-discovery::orphans-secondary-pipeline"], [])
       note             = <<-EOT
-        Max 2 tool turns: read_notes → if upstream blocked, note skipped:upstream_blocked and return; if orphans_bundle empty, note skipped:empty_orphans_bundle and return; else hand off to the orphan workflow.
-        Forbidden: entry-probe, disk-mirror, or bundle-snapshot subagents.
+        Goal: decide whether orphan resources need a follow-on workflow.
+        Done when: you skipped because upstream was blocked or the orphans bundle is empty, or you handed off to the orphan workflow.
+        How: read notes first. Do not spawn entry-probe, disk-mirror, or bundle-snapshot subagents.
       EOT
     },
     {
@@ -357,10 +361,9 @@ resource "sg_workflow" "aws_migrator_discovery" {
         try(var.workflow_skill_refs["aws-migrator-discovery::final-gate-and-memory"], [])
       )
       note = <<-EOT
-        AWS discovery only. Missing Azure/GCP evidence is not a failure here.
-        Success: scan done, every resource in exactly one folder, readable .tf files, fmt+validate pass, PR URL or concrete PR blocker.
-        Zero-change plan and split-quality reports are optional.
-        note stage_summary:final-gate-and-memory. Operator message: ## Terraform ready / ## Terraform needs work / ## Could not generate Terraform with Result, Checks, Ways to improve readiness.
+        Goal: close this AWS discovery run for the operator.
+        Done when: you reported ready, needs work, or could not generate Terraform, with Result, Checks, and Ways to improve readiness.
+        Success means: scan done, every resource in exactly one folder, readable `.tf` files, fmt and validate pass, and a PR URL or a concrete PR blocker. Zero-change plan and split-quality reports are optional. Missing Azure or GCP evidence is not a failure here.
       EOT
     },
   ]

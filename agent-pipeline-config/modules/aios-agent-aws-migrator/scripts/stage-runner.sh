@@ -4,7 +4,7 @@
 # Usage: DBSPLIT_EMBEDDED=1 bash -s <command> [args...] << 'DBSPLIT_STAGE_RUNNER' ... DBSPLIT_STAGE_RUNNER
 set -euo pipefail
 
-SCRIPT_PACK_VERSION="20260911.6"
+SCRIPT_PACK_VERSION="20260911.7"
 DBSPLIT_DEFAULT_STRATEGY="${DBSPLIT_DEFAULT_STRATEGY:-tfstate_monolith_decomposer}"
 DBSPLIT_DEFAULT_CAP="${DBSPLIT_DEFAULT_CAP:-0}"
 REQUIRED_ALLOCATE_MARKER="def merge_small_by_seed"
@@ -3214,7 +3214,8 @@ classify_tofu_init_failure() {
     printf '%s' "provider_install_failed"
     return 0
   fi
-  if grep -qiE 'Failed to read plugin cache|plugin cache|checksum' "$log_file"; then
+  # Shared plugin cache can list a version that was never fully downloaded.
+  if grep -qiE 'Failed to read plugin cache|plugin cache|checksum|there is no package for registry' "$log_file"; then
     printf '%s' "plugin_cache_failed"
     return 0
   fi
@@ -3237,7 +3238,8 @@ tofu_init_with_repair() {
 
   while [ "$init_attempt" -le "$max_init_attempts" ]; do
     init_log="${groups_dir}/init-${init_attempt}.out"
-    if "$tofu_bin" init -backend=false -input=false -no-color >"$init_log" 2>&1; then
+    # Prefer the flock-wrapped init so concurrent groups do not race the cache.
+    if tofu_init_with_plugin_cache_lock "$tofu_bin" "$init_log"; then
       mirror_note "$work_root" "hcl_init_status:${group_id}" "{\"ok\":true,\"attempt\":${init_attempt},\"log_path\":\"${init_log}\",\"tf_data_dir\":\"${TF_DATA_DIR}\",\"plugin_cache_dir\":\"${TF_PLUGIN_CACHE_DIR}\"}" || true
       return 0
     fi
@@ -3252,7 +3254,14 @@ tofu_init_with_repair() {
     case "$reason" in
       runner_disk_full|provider_install_failed|plugin_cache_failed)
         cleanup_terraform_runtime_artifacts "$work_root" "$group_id"
+        # Drop stale cache entries so the next init re-downloads the provider.
+        if [ -n "${TF_PLUGIN_CACHE_DIR:-}" ] && [ -d "$TF_PLUGIN_CACHE_DIR" ]; then
+          find "$TF_PLUGIN_CACHE_DIR" -type d -name 'registry.opentofu.org' -prune -exec rm -rf {} + 2>/dev/null || true
+          find "$TF_PLUGIN_CACHE_DIR" -type d -name 'registry.terraform.io' -prune -exec rm -rf {} + 2>/dev/null || true
+        fi
         configure_group_tofu_runtime "$work_root" "$group_id" || true
+        # Force provider re-resolution after cache wipe.
+        ( cd "$groups_dir" && "$tofu_bin" init -backend=false -input=false -upgrade -no-color >"${groups_dir}/init-upgrade-${init_attempt}.out" 2>&1 ) || true
         ;;
       *)
         ;;
@@ -3347,6 +3356,12 @@ remove_empty_attrs = {
     "transit_encryption_mode",
     "slots",
 }
+# Computed / read-only attributes that generate-config-out still emits.
+api_gateway_deployment_drop = {
+    "execution_arn",
+    "invoke_url",
+    "created_date",
+}
 replication_group_managed_attrs = (
     "az_mode",
     "availability_zone",
@@ -3366,6 +3381,44 @@ replication_group_managed_attrs = (
     "snapshot_window",
     "subnet_group_name",
 )
+
+def drop_attr_lines(block: str, attrs) -> str:
+    for attr in attrs:
+        block = re.sub(rf"^\s*{re.escape(attr)}\s*=.*\n", "", block, flags=re.M)
+    return block
+
+def drop_list_or_block_attr(block: str, attr: str) -> str:
+    # Attribute form: mixed_instances_policy = [ ... ] (possibly nested)
+    pattern = re.compile(
+        rf"^(\s*){re.escape(attr)}\s*=\s*\[",
+        re.M,
+    )
+    while True:
+        m = pattern.search(block)
+        if not m:
+            break
+        i = m.end() - 1  # at '['
+        depth = 0
+        j = i
+        while j < len(block):
+            ch = block[j]
+            if ch == "[":
+                depth += 1
+            elif ch == "]":
+                depth -= 1
+                if depth == 0:
+                    j += 1
+                    break
+            j += 1
+        # Consume trailing whitespace/newline after the closing bracket.
+        while j < len(block) and block[j] in " \t":
+            j += 1
+        if j < len(block) and block[j] == "\n":
+            j += 1
+        block = block[: m.start()] + block[j:]
+    block = re.sub(rf"^\s*{re.escape(attr)}\s*=.*\n", "", block, flags=re.M)
+    return block
+
 out = []
 for block in re.split(r"(?=resource\s+\"[^\"]+\"\s+\"[^\"]+\"\s+\{)", text):
     if re.search(r"\bname_prefix\s*=", block) and re.search(r"\bname\s*=", block):
@@ -3390,6 +3443,18 @@ for block in re.split(r"(?=resource\s+\"[^\"]+\"\s+\"[^\"]+\"\s+\{)", text):
     if block.startswith('resource "aws_elasticache_cluster"') and re.search(r"\breplication_group_id\s*=\s*\"[^\"]+\"", block):
         for attr in replication_group_managed_attrs:
             block = re.sub(rf"^\s*{re.escape(attr)}\s*=.*\n", "", block, flags=re.M)
+    if block.startswith('resource "aws_api_gateway_deployment"'):
+        block = drop_attr_lines(block, api_gateway_deployment_drop)
+    # generate-config-out emits mixed_instances_policy as a list; AWS provider
+    # expects a nested block. Drop the malformed attribute so validate can pass;
+    # launch template / ASG still import from state for plan.
+    if block.startswith('resource "aws_autoscaling_group"'):
+        block = drop_list_or_block_attr(block, "mixed_instances_policy")
+        block = drop_list_or_block_attr(block, "launch_template")
+        # Prefer launch_template block when both ID and name forms conflict later.
+    # dns_options on vpc endpoints must be a block, not a list attribute.
+    if 'resource "aws_vpc_endpoint"' in block[:80] or block.startswith('resource "aws_vpc_endpoint"'):
+        block = drop_list_or_block_attr(block, "dns_options")
     block = re.sub(r"^\s*enable_lni_at_device_index\s*=\s*0\s*\n", "", block, flags=re.M)
     for attr in route_null_attrs:
         block = re.sub(rf"^(\s*{re.escape(attr)}\s*=\s*)\"\"\s*$", rf"\1null", block, flags=re.M)

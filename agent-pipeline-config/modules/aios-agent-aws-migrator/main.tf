@@ -85,7 +85,7 @@ locals {
   runner_azure_env_secret_id = trimspace(var.runner_azure_env_secret_id)
   runner_gcp_env_secret_id   = trimspace(var.runner_gcp_env_secret_id)
 
-  script_pack_tarball_url = trimspace(var.script_pack_tarball_url) != "" ? trimspace(var.script_pack_tarball_url) : "https://github.com/${trimspace(var.script_pack_release_repo)}/releases/download/pack-${local.script_pack_version}/script-pack.tar.gz"
+  script_pack_tarball_url = trimspace(var.script_pack_tarball_url) != "" ? trimspace(var.script_pack_tarball_url) : "https://github.com/${trimspace(var.script_pack_release_repo)}/releases/download/pack-${local.script_pack_version}/script-pack-${local.script_pack_version}.tar.gz"
 
   create_runner_script_pack_env_secret = var.remote_runner_script_pack_sync_enabled && trimspace(var.runner_script_pack_env_secret_id) == ""
   runner_script_pack_env_secret_id     = local.create_runner_script_pack_env_secret ? sg_secret.runner_script_pack[0].id : trimspace(var.runner_script_pack_env_secret_id)
@@ -164,7 +164,7 @@ locals {
   gcp_mapping_catalog_script   = file("${path.module}/scripts/gcp_mapping_catalog.py")
   gcp_mapping_catalog_json     = file("${path.module}/mappings/aws-to-gcp.json")
   ensure_cloud2code_script     = file("${path.module}/scripts/ensure_cloud2code.sh")
-  script_pack_version          = "20260911.6"
+  script_pack_version          = "20260911.7"
   script_pack_git_ref          = "main"
   # Baked into the runner image under /opt, not under HOME. The ACA Azure Files
   # share mounts over /home/runner, so a pack under HOME depends on the
