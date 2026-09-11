@@ -74,7 +74,10 @@ When a scan returns `blocked:cloud2code_scan_failed` or `cloud2code_log_tail_*`,
 
 ## Decomposition Contract
 
-Use:
+The stage note is the only execution plan. These SOPs are background reading for
+the current stage only. Never load one as a step list and never execute its
+procedures: doing so replays the whole pipeline inside one stage and reports
+later phases as done before they run (sessions e287557d / 8478c357 / 90cf9291).
 
 1. **`${sop_orchestration_name}`** — remote runner boundaries, note keys, script pack, execution batching.
 2. **`${sop_shard_extraction_name}`** — logical grouping, count reconciliation, per-group state shards.

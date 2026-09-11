@@ -33,6 +33,20 @@ cp "$MODULE/mappings/aws-to-gcp.json" "$DEST/mappings/"
 chmod +x "$DEST/stage-runner.sh" "$DEST/run-destination-stage.sh" \
   "$DEST/runner-capability-preflight.sh" "$DEST/cloud2code-aws-scan.sh"
 
+# Agents keep shortening the scan script name and the command then dies with
+# exit 127 before any scan runs: `cloud2code-scan` (session 90cf9291) and
+# `pack.sh` (session 8478c357). Accept the near-miss names and run the real
+# script with the same arguments.
+for alias_name in cloud2code-scan cloud2code-scan.sh cloud2code-aws-scan pack.sh; do
+  cat >"$DEST/$alias_name" <<'ALIAS'
+#!/usr/bin/env bash
+# Alias for cloud2code-aws-scan.sh. Kept so a mangled script name still scans.
+set -euo pipefail
+exec bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cloud2code-aws-scan.sh" "$@"
+ALIAS
+  chmod +x "$DEST/$alias_name"
+done
+
 # Render against RUNTIME_DEST so the embedded paths point at the HOME copy the
 # entrypoint creates, not the /opt staging directory.
 python3 /tmp/render_ingest_bootstrap.py "$DEST" "$RUNTIME_DEST"

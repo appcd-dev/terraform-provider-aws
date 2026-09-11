@@ -45,6 +45,10 @@ docker run --rm \
     test -r "$pack/runner-capability-preflight.sh"
     grep -q "$pack" "$pack/ingest-bootstrap.sh"
     grep -q "SCRIPT_PACK_VERSION=" "$pack/stage-runner.sh"
+    for alias_name in cloud2code-scan cloud2code-scan.sh cloud2code-aws-scan pack.sh; do
+      test -r "$pack/$alias_name"
+      grep -q "cloud2code-aws-scan.sh" "$pack/$alias_name"
+    done
   '
 
 second_output="$(
