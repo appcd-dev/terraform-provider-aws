@@ -17,6 +17,8 @@ def main() -> None:
     scan_stage = workflow.split('stage_id         = "cloud2code-scan-aws"', 1)[1]
     scan_stage = scan_stage.split('stage_id         = "cloud2code-scan-loop"', 1)[0]
     assert "do not call `create_agent`" in scan_stage
+    assert "You are the executor in this stage" in scan_stage
+    assert "On re-entry after a loop GO_BACK" in scan_stage
     assert "skill_refs = null" in scan_stage
     assert "${local.aws_migrator_spawn_context_cloud2code}" in scan_stage
 
@@ -36,6 +38,7 @@ def main() -> None:
         "aws_migrator_spawn_context_cloud2code = <<-EOT", 1
     )[1].split("EOT", 1)[0]
     assert "Do not call create_agent" in scan_context
+    assert "You execute this stage yourself" in scan_context
     assert "DIRECT_SCAN_COMMAND" in scan_context
     assert "${local.cloud2code_scan_execute_series_body}" in scan_context
 
