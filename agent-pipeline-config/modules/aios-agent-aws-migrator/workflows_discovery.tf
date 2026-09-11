@@ -69,9 +69,12 @@ resource "sg_workflow" "aws_migrator_discovery" {
     { field = "intent", values = ["aws-cloud-discovery", "aws-cloud2code-discovery", "cloud2code-aws-scan", "aws-region-to-terraform", "aws-brownfield-iac-discovery"], type = "passive" },
   ]
 
+  # The orchestration SOP is deliberately absent. Stages already implement its
+  # sequence, and a workflow-level binding makes every stage inherit it as a
+  # prescriptive runbook, so each stage replays all 20 procedures instead of
+  # doing its own work (session e287557d). It stays in per-stage skill_refs.
   runbook_refs = [
     sg_runbook_sop.cloud2code_aws_region_scan.name,
-    sg_runbook_sop.aws_migrator_orchestration.name,
     sg_runbook_sop.tfstate_splitter.name,
     sg_runbook_sop.terraform_registry_reverse_iac.name,
     sg_runbook_sop.terraform_substate_convergence.name,
@@ -382,7 +385,10 @@ resource "sg_workflow" "aws_migrator_discovery" {
         loop_to        = "shell-converge-matrix"
         max_iterations = var.max_convergence_iterations
         exit_condition = "output_matches_regex"
-        exit_match     = "terraform_validation_ok[^\\n]{0,40}\"true\"|blocked:remote_runner_tofu_missing|blocked:remote_runner_shell_unavailable|stage_summary:shell-converge-matrix=blocked:"
+        # Runner output writes terraform_validation_ok=true unquoted while agent
+        # summaries quote it. Requiring the quoted form kept a converged stage
+        # looping until the visit cap (session e287557d).
+        exit_match = "terraform_validation_ok[^\\n]{0,40}true|blocked:remote_runner_tofu_missing|blocked:remote_runner_shell_unavailable|stage_summary:shell-converge-matrix=blocked:"
       }
       note = "Loop back to shell-converge-matrix until AWS Terraform validation converges to a zero-diff plan or a terminal runner/convergence blocker is recorded."
     },

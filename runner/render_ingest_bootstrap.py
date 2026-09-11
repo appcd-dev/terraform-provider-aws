@@ -23,6 +23,9 @@ def tf_render(text: str, mapping: dict[str, str]) -> str:
 
 def main() -> int:
     dest = Path(sys.argv[1] if len(sys.argv) > 1 else "/home/runner/.aws-migrator/script-pack")
+    # Where the pack will sit when the runner executes it, which differs from dest
+    # when the build stages the pack outside HOME.
+    runtime_dest = Path(sys.argv[2]) if len(sys.argv) > 2 else dest
     module = Path("agent-pipeline-config/modules/aios-agent-aws-migrator")
     helper_tpl = (module / "templates/dbsplit-script-pack-env.sh.tftpl").read_text()
     ingest_tpl = (module / "templates/ingest-execute-series-embedded.sh.tftpl").read_text()
@@ -32,7 +35,7 @@ def main() -> int:
         .read_text()
         .split('SCRIPT_PACK_VERSION="', 1)[1]
         .split('"', 1)[0],
-        "script_pack_preload_dir": str(dest),
+        "script_pack_preload_dir": str(runtime_dest),
         "script_pack_allocate_sha256": sha256_file(dest / "allocate_manifest.py"),
         "script_pack_decomposer_sha256": sha256_file(dest / "tfstate_monolith_decomposer.py"),
         "script_pack_runner_sha256": sha256_file(dest / "stage-runner.sh"),

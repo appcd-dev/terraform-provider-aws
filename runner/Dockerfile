@@ -25,7 +25,8 @@ RUN chmod +x /tmp/install-tools.sh && TARGETARCH="${TARGETARCH}" /tmp/install-to
 
 RUN groupadd --gid 1000 runner \
   && useradd --uid 1000 --gid 1000 --create-home --home-dir /home/runner --shell /bin/bash runner \
-  && mkdir -p /home/runner/.local/bin /home/runner/.aws-migrator
+  && mkdir -p /home/runner/.local/bin /home/runner/.aws-migrator \
+  && chown -R runner:runner /home/runner
 
 WORKDIR /src
 COPY agent-pipeline-config/modules/aios-agent-aws-migrator/scripts \
@@ -36,11 +37,12 @@ COPY agent-pipeline-config/modules/aios-agent-aws-migrator/templates/ingest-exec
   /src/agent-pipeline-config/modules/aios-agent-aws-migrator/templates/ingest-execute-series-embedded.sh.tftpl
 COPY agent-pipeline-config/modules/aios-agent-aws-migrator/templates/dbsplit-script-pack-env.sh.tftpl \
   /src/agent-pipeline-config/modules/aios-agent-aws-migrator/templates/dbsplit-script-pack-env.sh.tftpl
-COPY runner/embed-script-pack.sh runner/render_ingest_bootstrap.py runner/sync-script-pack-from-env.sh /tmp/
+COPY runner/embed-script-pack.sh runner/render_ingest_bootstrap.py runner/sync-script-pack-from-env.sh runner/runner-entrypoint.sh /tmp/
 RUN chmod +x /tmp/embed-script-pack.sh /tmp/sync-script-pack-from-env.sh \
   && /tmp/embed-script-pack.sh \
   && install -m 0755 /tmp/sync-script-pack-from-env.sh /usr/local/bin/sync-script-pack-from-env.sh \
-  && rm -rf /src /tmp/embed-script-pack.sh /tmp/render_ingest_bootstrap.py /tmp/sync-script-pack-from-env.sh /tmp/install-tools.sh /tmp/versions.env
+  && install -m 0755 /tmp/runner-entrypoint.sh /usr/local/bin/runner-entrypoint.sh \
+  && rm -rf /src /tmp/embed-script-pack.sh /tmp/render_ingest_bootstrap.py /tmp/sync-script-pack-from-env.sh /tmp/runner-entrypoint.sh /tmp/install-tools.sh /tmp/versions.env
 
 ENV HOME=/home/runner \
   USER=runner \
@@ -62,7 +64,7 @@ RUN aiden-runner version \
   && command -v opa \
   && command -v tflint \
   && command -v cloud2code \
-  && test -x /home/runner/.aws-migrator/script-pack/*/ingest-bootstrap.sh
+  && test -x /opt/aws-migrator/script-pack/*/ingest-bootstrap.sh
 
-ENTRYPOINT ["/usr/local/bin/aiden-runner"]
+ENTRYPOINT ["/usr/local/bin/runner-entrypoint.sh"]
 CMD ["start", "--auto-discover"]

@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
-# Copy the aws-migrator script pack into the runner HOME and render ingest-bootstrap.sh.
+# Copy the aws-migrator script pack into the image and render ingest-bootstrap.sh.
+# The pack lives under /opt, outside the runner HOME, because deployments mount a
+# persistent volume over /home/runner and that would hide a pack baked there.
+# runner-entrypoint.sh copies it into HOME at startup.
 set -euo pipefail
 
 MODULE="agent-pipeline-config/modules/aios-agent-aws-migrator"
 VERSION="$(sed -n 's/^SCRIPT_PACK_VERSION="\([^"]*\)"/\1/p' "$MODULE/scripts/stage-runner.sh" | head -n1)"
 test -n "$VERSION"
-DEST="/home/runner/.aws-migrator/script-pack/${VERSION}"
+DEST="/opt/aws-migrator/script-pack/${VERSION}"
+RUNTIME_DEST="/home/runner/.aws-migrator/script-pack/${VERSION}"
 
 mkdir -p "$DEST/mappings"
 cp "$MODULE/scripts/allocate_manifest.py" "$DEST/"
@@ -29,7 +33,9 @@ cp "$MODULE/mappings/aws-to-gcp.json" "$DEST/mappings/"
 chmod +x "$DEST/stage-runner.sh" "$DEST/run-destination-stage.sh" \
   "$DEST/runner-capability-preflight.sh" "$DEST/cloud2code-aws-scan.sh"
 
-python3 /tmp/render_ingest_bootstrap.py "$DEST"
-chown -R runner:runner /home/runner/.aws-migrator
-echo "script pack at $DEST"
+# Render against RUNTIME_DEST so the embedded paths point at the HOME copy the
+# entrypoint creates, not the /opt staging directory.
+python3 /tmp/render_ingest_bootstrap.py "$DEST" "$RUNTIME_DEST"
+chmod -R a+rX /opt/aws-migrator
+echo "script pack at $DEST (runtime $RUNTIME_DEST)"
 ls -la "$DEST"
