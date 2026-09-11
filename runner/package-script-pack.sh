@@ -57,7 +57,8 @@ ALIAS
   chmod +x "$DEST/$alias_name"
 done
 
-(cd "$ROOT" && python3 "$ROOT/runner/render_ingest_bootstrap.py" "$DEST")
+(cd "$ROOT" && python3 "$ROOT/runner/render_ingest_bootstrap.py" "$DEST" \
+  "/opt/aws-migrator/script-pack/${VERSION}")
 
 OUT="${1:-${ROOT}/runner/dist/script-pack-${VERSION}.tar.gz}"
 mkdir -p "$(dirname "$OUT")"

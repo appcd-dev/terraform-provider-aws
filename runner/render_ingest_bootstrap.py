@@ -30,12 +30,22 @@ def main() -> int:
     helper_tpl = (module / "templates/dbsplit-script-pack-env.sh.tftpl").read_text()
     ingest_tpl = (module / "templates/ingest-execute-series-embedded.sh.tftpl").read_text()
 
-    mapping = {
-        "script_pack_version": (dest / "stage-runner.sh")
+    version = (
+        (dest / "stage-runner.sh")
         .read_text()
         .split('SCRIPT_PACK_VERSION="', 1)[1]
-        .split('"', 1)[0],
+        .split('"', 1)[0]
+    )
+    release_repo = "Walmart-StackGen/Nile-Factory"
+    tarball_url = (
+        f"https://github.com/{release_repo}/releases/download/"
+        f"pack-{version}/script-pack-{version}.tar.gz"
+    )
+    mapping = {
+        "script_pack_version": version,
         "script_pack_preload_dir": str(runtime_dest),
+        "script_pack_tarball_url": tarball_url,
+        "script_pack_release_repo": release_repo,
         "script_pack_allocate_sha256": sha256_file(dest / "allocate_manifest.py"),
         "script_pack_decomposer_sha256": sha256_file(dest / "tfstate_monolith_decomposer.py"),
         "script_pack_runner_sha256": sha256_file(dest / "stage-runner.sh"),

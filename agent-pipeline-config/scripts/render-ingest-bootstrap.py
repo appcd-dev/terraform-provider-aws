@@ -41,6 +41,11 @@ def main() -> int:
         "runner_work_home": "/home/runner",
         "script_pack_preload_dir": preload_dir,
         "script_pack_version": version,
+        "script_pack_release_repo": "Walmart-StackGen/Nile-Factory",
+        "script_pack_tarball_url": (
+            "https://github.com/Walmart-StackGen/Nile-Factory/releases/download/"
+            f"pack-{version}/script-pack-{version}.tar.gz"
+        ),
         "script_pack_allocate_sha256": sha256(pack / "allocate_manifest.py"),
         "script_pack_decomposer_sha256": sha256(pack / "tfstate_monolith_decomposer.py"),
         "script_pack_runner_sha256": sha256(pack / "stage-runner.sh"),
