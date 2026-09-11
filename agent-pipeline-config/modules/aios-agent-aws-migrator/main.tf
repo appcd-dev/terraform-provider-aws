@@ -163,7 +163,7 @@ locals {
   gcp_mapping_catalog_script          = file("${path.module}/scripts/gcp_mapping_catalog.py")
   gcp_mapping_catalog_json            = file("${path.module}/mappings/aws-to-gcp.json")
   ensure_cloud2code_script            = file("${path.module}/scripts/ensure_cloud2code.sh")
-  script_pack_version                 = "20260911.3"
+  script_pack_version                 = "20260911.4"
   script_pack_git_ref                 = "main"
   script_pack_preload_dir             = "${local.runner_work_home}/.aws-migrator/script-pack/${local.script_pack_version}"
 

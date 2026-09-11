@@ -4,7 +4,7 @@
 # Usage: DBSPLIT_EMBEDDED=1 bash -s <command> [args...] << 'DBSPLIT_STAGE_RUNNER' ... DBSPLIT_STAGE_RUNNER
 set -euo pipefail
 
-SCRIPT_PACK_VERSION="20260911.3"
+SCRIPT_PACK_VERSION="20260911.4"
 DBSPLIT_DEFAULT_STRATEGY="${DBSPLIT_DEFAULT_STRATEGY:-tfstate_monolith_decomposer}"
 DBSPLIT_DEFAULT_CAP="${DBSPLIT_DEFAULT_CAP:-0}"
 REQUIRED_ALLOCATE_MARKER="def merge_small_by_seed"
@@ -6779,6 +6779,16 @@ cmd_iac_pr_pipeline() {
 
   local reconcile_ok
   reconcile_ok="$(read_note "$work_root" "count_reconciliation_ok" 2>/dev/null || true)"
+  # Session 8478c357 split into $WORK_ROOT/decomposition/<group>/terraform.tfstate
+  # with no manifest and no reconcile result, which the adopter above cannot
+  # salvage. Redo the canonical split from the scanned state rather than ending
+  # the run: the scan is the expensive part and it already succeeded.
+  if [ "$reconcile_ok" != "true" ]; then
+    echo "iac_pr_recovery=rerunning_canonical_split"
+    if cmd_ingest_and_split "$work_root"; then
+      reconcile_ok="$(read_note "$work_root" "count_reconciliation_ok" 2>/dev/null || true)"
+    fi
+  fi
   if [ "$reconcile_ok" != "true" ]; then
     echo "iac_pr_error=count_reconciliation_not_ok"
     return 1
