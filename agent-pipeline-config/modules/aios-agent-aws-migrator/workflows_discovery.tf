@@ -169,9 +169,9 @@ resource "sg_workflow" "aws_migrator_discovery" {
       skill_refs   = try(var.workflow_skill_refs["aws-cloud-discovery::runner-capability-preflight"], [])
       note         = <<-EOT
         Goal: confirm the remote runner has the tools and script pack this workflow needs.
-        Done when: the runner reports the preflight succeeded.
+        Done when: your stage result includes the runner line that says preflight succeeded (`runner_capability_preflight_ok` true).
         How: prefer the BEGIN/END pack command in this note (paste into `${local.shell_tool_prefix}_execute_series`). create_agent is fine if you put that same body in the expectation. Prefer working_dir omit or `/`. If the call is rejected for working_dir or args, retry once with working_dir unset.
-        Prefer the pack command over inventing shell.
+        Prefer the pack command over inventing shell. Echo the runner success or blocker lines in your result; do not paraphrase them away.
 
         ${local.aws_migrator_spawn_context_preflight}
       EOT
@@ -198,9 +198,9 @@ resource "sg_workflow" "aws_migrator_discovery" {
       skill_refs       = []
       note             = <<-EOT
         Goal: scan the AWS region into Terraform state so later stages have a state file path. Do not ask the operator for that path.
-        Done when: the scan succeeded, the state path is non-empty, and the resource count is greater than zero.
+        Done when: your stage result includes the runner lines showing `cloud2code_scan_ok` true, a non-empty state path, and resource count greater than zero.
         How: prefer the BEGIN/END pack command in this note (paste into `${local.shell_tool_prefix}_execute_series`). create_agent is fine with the same body. Swap the region placeholder and workflow run id; leave filter quotes empty when the operator did not set filters. Do not append `&&` or invent a different cloud2code invocation.
-        On a mangled paste or scan failure: paste the same BEGIN/END body once more before giving up. Prefer the pack command over inventing shell.
+        On a mangled paste or scan failure: paste the same BEGIN/END body once more before giving up. Prefer the pack command over inventing shell. Echo the runner success or blocker lines in your result; do not paraphrase them away.
 
         ${local.aws_migrator_spawn_context_cloud2code}
       EOT
@@ -239,9 +239,9 @@ resource "sg_workflow" "aws_migrator_discovery" {
       skill_refs       = []
       note             = <<-EOT
         Goal: put every scanned resource into exactly one group folder, each with its own state file. Split-quality scores are optional.
-        Done when: reconciliation succeeds, group paths are present, and the script pack verified.
+        Done when: your stage result includes the runner lines showing reconciliation succeeded (`count_reconciliation_ok` true), group paths present, and script pack verified (`script_pack_verify_ok` true).
         How: prefer the BEGIN/END pack command in this note (one `${local.shell_tool_prefix}_execute_command`, working_dir `/`, full timeout). create_agent is fine with the same body. Do not ask the operator for the state path; do not invent shell; do not use GitHub or AWS MCP tools for this stage.
-        On failure: retry that same paste once. Prefer the pack command over inventing shell.
+        On failure: retry that same paste once. Prefer the pack command over inventing shell. Echo the runner success or blocker lines in your result; do not paraphrase them away.
 
         ${local.dbsplit_spawn_context_ingest}
       EOT
@@ -282,9 +282,9 @@ resource "sg_workflow" "aws_migrator_discovery" {
       skill_refs       = try(var.workflow_skill_refs["aws-cloud-discovery::registry-and-import-codegen"], [])
       note             = <<-EOT
         Goal: open a PR with the generated AWS Terraform folders, or leave a concrete reason the PR could not open.
-        Done when: the batch payloads exist and you have a PR URL or a real PR blocker.
+        Done when: your stage result includes the batch payloads path and either a PR URL or a real PR blocker from the runner.
         How: prefer the BEGIN/END pack command in this note (paste into `${local.shell_tool_prefix}_execute_series`). create_agent is fine with the same body. Do not hand-roll clone or PR steps. Soft split-quality scores are warnings, not blockers.
-        Prefer the pack command over inventing shell.
+        Prefer the pack command over inventing shell. Echo the runner success or blocker lines in your result; do not paraphrase them away.
 
         ${local.dbsplit_spawn_context_registry}
       EOT
@@ -300,9 +300,9 @@ resource "sg_workflow" "aws_migrator_discovery" {
       )
       note = <<-EOT
         Goal: Terraform fmt and validate succeed on the sampled groups. A zero-change plan is nice but optional.
-        Done when: validation is true for the sample, or the runner truly cannot run tofu/shell.
+        Done when: your stage result includes `terraform_validation_ok` true from the runner, or a real runner-missing-tofu/shell blocker line.
         How: prefer the BEGIN/END pack command in this note. create_agent is fine, especially for fixing HCL on the runner. If fmt or validate fails, fix the generated files and re-run the pack rather than respawning the same goal unchanged.
-        Prefer the pack command over inventing shell.
+        Prefer the pack command over inventing shell. Echo the runner success or blocker lines in your result; do not paraphrase them away.
 
         ${local.dbsplit_spawn_context_converge}
       EOT

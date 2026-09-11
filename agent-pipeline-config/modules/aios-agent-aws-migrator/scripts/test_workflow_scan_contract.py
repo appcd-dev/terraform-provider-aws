@@ -87,6 +87,8 @@ def main() -> None:
     assert "create_agent" in scan.lower()
     assert "do not create_agent" not in scan.lower()
     assert "prefer the pack command" in scan.lower()
+    assert "cloud2code_scan_ok" in scan
+    assert "echo the runner" in scan.lower() or "do not paraphrase" in scan.lower()
     assert "session " not in scan.lower()
     assert len(_heredoc_body(scan, "note")) <= MAX_BINDING_NOTE
 
