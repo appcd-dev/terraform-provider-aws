@@ -79,6 +79,14 @@ jobs:
             type=raw,value=aiden-0.2.22
             type=sha,prefix=sha-
 
+      - name: Test runner with persistent HOME
+        run: |
+          set -euo pipefail
+          docker build --platform linux/amd64 \
+            --tag nile-factory-runner:test \
+            --file runner/Dockerfile .
+          bash runner/test-persistent-home.sh nile-factory-runner:test
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
