@@ -4,7 +4,7 @@
 # Usage: DBSPLIT_EMBEDDED=1 bash -s <command> [args...] << 'DBSPLIT_STAGE_RUNNER' ... DBSPLIT_STAGE_RUNNER
 set -euo pipefail
 
-SCRIPT_PACK_VERSION="20260911.12"
+SCRIPT_PACK_VERSION="20260911.13"
 DBSPLIT_DEFAULT_STRATEGY="${DBSPLIT_DEFAULT_STRATEGY:-tfstate_monolith_decomposer}"
 DBSPLIT_DEFAULT_CAP="${DBSPLIT_DEFAULT_CAP:-0}"
 REQUIRED_ALLOCATE_MARKER="def merge_small_by_seed"
@@ -4196,7 +4196,8 @@ PY
     if [ -f "$agg" ]; then
       mirror_note "$work_root" "hcl_fix_report_path" "$agg" || true
     fi
-    return 1
+    # Soft-fail: keep exit 0 so converge can still sync generated.tf to the PR.
+    return 0
   fi
   return 0
 }
