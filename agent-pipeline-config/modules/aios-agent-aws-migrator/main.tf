@@ -164,7 +164,7 @@ locals {
   gcp_mapping_catalog_script   = file("${path.module}/scripts/gcp_mapping_catalog.py")
   gcp_mapping_catalog_json     = file("${path.module}/mappings/aws-to-gcp.json")
   ensure_cloud2code_script     = file("${path.module}/scripts/ensure_cloud2code.sh")
-  script_pack_version          = "20260911.11"
+  script_pack_version          = "20260911.12"
   script_pack_git_ref          = "main"
   # Baked into the runner image under /opt, not under HOME. The ACA Azure Files
   # share mounts over /home/runner, so a pack under HOME depends on the

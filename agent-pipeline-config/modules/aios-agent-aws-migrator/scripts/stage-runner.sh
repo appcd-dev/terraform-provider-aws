@@ -4,7 +4,7 @@
 # Usage: DBSPLIT_EMBEDDED=1 bash -s <command> [args...] << 'DBSPLIT_STAGE_RUNNER' ... DBSPLIT_STAGE_RUNNER
 set -euo pipefail
 
-SCRIPT_PACK_VERSION="20260911.11"
+SCRIPT_PACK_VERSION="20260911.12"
 DBSPLIT_DEFAULT_STRATEGY="${DBSPLIT_DEFAULT_STRATEGY:-tfstate_monolith_decomposer}"
 DBSPLIT_DEFAULT_CAP="${DBSPLIT_DEFAULT_CAP:-0}"
 REQUIRED_ALLOCATE_MARKER="def merge_small_by_seed"
@@ -3055,20 +3055,31 @@ cmd_sync_hydrated_iac_pr() {
 
   require_embedded_invocation || return 1
 
-  local validation_ok
+  local validation_ok generated_count
   validation_ok="$(read_note "$work_root" "terraform_validation_ok" 2>/dev/null || true)"
-  if [ "$validation_ok" != "true" ]; then
-    mirror_note "$work_root" "hydrated_iac_sync_status" "skipped:terraform_validation_failed"
-    echo "hydrated_iac_sync_status=skipped:terraform_validation_failed"
+  generated_count="$(find "${work_root}/groups" -mindepth 2 -maxdepth 2 -name generated.tf 2>/dev/null | wc -l | tr -d ' ')"
+  generated_count="${generated_count:-0}"
+  if [ "$generated_count" -eq 0 ]; then
+    mirror_note "$work_root" "hydrated_iac_sync_status" "skipped:no_generated_tf"
+    echo "hydrated_iac_sync_status=skipped:no_generated_tf"
+    echo "hydrated_generated_tf_count=0"
     return 0
   fi
+  echo "hydrated_generated_tf_count=${generated_count}"
+  # Always push usable generated.tf even when fmt/validate/zero-diff failed.
+  # Operators still need the HCL; validation stays a soft readiness signal.
+  if [ "$validation_ok" != "true" ]; then
+    mirror_note "$work_root" "hydrated_iac_sync_validation" "failed"
+    echo "hydrated_iac_sync_validation=failed"
+  else
+    mirror_note "$work_root" "hydrated_iac_sync_validation" "ok"
+    echo "hydrated_iac_sync_validation=ok"
+  fi
 
-  # Refuse to commit incomplete hydrate (notes green, disk missing generated.tf).
+  # Sample parity is a warning only — do not block pushing what hydrate produced.
   if ! assert_sample_groups_hydrated "$work_root" "${work_root}/groups"; then
-    mirror_note "$work_root" "hydrated_iac_sync_status" "failed:sample_parity"
-    mirror_note "$work_root" "multi_plan_zero_diff_ok" "false"
-    echo "hydrated_iac_sync_status=failed:sample_parity"
-    return 1
+    mirror_note "$work_root" "hydrated_iac_sync_parity" "warn:sample_incomplete"
+    echo "hydrated_iac_sync_parity=warn:sample_incomplete"
   fi
 
   if [ -z "$repo_url" ]; then
@@ -3106,14 +3117,16 @@ cmd_sync_hydrated_iac_pr() {
 
   cmd_sync_groups_to_repo "$work_root"
 
-  local source_cloud_synced
+  local source_cloud_synced repo_generated_count
   source_cloud_synced="$(read_note "$work_root" "source_cloud" 2>/dev/null || echo aws)"
-  if ! assert_sample_groups_hydrated "$work_root" "${repo_dir}/${source_cloud_synced}/groups"; then
-    mirror_note "$work_root" "hydrated_iac_sync_status" "failed:repo_parity_after_sync"
-    mirror_note "$work_root" "multi_plan_zero_diff_ok" "false"
-    echo "hydrated_iac_sync_status=failed:repo_parity_after_sync"
+  repo_generated_count="$(find "${repo_dir}/${source_cloud_synced}/groups" -mindepth 2 -maxdepth 2 -name generated.tf 2>/dev/null | wc -l | tr -d ' ')"
+  repo_generated_count="${repo_generated_count:-0}"
+  if [ "$repo_generated_count" -eq 0 ]; then
+    mirror_note "$work_root" "hydrated_iac_sync_status" "failed:repo_missing_generated_tf"
+    echo "hydrated_iac_sync_status=failed:repo_missing_generated_tf"
     return 1
   fi
+  echo "repo_generated_tf_count=${repo_generated_count}"
 
   git add -A
   if git diff --cached --quiet; then
@@ -3124,7 +3137,13 @@ cmd_sync_hydrated_iac_pr() {
     return 0
   fi
 
-  git commit -m "hydrate: add generated Terraform HCL (${workflow_run_id})" || {
+  local commit_msg
+  if [ "$validation_ok" = "true" ]; then
+    commit_msg="hydrate: add generated Terraform HCL (${workflow_run_id})"
+  else
+    commit_msg="hydrate: add generated Terraform HCL (${workflow_run_id}; validation incomplete)"
+  fi
+  git commit -m "$commit_msg" || {
     mirror_note "$work_root" "hydrated_iac_sync_status" "failed:commit"
     echo "hydrated_iac_sync_status=failed:commit"
     return 1

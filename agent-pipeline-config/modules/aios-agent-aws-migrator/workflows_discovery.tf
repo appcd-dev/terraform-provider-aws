@@ -299,10 +299,10 @@ resource "sg_workflow" "aws_migrator_discovery" {
         try(var.workflow_skill_refs["aws-cloud-discovery::hcl-hydrate-per-group"], []),
       )
       note = <<-EOT
-        Goal: Terraform fmt and validate succeed on the sampled groups. A zero-change plan is nice but optional.
-        Done when: your stage result includes `terraform_validation_ok` true from the runner, or a real runner-missing-tofu/shell blocker line.
+        Goal: hydrate generated Terraform HCL for sampled groups, push it to the discovery PR, and get fmt/validate as far as you can. A zero-change plan is nice but optional.
+        Done when: your stage result includes `hydrated_iac_sync_status=ok` (generated.tf on the PR) and either `terraform_validation_ok` true or concrete `hcl_fix_target` lines still being worked. Do not treat validation false as a reason to skip the PR sync.
         How: prefer the BEGIN/END pack command in this note. create_agent is fine, especially for fixing HCL on the runner.
-        If validation is false: do not respawn the same goal unchanged. Read the pack's `hcl_fix_target` lines (and `hcl_fix_report_path` / per-group `hcl_fix_targets:<group_id>` notes). For each target, surgically edit that resource block in `generated.tf` (drop the named attribute, repair a broken block, or rewrite a list-as-block). Then re-run the pack command.
+        If validation is false: do not respawn the same goal unchanged. Read the pack's `hcl_fix_target` lines (and `hcl_fix_report_path` / per-group `hcl_fix_targets:<group_id>` notes). For each target, surgically edit that resource block in `generated.tf` (drop the named attribute, repair a broken block, or rewrite a list-as-block). Then re-run the pack command — it pushes hydrate to the PR even when validation is still false.
         Prefer the pack command over inventing shell. Echo the runner success or blocker lines in your result; do not paraphrase them away.
 
         ${local.dbsplit_spawn_context_converge}
@@ -319,12 +319,11 @@ resource "sg_workflow" "aws_migrator_discovery" {
         loop_to        = "shell-converge-matrix"
         max_iterations = var.max_convergence_iterations
         exit_condition = "output_matches_regex"
-        # Soft terraform_validation_ok=false keeps GO_BACK. Do not exit on
-        # stage_summary:…=blocked: — FINISH reasons paste exit_match text and
-        # false-skipped to final-gate (session 03c3512c).
-        exit_match = "terraform_validation_ok[^\\n]{0,40}true|blocked:remote_runner_tofu_missing|blocked:remote_runner_shell_unavailable"
+        # Prefer validation green; also exit once hydrate is on the PR so partial
+        # IaC is not stuck in GO_BACK after a successful push.
+        exit_match = "terraform_validation_ok[^\\n]{0,40}true|hydrated_iac_sync_status=ok|blocked:remote_runner_tofu_missing|blocked:remote_runner_shell_unavailable"
       }
-      note = "loop_stage only — no LLM. Exit on terraform_validation_ok true or a terminal runner blocker."
+      note = "loop_stage only — no LLM. Exit on terraform_validation_ok true, hydrated_iac_sync_status=ok, or a terminal runner blocker."
     },
     {
       stage_id         = "converge-blocked-gate"
