@@ -287,6 +287,162 @@ def emit_from_state(group_dir: Path, *, only_missing: bool = True) -> int:
     return 0
 
 
+def parse_tofu_errors(log_text: str, *, group_id: str = "", log_path: str = "") -> list[dict[str, Any]]:
+    """Parse OpenTofu init/validate/plan errors into surgical fix targets.
+
+    Each target names a resource address (when present), attribute, error kind,
+    and a short suggested action the agent or pack can take.
+    """
+    targets: list[dict[str, Any]] = []
+    # Split on blank-line-bounded Error: blocks when possible.
+    chunks = re.split(r"(?=^Error:)", log_text, flags=re.M)
+    for chunk in chunks:
+        chunk = chunk.strip()
+        if not chunk.startswith("Error:"):
+            continue
+        kind_match = re.match(r"Error:\s*([^\n]+)", chunk)
+        kind = (kind_match.group(1).strip() if kind_match else "unknown")[:120]
+        addr = ""
+        with_m = re.search(r"\bwith\s+([A-Za-z0-9_]+\.[A-Za-z0-9_-]+)", chunk)
+        if with_m:
+            addr = with_m.group(1)
+        else:
+            on_m = re.search(
+                r'in resource\s+"([^"]+)"\s+"([^"]+)"',
+                chunk,
+            )
+            if on_m:
+                addr = f"{on_m.group(1)}.{on_m.group(2)}"
+        attr = ""
+        attr_m = re.search(
+            r'(?:An argument named|Unsupported argument|"?)([A-Za-z0-9_]+)"?'
+            r"(?:\":)?\s*(?:is not expected|conflicts with|is required)",
+            chunk,
+            re.I,
+        )
+        if attr_m:
+            attr = attr_m.group(1)
+        else:
+            quoted = re.search(r'"([A-Za-z0-9_]+)":\s*conflicts with', chunk)
+            if quoted:
+                attr = quoted.group(1)
+            else:
+                # Line form:   12:   path_part = "x"
+                line_attr = re.search(r"^\s*\d+:\s*([A-Za-z0-9_]+)\s*=", chunk, re.M)
+                if line_attr:
+                    attr = line_attr.group(1)
+
+        suggestion = "inspect_resource_block"
+        kind_l = kind.lower()
+        if "unsupported argument" in kind_l or "not expected here" in chunk.lower():
+            suggestion = "drop_attribute" if attr else "fix_hcl_structure"
+        elif "conflicts with" in kind_l or "conflicting configuration" in kind_l:
+            suggestion = "drop_conflicting_attribute" if attr else "resolve_conflict"
+        elif "missing required argument" in kind_l:
+            suggestion = "add_required_attribute"
+        elif "incorrect attribute value type" in kind_l:
+            suggestion = "rewrite_attribute_as_block_or_object"
+        elif "argument or block definition required" in kind_l:
+            suggestion = "repair_broken_resource_block"
+        elif "unconfigurable attribute" in kind_l:
+            suggestion = "drop_computed_attribute" if attr else "drop_computed_attributes"
+        elif "resource has no configuration" in kind_l:
+            suggestion = "emit_or_restore_resource_block"
+
+        targets.append(
+            {
+                "group_id": group_id,
+                "address": addr,
+                "attribute": attr,
+                "error": kind,
+                "suggestion": suggestion,
+                "log_path": log_path,
+                "excerpt": " ".join(chunk.split())[:280],
+            }
+        )
+    return targets
+
+
+def apply_surgical_fixes(group_dir: Path, targets: list[dict[str, Any]]) -> int:
+    """Drop attributes called out by parse_tofu_errors when suggestion is drop_*.
+
+    Returns the number of attribute lines removed. Structural repairs
+    (broken blocks, wrong types) stay for the agent.
+    """
+    group_dir = group_dir.resolve()
+    gen_tf = group_dir / "generated.tf"
+    if not gen_tf.is_file() or not targets:
+        return 0
+
+    droppable = {
+        "drop_attribute",
+        "drop_conflicting_attribute",
+        "drop_computed_attribute",
+    }
+    # address -> set of attrs to drop (empty attr means skip)
+    by_addr: dict[str, set[str]] = {}
+    global_attrs: set[str] = set()
+    for t in targets:
+        if t.get("suggestion") not in droppable:
+            continue
+        attr = str(t.get("attribute") or "").strip()
+        if not attr:
+            continue
+        addr = str(t.get("address") or "").strip()
+        if addr:
+            by_addr.setdefault(addr, set()).add(attr)
+        else:
+            global_attrs.add(attr)
+
+    if not by_addr and not global_attrs:
+        return 0
+
+    text = gen_tf.read_text(encoding="utf-8")
+    parts = re.split(r'(?=resource\s+"[^"]+"\s+"[^"]+"\s*\{)', text)
+    removed = 0
+    out: list[str] = []
+    for part in parts:
+        m = re.match(r'resource\s+"([^"]+)"\s+"([^"]+)"\s*\{', part)
+        if not m:
+            out.append(part)
+            continue
+        addr = f"{m.group(1)}.{m.group(2)}"
+        attrs = set(by_addr.get(addr, set())) | global_attrs
+        if not attrs:
+            out.append(part)
+            continue
+        new_part = part
+        for attr in attrs:
+            new_part, n = re.subn(
+                rf"^\s*{re.escape(attr)}\s*=.*\n",
+                "",
+                new_part,
+                flags=re.M,
+            )
+            removed += n
+        out.append(new_part)
+    if removed:
+        gen_tf.write_text("".join(out), encoding="utf-8")
+    print(f"surgical_fixes group={group_dir.name} removed_attrs={removed}")
+    return removed
+
+
+def write_fix_report(
+    report_path: Path,
+    targets: list[dict[str, Any]],
+    *,
+    group_id: str = "",
+) -> None:
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema": "nile-hcl-fix-targets/v1",
+        "group_id": group_id,
+        "target_count": len(targets),
+        "targets": targets,
+    }
+    report_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -311,6 +467,21 @@ def main(argv: list[str] | None = None) -> int:
         help="Replace generated.tf entirely instead of appending missing addresses",
     )
 
+    parse = sub.add_parser(
+        "parse-tofu-errors",
+        help="Parse tofu init/validate logs into surgical fix targets JSON",
+    )
+    parse.add_argument("log_file", type=Path)
+    parse.add_argument("--group-id", default="")
+    parse.add_argument("--out", type=Path, default=None)
+
+    fix = sub.add_parser(
+        "apply-surgical-fixes",
+        help="Drop droppable attributes named in a fix-targets JSON file",
+    )
+    fix.add_argument("group_dir", type=Path)
+    fix.add_argument("targets_json", type=Path)
+
     args = parser.parse_args(argv)
     if args.command == "source-parity":
         return check_source_parity(args.group_dir)
@@ -318,6 +489,23 @@ def main(argv: list[str] | None = None) -> int:
         return check_destination_resources(args.group_dir)
     if args.command == "emit-from-state":
         return emit_from_state(args.group_dir, only_missing=not args.replace)
+    if args.command == "parse-tofu-errors":
+        text = args.log_file.read_text(encoding="utf-8", errors="replace")
+        targets = parse_tofu_errors(
+            text, group_id=args.group_id, log_path=str(args.log_file)
+        )
+        if args.out:
+            write_fix_report(args.out, targets, group_id=args.group_id)
+        print(json.dumps(targets))
+        return 0 if targets else 1
+    if args.command == "apply-surgical-fixes":
+        payload = json.loads(args.targets_json.read_text(encoding="utf-8"))
+        targets = payload.get("targets") if isinstance(payload, dict) else payload
+        if not isinstance(targets, list):
+            print("surgical_fail=bad_targets_json", file=sys.stderr)
+            return 1
+        removed = apply_surgical_fixes(args.group_dir, targets)
+        return 0 if removed >= 0 else 1
     parser.error(f"unknown command {args.command}")
     return 2
 

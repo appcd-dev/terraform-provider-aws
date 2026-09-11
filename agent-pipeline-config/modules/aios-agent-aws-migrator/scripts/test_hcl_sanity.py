@@ -8,10 +8,12 @@ import unittest
 from pathlib import Path
 
 from hcl_sanity import (
+    apply_surgical_fixes,
     check_destination_resources,
     check_source_parity,
     emit_from_state,
     import_addresses,
+    parse_tofu_errors,
     resource_addresses,
 )
 
@@ -113,6 +115,41 @@ class HclSanityTests(unittest.TestCase):
             self.assertIn('domain = "vpc"', text)
             self.assertNotIn("name_prefix", text)
             self.assertEqual(check_source_parity(root), 0)
+
+    def test_parse_and_apply_surgical_fixes(self) -> None:
+        log = (
+            "Error: Unsupported argument\n\n"
+            '  with aws_vpc.appcd_vpc_developer,\n'
+            "  on generated.tf line 100, in resource \"aws_vpc\" \"appcd_vpc_developer\":\n"
+            " 100:   ipv6_ipam_pool_id                    = \"\"\n\n"
+            'An argument named "ipv6_ipam_pool_id" is not expected here.\n\n'
+            "Error: Conflicting configuration arguments\n\n"
+            '  with aws_vpc.appcd_vpc_developer,\n'
+            "  on generated.tf line 90:\n\n"
+            '"assign_generated_ipv6_cidr_block": conflicts with ipv6_ipam_pool_id\n'
+        )
+        targets = parse_tofu_errors(log, group_id="g1")
+        self.assertGreaterEqual(len(targets), 1)
+        self.assertTrue(any(t.get("address") == "aws_vpc.appcd_vpc_developer" for t in targets))
+        self.assertTrue(
+            any(t.get("suggestion", "").startswith("drop_") for t in targets)
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "generated.tf").write_text(
+                'resource "aws_vpc" "appcd_vpc_developer" {\n'
+                '  cidr_block = "10.0.0.0/16"\n'
+                '  ipv6_ipam_pool_id = ""\n'
+                '  assign_generated_ipv6_cidr_block = false\n'
+                "}\n",
+                encoding="utf-8",
+            )
+            removed = apply_surgical_fixes(root, targets)
+            self.assertGreaterEqual(removed, 1)
+            text = (root / "generated.tf").read_text(encoding="utf-8")
+            self.assertNotIn("ipv6_ipam_pool_id", text)
+            self.assertIn("cidr_block", text)
 
 
 if __name__ == "__main__":

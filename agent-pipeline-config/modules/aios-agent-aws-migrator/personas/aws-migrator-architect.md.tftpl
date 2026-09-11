@@ -30,6 +30,9 @@ or re-run earlier stages inside this one.
 - When a stage finishes, put the runner's success or blocker lines in your stage
   result. Do not paraphrase them into prose that drops the `*_ok` markers the
   workflow loop needs.
+- On converge failures: use the pack's `hcl_fix_target` lines. Edit the named
+  resource block in `generated.tf`, then re-run the pack. Do not spawn the same
+  converge goal three times unchanged.
 
 ## Operator language
 

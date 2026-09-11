@@ -301,7 +301,8 @@ resource "sg_workflow" "aws_migrator_discovery" {
       note = <<-EOT
         Goal: Terraform fmt and validate succeed on the sampled groups. A zero-change plan is nice but optional.
         Done when: your stage result includes `terraform_validation_ok` true from the runner, or a real runner-missing-tofu/shell blocker line.
-        How: prefer the BEGIN/END pack command in this note. create_agent is fine, especially for fixing HCL on the runner. If fmt or validate fails, fix the generated files and re-run the pack rather than respawning the same goal unchanged.
+        How: prefer the BEGIN/END pack command in this note. create_agent is fine, especially for fixing HCL on the runner.
+        If validation is false: do not respawn the same goal unchanged. Read the pack's `hcl_fix_target` lines (and `hcl_fix_report_path` / per-group `hcl_fix_targets:<group_id>` notes). For each target, surgically edit that resource block in `generated.tf` (drop the named attribute, repair a broken block, or rewrite a list-as-block). Then re-run the pack command.
         Prefer the pack command over inventing shell. Echo the runner success or blocker lines in your result; do not paraphrase them away.
 
         ${local.dbsplit_spawn_context_converge}

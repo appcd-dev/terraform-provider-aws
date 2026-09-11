@@ -860,6 +860,13 @@ def infer_aws_region_from_state(state: dict) -> str:
                 match = re.match(r"^([a-z]{2}-(?:gov-)?[a-z]+-\d+)", str(az))
                 if match:
                     counts[match.group(1)] += 1
+                    continue
+            # Cloud2Code often omits region on VPC/IGW but puts it in the ARN.
+            arn = attrs.get("arn")
+            if isinstance(arn, str):
+                match = re.match(r"^arn:aws(?:-us-gov|-cn)?:[^:]*:([a-z0-9-]+):", arn)
+                if match and match.group(1):
+                    counts[match.group(1)] += 1
     if not counts:
         return "us-east-1"
     return max(counts.items(), key=lambda item: item[1])[0]

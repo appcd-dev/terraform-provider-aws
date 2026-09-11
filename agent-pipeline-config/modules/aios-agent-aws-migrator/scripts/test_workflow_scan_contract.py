@@ -184,6 +184,7 @@ def main() -> None:
     converge = _binding(workflow, "shell-converge-matrix")
     assert "create_agent" in converge.lower()
     assert "prefer the pack command" in converge.lower()
+    assert "hcl_fix_target" in converge.lower()
     assert len(_heredoc_body(converge, "note")) <= MAX_BINDING_NOTE
 
     converge_loop = _binding(workflow, "shell-converge-loop")

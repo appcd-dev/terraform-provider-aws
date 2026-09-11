@@ -4,7 +4,7 @@
 # Usage: DBSPLIT_EMBEDDED=1 bash -s <command> [args...] << 'DBSPLIT_STAGE_RUNNER' ... DBSPLIT_STAGE_RUNNER
 set -euo pipefail
 
-SCRIPT_PACK_VERSION="20260911.7"
+SCRIPT_PACK_VERSION="20260911.8"
 DBSPLIT_DEFAULT_STRATEGY="${DBSPLIT_DEFAULT_STRATEGY:-tfstate_monolith_decomposer}"
 DBSPLIT_DEFAULT_CAP="${DBSPLIT_DEFAULT_CAP:-0}"
 REQUIRED_ALLOCATE_MARKER="def merge_small_by_seed"
@@ -3355,6 +3355,12 @@ remove_empty_attrs = {
     "durability",
     "transit_encryption_mode",
     "slots",
+    # generate-config-out emits empty IPv6 IPAM fields that conflict with
+    # assign_generated_ipv6_cidr_block / ipv6_cidr_block.
+    "ipv6_ipam_pool_id",
+    "ipv6_netmask_length",
+    "ipv4_ipam_pool_id",
+    "ipv4_netmask_length",
 }
 # Computed / read-only attributes that generate-config-out still emits.
 api_gateway_deployment_drop = {
@@ -3456,6 +3462,20 @@ for block in re.split(r"(?=resource\s+\"[^\"]+\"\s+\"[^\"]+\"\s+\{)", text):
     if 'resource "aws_vpc_endpoint"' in block[:80] or block.startswith('resource "aws_vpc_endpoint"'):
         block = drop_list_or_block_attr(block, "dns_options")
     block = re.sub(r"^\s*enable_lni_at_device_index\s*=\s*0\s*\n", "", block, flags=re.M)
+    # Zero netmask lengths are invalid enums; empty string IPAM pool IDs conflict
+    # with assign_generated_* flags. Drop both forms before validate.
+    for attr in (
+        "ipv6_netmask_length",
+        "ipv4_netmask_length",
+        "ipv6_ipam_pool_id",
+        "ipv4_ipam_pool_id",
+    ):
+        block = re.sub(rf"^\s*{re.escape(attr)}\s*=\s*(?:0|\"\")\s*\n", "", block, flags=re.M)
+    if re.search(r"\bipv6_cidr_block\s*=", block) or re.search(
+        r"\bassign_generated_ipv6_cidr_block\s*=", block
+    ):
+        block = re.sub(r"^\s*ipv6_ipam_pool_id\s*=.*\n", "", block, flags=re.M)
+        block = re.sub(r"^\s*ipv6_netmask_length\s*=.*\n", "", block, flags=re.M)
     for attr in route_null_attrs:
         block = re.sub(rf"^(\s*{re.escape(attr)}\s*=\s*)\"\"\s*$", rf"\1null", block, flags=re.M)
     for attr in remove_empty_attrs:
@@ -3531,6 +3551,56 @@ tofu_init_with_plugin_cache_lock() {
     return $?
   fi
   "$tofu_bin" init -backend=false -input=false -no-color >"$out_file" 2>&1
+}
+
+# Parse tofu logs into surgical fix targets and optionally drop safe attrs.
+# Writes notes/hcl_fix_targets:<group_id> and a JSON report under the group dir.
+emit_hcl_fix_targets() {
+  local work_root="${1:?WORK_ROOT}"
+  local group_id="${2:?GROUP_ID}"
+  local log_file="${3:?LOG}"
+  local groups_dir="${work_root}/groups/${group_id}"
+  local sanity_py report_path targets_json removed=0
+
+  [ -f "$log_file" ] || return 0
+  if ! sanity_py="$(resolve_hcl_sanity_py "$work_root")"; then
+    return 0
+  fi
+  report_path="${groups_dir}/hcl_fix_targets.json"
+  if ! python3 "$sanity_py" parse-tofu-errors "$log_file" \
+    --group-id "$group_id" --out "$report_path" >"${groups_dir}/hcl_fix_targets.raw.json" 2>/dev/null; then
+    # parse returns 1 when no Error: blocks; still useful to clear stale notes.
+    if [ ! -s "$report_path" ]; then
+      return 0
+    fi
+  fi
+  if [ -f "$report_path" ]; then
+    targets_json="$(tr '\n' ' ' <"$report_path" | head -c 12000)"
+    mirror_note "$work_root" "hcl_fix_targets:${group_id}" "$targets_json" || true
+    # Echo compact lines the agent can act on without opening the full JSON.
+    python3 - "$report_path" <<'PY' || true
+import json, sys
+data = json.load(open(sys.argv[1], encoding="utf-8"))
+targets = data.get("targets") or []
+print(f"hcl_fix_target_count={len(targets)}")
+for t in targets[:25]:
+    addr = t.get("address") or "?"
+    attr = t.get("attribute") or "-"
+    sug = t.get("suggestion") or "-"
+    err = (t.get("error") or "")[:80]
+    print(f"hcl_fix_target group={data.get('group_id','')} address={addr} attr={attr} suggestion={sug} error={err}")
+PY
+    if [ -f "${groups_dir}/generated.tf" ]; then
+      removed="$(python3 "$sanity_py" apply-surgical-fixes "$groups_dir" "$report_path" 2>/dev/null | awk -F= '/removed_attrs=/{print $NF}' | tail -1)"
+      removed="${removed:-0}"
+      if [ "$removed" != "0" ] && [ -n "$removed" ]; then
+        echo "hcl_surgical_auto_fixed=${group_id} removed_attrs=${removed}"
+        fix_generated_tf_name_conflicts "${groups_dir}/generated.tf" || true
+        return 0
+      fi
+    fi
+  fi
+  return 0
 }
 
 # Retry validate when plugin-cache / lock races produce flaky failures.
@@ -3690,6 +3760,13 @@ hydrate_one_group() {
 
   cd "$groups_dir"
   tofu_init_with_repair "$work_root" "$group_id" "$tofu_bin" || {
+    # Surface the real init log so the agent can repair broken HCL, not guess.
+    local last_init=""
+    last_init="$(ls -1t "${groups_dir}"/init-*.out 2>/dev/null | head -1 || true)"
+    if [ -n "$last_init" ]; then
+      emit_hcl_fix_targets "$work_root" "$group_id" "$last_init" || true
+      echo "group_init_error_snippet=${group_id} $(validation_error_snippet "$last_init" 500)"
+    fi
     echo "group_skip=${group_id} reason=init_failed_after_repair"
     return 1
   }
@@ -3714,6 +3791,7 @@ hydrate_one_group() {
     fi
 
     local fmt_status validate_status test_status lint_status validation_ok has_tests parity_ok plan_rc
+    local error_snippet=""
     fmt_status="false"
     validate_status="false"
     test_status="skipped:no_tests"
@@ -3748,6 +3826,20 @@ hydrate_one_group() {
       else
         validation_ok="false"
         validate_status="false"
+        # Pack finds concrete attribute/resource errors; drop safe ones; leave
+        # structural issues for the agent with an actionable target list.
+        emit_hcl_fix_targets "$work_root" "$group_id" "validate-${attempt}.out" || true
+        error_snippet="$(validation_error_snippet "validate-${attempt}.out" 500)"
+        if [ -f "$gen_tf" ]; then
+          if "$tofu_bin" validate -no-color >"validate-${attempt}-postfix.out" 2>&1; then
+            validate_status="true"
+            validation_ok="true"
+            echo "group_validate_recovered=${group_id} attempt=${attempt}"
+          else
+            emit_hcl_fix_targets "$work_root" "$group_id" "validate-${attempt}-postfix.out" || true
+            error_snippet="$(validation_error_snippet "validate-${attempt}-postfix.out" 500)"
+          fi
+        fi
       fi
     fi
 
@@ -3772,8 +3864,25 @@ hydrate_one_group() {
     fi
 
     if [ "$validation_ok" != "true" ]; then
-      status_json="{\"generated_tf_path\":\"${gen_tf}\",\"plan_no_changes\":false,\"plan_exit_code\":null,\"import_generated_parity\":${parity_ok},\"remaining_actions\":{\"add\":0,\"change\":0,\"destroy\":0},\"validation\":{\"fmt\":\"${fmt_status}\",\"validate\":\"${validate_status}\",\"test\":\"${test_status}\",\"lint\":\"${lint_status}\"},\"attempt\":${attempt}}"
+      # Prefer generate log when validate never ran (init/parity path).
+      if [ -z "$error_snippet" ] && [ -f "generate-${attempt}.out" ]; then
+        emit_hcl_fix_targets "$work_root" "$group_id" "generate-${attempt}.out" || true
+        error_snippet="$(validation_error_snippet "generate-${attempt}.out" 500)"
+      fi
+      status_json="$(jq -nc \
+        --arg path "$gen_tf" \
+        --argjson parity "$parity_ok" \
+        --arg fmt "$fmt_status" \
+        --arg validate "$validate_status" \
+        --arg test "$test_status" \
+        --arg lint "$lint_status" \
+        --arg snippet "$error_snippet" \
+        --argjson attempt "$attempt" \
+        '{generated_tf_path:$path,plan_no_changes:false,plan_exit_code:null,import_generated_parity:$parity,remaining_actions:{add:0,change:0,destroy:0},validation:{fmt:$fmt,validate:$validate,test:$test,lint:$lint},error_snippet:$snippet,attempt:$attempt}')"
       mirror_note "$work_root" "hcl_hydration_status:${group_id}" "$status_json"
+      if [ -n "$error_snippet" ]; then
+        echo "group_validate_error=${group_id} ${error_snippet}"
+      fi
       attempt=$((attempt + 1))
       continue
     fi
@@ -3893,7 +4002,47 @@ cmd_hydrate_and_plan_matrix() {
   echo "terraform_zero_change_groups=${zero_count}"
   echo "terraform_validation_ok: \"${validation_ok}\""
   echo "multi_plan_zero_diff_ok: \"${multi_ok}\""
+
+  # Aggregate surgical targets across the sample so the agent has one punch list
+  # instead of re-running the same pack with no diagnosis.
   if [ "$validation_ok" != "true" ]; then
+    local agg="${work_root}/aws/artifacts/hcl_fix_report.json"
+    mkdir -p "${work_root}/aws/artifacts" 2>/dev/null || mkdir -p "${work_root}/artifacts" 2>/dev/null || true
+    python3 - "$work_root" "$sample_path" "$agg" <<'PY' || true
+import json, sys
+from pathlib import Path
+work_root, sample_path, agg = sys.argv[1:4]
+groups = json.loads(Path(sample_path).read_text(encoding="utf-8"))
+all_targets = []
+for gid in groups:
+    p = Path(work_root) / "groups" / gid / "hcl_fix_targets.json"
+    if not p.is_file():
+        continue
+    data = json.loads(p.read_text(encoding="utf-8"))
+    all_targets.extend(data.get("targets") or [])
+report = {
+    "schema": "nile-hcl-fix-report/v1",
+    "invalid_groups": len({t.get("group_id") for t in all_targets if t.get("group_id")}),
+    "target_count": len(all_targets),
+    "targets": all_targets[:200],
+}
+Path(agg).parent.mkdir(parents=True, exist_ok=True)
+Path(agg).write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+print(f"hcl_fix_report_path={agg}")
+print(f"hcl_fix_report_targets={len(all_targets)}")
+for t in all_targets[:40]:
+    print(
+        "hcl_fix_target "
+        f"group={t.get('group_id','')} "
+        f"address={t.get('address') or '?'} "
+        f"attr={t.get('attribute') or '-'} "
+        f"suggestion={t.get('suggestion') or '-'} "
+        f"error={(t.get('error') or '')[:80]}"
+    )
+PY
+    if [ -f "$agg" ]; then
+      mirror_note "$work_root" "hcl_fix_report_path" "$agg" || true
+    fi
     return 1
   fi
   return 0
