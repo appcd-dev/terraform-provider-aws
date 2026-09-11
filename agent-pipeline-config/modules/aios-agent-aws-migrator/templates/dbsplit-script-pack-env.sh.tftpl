@@ -10,7 +10,10 @@ dbsplit_fetch_script_pack_tarball() {
   local pack_url="${script_pack_tarball_url}"
   local version="${script_pack_version}"
   local release_repo="${script_pack_release_repo}"
-  if [ -f "$preload_dir/stage-runner.sh" ] && [ -f "$preload_dir/allocate_manifest.py" ]; then
+  if [ -f "$preload_dir/stage-runner.sh" ] \
+    && [ -f "$preload_dir/allocate_manifest.py" ] \
+    && [ -f "$preload_dir/runner-capability-preflight.sh" ] \
+    && [ -f "$preload_dir/cloud2code-aws-scan.sh" ]; then
     return 0
   fi
   local tok="$${GIT_TOKEN:-$${GITHUB_TOKEN:-$${GH_TOKEN:-$${token:-}}}}"

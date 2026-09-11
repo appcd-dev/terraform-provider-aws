@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Build a flat script-pack tarball for mothership vault sync (SCRIPT_PACK_TARBALL_URL).
+# Build a flat script-pack tarball for mothership vault sync and ACA fetch bootstrap.
+# Must match runner/embed-script-pack.sh contents (preflight + scan + aliases).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -27,9 +28,34 @@ cp "$MODULE/scripts/governance_conform.py" "$DEST/"
 cp "$MODULE/scripts/governance_opa_check.py" "$DEST/"
 cp "$MODULE/scripts/run-destination-stage.sh" "$DEST/"
 cp "$MODULE/scripts/ensure_cloud2code.sh" "$DEST/"
+cp "$MODULE/scripts/runner-capability-preflight.sh" "$DEST/"
+cp "$MODULE/scripts/cloud2code-aws-scan.sh" "$DEST/"
 cp "$MODULE/mappings/aws-to-azure.json" "$DEST/mappings/"
 cp "$MODULE/mappings/aws-to-gcp.json" "$DEST/mappings/"
-chmod +x "$DEST/stage-runner.sh" "$DEST/run-destination-stage.sh"
+chmod +x "$DEST/stage-runner.sh" "$DEST/run-destination-stage.sh" \
+  "$DEST/runner-capability-preflight.sh" "$DEST/cloud2code-aws-scan.sh"
+
+for alias_name in \
+  cloud2code-scan cloud2code-scan.sh \
+  cloud2code-aws-scan \
+  cloud2code-scan-aws cloud2code-scan-aws.sh \
+  cloud2code-aws cloud2code-aws.sh \
+  cloud2code cloud2code.sh \
+  aws-scan aws-scan.sh \
+  scan-aws scan-aws.sh \
+  scan scan.sh \
+  run-scan run-scan.sh \
+  cloud2code_aws_scan.sh cloud2code_scan_aws.sh \
+  pack.sh; do
+  [ -e "$DEST/$alias_name" ] && continue
+  cat >"$DEST/$alias_name" <<'ALIAS'
+#!/usr/bin/env bash
+# Alias for cloud2code-aws-scan.sh. Kept so a renamed script still scans.
+set -euo pipefail
+exec bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cloud2code-aws-scan.sh" "$@"
+ALIAS
+  chmod +x "$DEST/$alias_name"
+done
 
 (cd "$ROOT" && python3 "$ROOT/runner/render_ingest_bootstrap.py" "$DEST")
 
@@ -37,3 +63,6 @@ OUT="${1:-${ROOT}/runner/dist/script-pack-${VERSION}.tar.gz}"
 mkdir -p "$(dirname "$OUT")"
 tar -czf "$OUT" -C "$DEST" .
 echo "wrote ${OUT} version=${VERSION} bytes=$(wc -c <"$OUT" | tr -d ' ')"
+test -f "$DEST/runner-capability-preflight.sh"
+test -f "$DEST/cloud2code-aws-scan.sh"
+test -f "$DEST/ingest-bootstrap.sh"
