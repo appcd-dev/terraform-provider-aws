@@ -9,7 +9,9 @@ MODULE="agent-pipeline-config/modules/aios-agent-aws-migrator"
 VERSION="$(sed -n 's/^SCRIPT_PACK_VERSION="\([^"]*\)"/\1/p' "$MODULE/scripts/stage-runner.sh" | head -n1)"
 test -n "$VERSION"
 DEST="/opt/aws-migrator/script-pack/${VERSION}"
-RUNTIME_DEST="/home/runner/.aws-migrator/script-pack/${VERSION}"
+# Stages run the pack straight out of /opt. Nothing depends on a copy under
+# HOME, which the ACA Azure Files share can mask.
+RUNTIME_DEST="$DEST"
 
 mkdir -p "$DEST/mappings"
 cp "$MODULE/scripts/allocate_manifest.py" "$DEST/"
@@ -47,9 +49,9 @@ ALIAS
   chmod +x "$DEST/$alias_name"
 done
 
-# Render against RUNTIME_DEST so the embedded paths point at the HOME copy the
-# entrypoint creates, not the /opt staging directory.
 python3 /tmp/render_ingest_bootstrap.py "$DEST" "$RUNTIME_DEST"
 chmod -R a+rX /opt/aws-migrator
+# Let the runner user refresh the pack in place when script-pack vault sync is on.
+chown -R 1000:1000 /opt/aws-migrator
 echo "script pack at $DEST (runtime $RUNTIME_DEST)"
 ls -la "$DEST"

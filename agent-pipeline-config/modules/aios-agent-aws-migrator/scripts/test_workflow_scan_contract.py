@@ -34,6 +34,14 @@ def main() -> None:
     assert "cloud2code-aws-scan.sh" in command
     assert "cloud2code scan aws" not in command
 
+    preload = main_tf.split("script_pack_preload_dir             =", 1)[1].split("\n", 1)[0]
+    assert "/opt/aws-migrator/script-pack/" in preload, preload
+    assert "runner_work_home" not in preload, preload
+
+    embed = (MODULE.parent.parent.parent / "runner" / "embed-script-pack.sh").read_text()
+    assert 'RUNTIME_DEST="$DEST"' in embed
+
+
     print("OK: discovery scan uses the direct script-pack command")
 
 

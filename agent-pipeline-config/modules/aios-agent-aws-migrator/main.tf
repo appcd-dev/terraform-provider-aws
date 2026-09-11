@@ -163,9 +163,14 @@ locals {
   gcp_mapping_catalog_script          = file("${path.module}/scripts/gcp_mapping_catalog.py")
   gcp_mapping_catalog_json            = file("${path.module}/mappings/aws-to-gcp.json")
   ensure_cloud2code_script            = file("${path.module}/scripts/ensure_cloud2code.sh")
-  script_pack_version                 = "20260911.4"
+  script_pack_version                 = "20260911.5"
   script_pack_git_ref                 = "main"
-  script_pack_preload_dir             = "${local.runner_work_home}/.aws-migrator/script-pack/${local.script_pack_version}"
+  # Baked into the runner image under /opt, not under HOME. The ACA Azure Files
+  # share mounts over /home/runner, so a pack under HOME depends on the
+  # entrypoint copying it into the share on every revision. That copy failed
+  # silently in session 8ea42edd: /opt held 20260911.4 while preflight looked
+  # under HOME and reported the pack missing. /opt cannot be masked.
+  script_pack_preload_dir             = "/opt/aws-migrator/script-pack/${local.script_pack_version}"
 
   # Nile-Factory runner image (GHCR). Bakes script pack + opa/tofu/cloud2code; pin pack-* tag to script_pack_version.
   nile_factory_runner_image_repository = "ghcr.io/walmart-stackgen/nile-factory-runner"

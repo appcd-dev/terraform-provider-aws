@@ -39,16 +39,21 @@ docker run --rm \
   --mount "type=volume,src=${HOME_VOLUME},dst=/home/runner,volume-nocopy" \
   --entrypoint /bin/bash \
   "$IMAGE" -euc '
-    pack="$(echo "$HOME"/.aws-migrator/script-pack/*)"
+    # Stages read the pack from /opt. It must be complete and readable as the
+    # runner user while the share covers HOME, which is what preflight checks.
+    pack="$(echo /opt/aws-migrator/script-pack/*)"
     test -r "$pack/stage-runner.sh"
     test -r "$pack/ingest-bootstrap.sh"
     test -r "$pack/runner-capability-preflight.sh"
+    test -r "$pack/run-destination-stage.sh"
     grep -q "$pack" "$pack/ingest-bootstrap.sh"
     grep -q "SCRIPT_PACK_VERSION=" "$pack/stage-runner.sh"
     for alias_name in cloud2code-scan cloud2code-scan.sh cloud2code-aws-scan pack.sh; do
       test -r "$pack/$alias_name"
       grep -q "cloud2code-aws-scan.sh" "$pack/$alias_name"
     done
+    home_pack="$(echo "$HOME"/.aws-migrator/script-pack/*)"
+    test -r "$home_pack/stage-runner.sh"
   '
 
 second_output="$(
