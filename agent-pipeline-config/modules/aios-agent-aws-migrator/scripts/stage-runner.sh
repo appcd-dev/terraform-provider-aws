@@ -4,7 +4,7 @@
 # Usage: DBSPLIT_EMBEDDED=1 bash -s <command> [args...] << 'DBSPLIT_STAGE_RUNNER' ... DBSPLIT_STAGE_RUNNER
 set -euo pipefail
 
-SCRIPT_PACK_VERSION="20260911.8"
+SCRIPT_PACK_VERSION="20260911.9"
 DBSPLIT_DEFAULT_STRATEGY="${DBSPLIT_DEFAULT_STRATEGY:-tfstate_monolith_decomposer}"
 DBSPLIT_DEFAULT_CAP="${DBSPLIT_DEFAULT_CAP:-0}"
 REQUIRED_ALLOCATE_MARKER="def merge_small_by_seed"
@@ -1268,6 +1268,19 @@ cmd_run_tfstate_monolith_decomposer() {
   fi
   if [ -f "${work_root}/orphans_bundle.json" ]; then
     mirror_note "$work_root" "orphans_bundle" "${work_root}/orphans_bundle.json"
+    # Explicit empty-bundle markers so the orphans stage can verify handoff without
+    # re-reading the file through invented shell.
+    local orphan_len
+    orphan_len="$(jq 'if type=="array" then length else (.orphans // .items // []) | length end' "${work_root}/orphans_bundle.json" 2>/dev/null || echo 1)"
+    if [ "$orphan_len" = "0" ]; then
+      mirror_note "$work_root" "orphans_bundle_empty" "true"
+      mirror_note "$work_root" "orphans_handoff_verified" "true"
+      echo 'orphans_bundle_empty: "true"'
+      echo 'orphans_handoff_verified: "true"'
+    else
+      mirror_note "$work_root" "orphans_bundle_empty" "false"
+      echo 'orphans_bundle_empty: "false"'
+    fi
   fi
   return "$split_rc"
 }
@@ -1672,6 +1685,12 @@ cmd_tuned_split_manifest() {
   mirror_note "$work_root" "tfstate_decomposer_env_scope" "$best_env_scope"
   mirror_note "$work_root" "tfstate_decomposer_skip_unknown_type_review" "$best_skip_unknown"
   mirror_note "$work_root" "tfstate_decomposer_orphan_count" "$(jq -r '.metrics.orphan_count // 0' "${work_root}/split_quality_report.json")"
+  if [ "$(jq -r '.metrics.orphan_count // 0' "${work_root}/split_quality_report.json")" = "0" ]; then
+    mirror_note "$work_root" "orphans_bundle_empty" "true"
+    mirror_note "$work_root" "orphans_handoff_verified" "true"
+    echo 'orphans_bundle_empty: "true"'
+    echo 'orphans_handoff_verified: "true"'
+  fi
   echo "split_quality_report=${work_root}/split_quality_report.json"
   echo "split_tuning_history=${history_path}"
   release_run_lock "$split_lock"
@@ -3425,6 +3444,93 @@ def drop_list_or_block_attr(block: str, attr: str) -> str:
     block = re.sub(rf"^\s*{re.escape(attr)}\s*=.*\n", "", block, flags=re.M)
     return block
 
+def _extract_bracket_span(text: str, open_idx: int) -> int:
+    """Return index just past the matching closing bracket for text[open_idx]."""
+    open_ch = text[open_idx]
+    close_ch = "]" if open_ch == "[" else "}"
+    depth = 0
+    j = open_idx
+    in_str = False
+    escape = False
+    while j < len(text):
+        ch = text[j]
+        if in_str:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_str = False
+        else:
+            if ch == '"':
+                in_str = True
+            elif ch == open_ch:
+                depth += 1
+            elif ch == close_ch:
+                depth -= 1
+                if depth == 0:
+                    return j + 1
+        j += 1
+    return len(text)
+
+def rewrite_route_list_as_blocks(block: str) -> str:
+    """Turn route = [ { ... }, ... ] into repeated route { } blocks."""
+    pattern = re.compile(r"^(\s*)route\s*=\s*\[", re.M)
+    while True:
+        m = pattern.search(block)
+        if not m:
+            break
+        indent = m.group(1)
+        list_start = m.end() - 1
+        list_end = _extract_bracket_span(block, list_start)
+        raw = block[list_start:list_end]
+        # Walk top-level { ... } objects inside the list.
+        objects = []
+        i = 1  # skip '['
+        while i < len(raw) - 1:
+            while i < len(raw) - 1 and raw[i] in " \t\n\r,":
+                i += 1
+            if i >= len(raw) - 1:
+                break
+            if raw[i] != "{":
+                break
+            obj_end = _extract_bracket_span(raw, i)
+            objects.append(raw[i:obj_end])
+            i = obj_end
+        new_parts = []
+        for obj in objects:
+            inner = obj.strip()
+            if inner.startswith("{") and inner.endswith("}"):
+                inner = inner[1:-1]
+            lines_out = []
+            for line in inner.splitlines():
+                stripped = line.strip().rstrip(",")
+                if not stripped or stripped in ("{", "}"):
+                    continue
+                # JSON-ish keys from generate-config-out: "cidr_block" = "..."
+                stripped = re.sub(r'^"([A-Za-z0-9_]+)"\s*=', r"\1 =", stripped)
+                # Drop empty optional nexthop / destination fields.
+                empty = re.match(
+                    r"^([A-Za-z0-9_]+)\s*=\s*(?:\"\"|null)\s*$",
+                    stripped,
+                )
+                if empty and empty.group(1) in route_null_attrs:
+                    continue
+                if re.search(r'=\s*""\s*$', stripped) or re.search(r"=\s*null\s*$", stripped):
+                    continue
+                lines_out.append(f"{indent}  {stripped}")
+            if not lines_out:
+                continue
+            new_parts.append(f"{indent}route {{\n" + "\n".join(lines_out) + f"\n{indent}}}")
+        replacement = ("\n".join(new_parts) + "\n") if new_parts else ""
+        end = list_end
+        while end < len(block) and block[end] in " \t":
+            end += 1
+        if end < len(block) and block[end] == "\n":
+            end += 1
+        block = block[: m.start()] + replacement + block[end:]
+    return block
+
 out = []
 for block in re.split(r"(?=resource\s+\"[^\"]+\"\s+\"[^\"]+\"\s+\{)", text):
     if re.search(r"\bname_prefix\s*=", block) and re.search(r"\bname\s*=", block):
@@ -3461,6 +3567,10 @@ for block in re.split(r"(?=resource\s+\"[^\"]+\"\s+\"[^\"]+\"\s+\{)", text):
     # dns_options on vpc endpoints must be a block, not a list attribute.
     if 'resource "aws_vpc_endpoint"' in block[:80] or block.startswith('resource "aws_vpc_endpoint"'):
         block = drop_list_or_block_attr(block, "dns_options")
+    # generate-config-out / emit-from-state emit route = [ { ... } ]; provider wants
+    # repeated route { } blocks. Rewrite in place so validate and zero-diff plan both work.
+    if block.startswith('resource "aws_route_table"'):
+        block = rewrite_route_list_as_blocks(block)
     block = re.sub(r"^\s*enable_lni_at_device_index\s*=\s*0\s*\n", "", block, flags=re.M)
     # Zero netmask lengths are invalid enums; empty string IPAM pool IDs conflict
     # with assign_generated_* flags. Drop both forms before validate.
@@ -3772,15 +3882,39 @@ hydrate_one_group() {
   }
 
   while [ "$attempt" -le "$max_attempts" ]; do
-    # Capture generate-config-out errors (deleted remotes, tofu bugs). Never discard
-    # stderr — hydrate failures were opaque when this redirected to /dev/null.
-    "$tofu_bin" plan -generate-config-out=generated.tf -input=false -lock=false -no-color \
-      -out="hydrate-${attempt}.tfplan" >"generate-${attempt}.out" 2>&1 || true
+    # OpenTofu refuses -generate-config-out when the target file already exists.
+    # Skip regenerate when generated.tf is present and import parity holds so
+    # pack sanitizers / agent surgical edits survive hydrate retries. Only move
+    # the file aside when we actually need a fresh generate.
+    local need_generate=0
+    local pre_generate=""
+    if [ ! -f "$gen_tf" ]; then
+      need_generate=1
+    elif ! assert_source_group_parity "$work_root" "$groups_dir" >"parity-pre-${attempt}.out" 2>&1; then
+      need_generate=1
+    fi
+
+    if [ "$need_generate" -eq 1 ]; then
+      if [ -f "$gen_tf" ]; then
+        pre_generate="generated.tf.pre-${attempt}"
+        mv -f "$gen_tf" "$pre_generate"
+      fi
+      # Capture generate-config-out errors (deleted remotes, tofu bugs). Never discard
+      # stderr — hydrate failures were opaque when this redirected to /dev/null.
+      "$tofu_bin" plan -generate-config-out=generated.tf -input=false -lock=false -no-color \
+        -out="hydrate-${attempt}.tfplan" >"generate-${attempt}.out" 2>&1 || true
+      if [ ! -f "$gen_tf" ] && [ -n "$pre_generate" ] && [ -f "$pre_generate" ]; then
+        mv -f "$pre_generate" "$gen_tf"
+      fi
+    else
+      echo "generate_skipped=${group_id} reason=existing_generated_tf_parity_ok attempt=${attempt}" \
+        >"generate-${attempt}.out"
+    fi
 
     # Fallback: emit resource stubs from terraform.tfstate when live generate fails
     # (gone EIPs, "Resource has no configuration", etc.). verify plan uses
     # -refresh=false so deleted remotes can still zero-diff against state.
-    if [ ! -f "$gen_tf" ] || ! assert_source_group_parity "$work_root" "$groups_dir" >"parity-pre-${attempt}.out" 2>&1; then
+    if [ ! -f "$gen_tf" ] || ! assert_source_group_parity "$work_root" "$groups_dir" >"parity-emit-${attempt}.out" 2>&1; then
       local sanity_py=""
       if sanity_py="$(resolve_hcl_sanity_py "$work_root")"; then
         python3 "$sanity_py" emit-from-state "$groups_dir" >"emit-${attempt}.out" 2>&1 || true

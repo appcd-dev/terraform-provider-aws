@@ -116,6 +116,92 @@ class HclSanityTests(unittest.TestCase):
             self.assertNotIn("name_prefix", text)
             self.assertEqual(check_source_parity(root), 0)
 
+    def test_emit_route_table_as_blocks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "imports.tf").write_text(
+                'import {\n  to = aws_route_table.rtb\n  id = "rtb-1"\n}\n',
+                encoding="utf-8",
+            )
+            state = {
+                "resources": [
+                    {
+                        "mode": "managed",
+                        "type": "aws_route_table",
+                        "name": "rtb",
+                        "instances": [
+                            {
+                                "attributes": {
+                                    "id": "rtb-1",
+                                    "vpc_id": "vpc-1",
+                                    "route": [
+                                        {
+                                            "cidr_block": "0.0.0.0/0",
+                                            "gateway_id": "igw-1",
+                                            "nat_gateway_id": "",
+                                            "vpc_peering_connection_id": "",
+                                        },
+                                        {
+                                            "cidr_block": "10.1.0.0/16",
+                                            "gateway_id": "",
+                                            "vpc_peering_connection_id": "pcx-1",
+                                        },
+                                    ],
+                                }
+                            }
+                        ],
+                    }
+                ]
+            }
+            (root / "terraform.tfstate").write_text(
+                __import__("json").dumps(state), encoding="utf-8"
+            )
+            self.assertEqual(emit_from_state(root), 0)
+            text = (root / "generated.tf").read_text(encoding="utf-8")
+            self.assertIn("route {", text)
+            self.assertNotIn("route = [", text)
+            self.assertIn('cidr_block = "0.0.0.0/0"', text)
+            self.assertIn('gateway_id = "igw-1"', text)
+            self.assertIn('vpc_peering_connection_id = "pcx-1"', text)
+            self.assertNotIn('nat_gateway_id = ""', text)
+
+    def test_emit_api_gateway_resource_required_attrs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "imports.tf").write_text(
+                'import {\n  to = aws_api_gateway_resource.r\n  id = "api/res"\n}\n',
+                encoding="utf-8",
+            )
+            state = {
+                "resources": [
+                    {
+                        "mode": "managed",
+                        "type": "aws_api_gateway_resource",
+                        "name": "r",
+                        "instances": [
+                            {
+                                "attributes": {
+                                    "id": "res",
+                                    "path": "/",
+                                    "path_part": "/",
+                                    "parent_id": "parent",
+                                    "rest_api_id": "api",
+                                }
+                            }
+                        ],
+                    }
+                ]
+            }
+            (root / "terraform.tfstate").write_text(
+                __import__("json").dumps(state), encoding="utf-8"
+            )
+            self.assertEqual(emit_from_state(root), 0)
+            text = (root / "generated.tf").read_text(encoding="utf-8")
+            self.assertIn('parent_id = "parent"', text)
+            self.assertIn('path_part = "/"', text)
+            self.assertIn('rest_api_id = "api"', text)
+            self.assertNotIn("path =", text)
+
     def test_parse_and_apply_surgical_fixes(self) -> None:
         log = (
             "Error: Unsupported argument\n\n"

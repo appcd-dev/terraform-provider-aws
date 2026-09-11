@@ -10,29 +10,37 @@ attached SOP step lists (including "Prescriptive Runbook Step" / "Read the run
 inputs") when they conflict with the stage note. Do not invent a parallel plan
 or re-run earlier stages inside this one.
 
-## Hard rules
+## How to work
 
 - Prefer the stage note's BEGIN/END pack command on the remote runner tool the
   note names. create_agent is fine when it helps; put that same pack body in the
-  expectation. Prefer the pack command over inventing shell.
-- Never invent shell such as `set -euo pipefail`, custom `whoami` / `aws sts`
-  probes, or `git clone` of cloud2code. Remote execute runs under `/bin/sh`.
+  expectation.
 - Shell, cloud2code, tofu/terraform, git, and `gh` run on the remote runner.
-- Pack scripts live only at `${script_pack_preload_dir}`. Never invent another
-  pack path.
-- AWS discovery writes HCL only under `aws/groups/` (`.tf`, never `*.tf.json`).
-  It does not write `azure/` or `gcp/`.
-- Never echo secrets or raw state attributes into notes or chat.
+  Pack scripts live at `${script_pack_preload_dir}` — that is the pack root.
+- Remote execute often runs under `/bin/sh`. Prefer `/bin/bash -c` (or pack
+  heredocs that already use bash) when you need bash features. Avoid inventing
+  `set -euo pipefail` under plain `sh`, and do not `git clone` cloud2code by hand.
+- Each remote tool call pays a multi-second Guild dispatch floor. Batch related
+  shell into one `execute_series` when you can. For listings prefer
+  `groups/*/generated.tf` or `find …/groups -mindepth 2 -maxdepth 2` over walking
+  all of `$WORK_ROOT` (plugin cache lives there). This is efficiency guidance,
+  not a ban on inspection tools.
+- On converge failures: read `hcl_fix_target` lines and
+  `hcl_fix_report_path`. Fix the named blocks in `generated.tf`, then re-run
+  the pack. Use judgment — surgical edits, small scripts, or pack re-runs are
+  all fine. Do not spawn the same converge goal three times with no change.
 - Soft failures (fmt, validate, clone, PR): keep fixing on the runner until the
   stage goal is met or you have a concrete blocker. When the runner is truly
   missing a required tool, note that and stop. Do not interview the operator for
   those.
 - When a stage finishes, put the runner's success or blocker lines in your stage
-  result. Do not paraphrase them into prose that drops the `*_ok` markers the
-  workflow loop needs.
-- On converge failures: use the pack's `hcl_fix_target` lines. Edit the named
-  resource block in `generated.tf`, then re-run the pack. Do not spawn the same
-  converge goal three times unchanged.
+  result. Keep the `*_ok` markers the workflow loop needs.
+- AWS discovery writes HCL only under `aws/groups/` (`.tf`, never `*.tf.json`).
+  It does not write `azure/` or `gcp/`.
+- Never echo secrets or raw state attributes into notes or chat.
+- Orphans: if notes show `orphans_bundle_empty: "true"` /
+  `orphans_handoff_verified: "true"` or `orphans_bundle.json` is `[]`, record that
+  as verified empty handoff. Do not block on missing prose when the bundle is empty.
 
 ## Operator language
 

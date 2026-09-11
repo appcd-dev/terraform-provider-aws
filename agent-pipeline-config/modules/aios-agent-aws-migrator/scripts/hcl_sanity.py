@@ -179,7 +179,48 @@ def _should_skip_attr(key: str, value: Any) -> bool:
     return False
 
 
-def _attrs_for_resource(attrs: dict[str, Any]) -> dict[str, Any]:
+def _render_route_blocks(routes: Any, indent: int = 2) -> str:
+    """Render state route list as nested route { } blocks for aws_route_table."""
+    if not isinstance(routes, list):
+        return ""
+    pad = " " * indent
+    skip_empty = {
+        "carrier_gateway_id",
+        "core_network_arn",
+        "destination_prefix_list_id",
+        "egress_only_gateway_id",
+        "gateway_id",
+        "ipv6_cidr_block",
+        "local_gateway_id",
+        "nat_gateway_id",
+        "network_interface_id",
+        "odb_network_arn",
+        "outpost_arn",
+        "transit_gateway_id",
+        "vpc_endpoint_id",
+        "vpc_peering_connection_id",
+    }
+    chunks: list[str] = []
+    for item in routes:
+        if not isinstance(item, dict):
+            continue
+        body: list[str] = []
+        for key in sorted(item.keys()):
+            value = item[key]
+            if value is None or value == "" or value == [] or value == {}:
+                continue
+            if key in skip_empty and value in ("", None):
+                continue
+            body.append(f"{pad}  {key} = {_render_value(value, indent + 2)}")
+        if not body:
+            continue
+        chunks.append(f"{pad}route {{")
+        chunks.extend(body)
+        chunks.append(f"{pad}}}")
+    return "\n".join(chunks)
+
+
+def _attrs_for_resource(attrs: dict[str, Any], *, resource_type: str = "") -> dict[str, Any]:
     out: dict[str, Any] = {}
     for key, value in attrs.items():
         if _should_skip_attr(key, value):
@@ -187,6 +228,19 @@ def _attrs_for_resource(attrs: dict[str, Any]) -> dict[str, Any]:
         out[key] = value
     if "name" in out and "name_prefix" in out:
         out.pop("name_prefix", None)
+    if resource_type == "aws_api_gateway_resource":
+        # path is computed; parent_id + path_part + rest_api_id are required.
+        # path_part may be "" for the root resource — still emit it.
+        out.pop("path", None)
+        if "path_part" in attrs:
+            out["path_part"] = attrs["path_part"] if attrs["path_part"] is not None else ""
+        if attrs.get("parent_id"):
+            out["parent_id"] = attrs["parent_id"]
+        if attrs.get("rest_api_id"):
+            out["rest_api_id"] = attrs["rest_api_id"]
+    if resource_type == "aws_route_table":
+        # Handled as nested blocks in emit_from_state.
+        out.pop("route", None)
     return out
 
 
@@ -241,7 +295,7 @@ def emit_from_state(group_dir: Path, *, only_missing: bool = True) -> int:
             missing_state.append(addr)
             continue
         typ, _, name = addr.partition(".")
-        cleaned = _attrs_for_resource(attrs)
+        cleaned = _attrs_for_resource(attrs, resource_type=typ)
         lines = [
             f'resource "{typ}" "{name}" {{',
             "  # Emitted from terraform.tfstate (hydrate fallback when live generate-config-out fails).",
@@ -252,6 +306,10 @@ def emit_from_state(group_dir: Path, *, only_missing: bool = True) -> int:
                 lines.append(f"  {key} = {rendered}")
             else:
                 lines.append(f"  {key} = {rendered}")
+        if typ == "aws_route_table" and isinstance(attrs.get("route"), list):
+            route_hcl = _render_route_blocks(attrs.get("route"), 2)
+            if route_hcl:
+                lines.append(route_hcl)
         lines.append("}")
         lines.append("")
         blocks.append("\n".join(lines))
@@ -334,8 +392,12 @@ def parse_tofu_errors(log_text: str, *, group_id: str = "", log_path: str = "") 
 
         suggestion = "inspect_resource_block"
         kind_l = kind.lower()
-        if "unsupported argument" in kind_l or "not expected here" in chunk.lower():
+        if "target generated file already exists" in kind_l:
+            suggestion = "rename_or_remove_generated_tf_then_regenerate"
+        elif "unsupported argument" in kind_l or "not expected here" in chunk.lower():
             suggestion = "drop_attribute" if attr else "fix_hcl_structure"
+        elif "invalid argument name" in kind_l:
+            suggestion = "drop_list_attribute_or_rewrite_as_block" if attr else "rewrite_list_as_nested_blocks"
         elif "conflicts with" in kind_l or "conflicting configuration" in kind_l:
             suggestion = "drop_conflicting_attribute" if attr else "resolve_conflict"
         elif "missing required argument" in kind_l:
