@@ -17,7 +17,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
     **HCL is fully agent-authored, and only HCL:** the reverse-IaC stage runs `tofu plan -generate-config-out=generated.tf`; every committed source-cloud file under `aws/groups/<group_id>/` is `.tf` (HCL), never `*.tf.json`.
     **Git access** for `git clone iac_repository_url` runs on the **remote runner** with env-mounted credentials (`GIT_TOKEN` / `GIT_HOST` / `GIT_USERNAME` or `GIT_SSH_PRIVATE_KEY` + `GIT_SSH_KNOWN_HOSTS`).
     Prefer `${local.shell_tool_prefix}_execute_series` for multi-step shell work. When a check fails, keep using the runner to diagnose and fix it.
-    **DAG:** `runner-capability-preflight` → `preflight-retry-loop` → `preflight-blocked-gate` → `cloud2code-scan-aws` → `cloud2code-scan-loop` → `scan-blocked-gate` → `ingest-and-split` → `ingest-split-loop` → `ingest-blocked-gate` → `registry-and-import-codegen` → `shell-converge-matrix` → `shell-converge-loop` → `converge-blocked-gate` → `orphans-secondary-pipeline` → `final-gate-and-memory`. Blocked gates jump to `final-gate-and-memory`.
+    **DAG:** `runner-capability-preflight` → `preflight-blocked-gate` → `cloud2code-scan-aws` → `cloud2code-scan-loop` → `scan-blocked-gate` → `ingest-and-split` → `ingest-split-loop` → `ingest-blocked-gate` → `registry-and-import-codegen` → `shell-converge-matrix` → `shell-converge-loop` → `converge-blocked-gate` → `orphans-secondary-pipeline` → `final-gate-and-memory`. Blocked gates jump to `final-gate-and-memory`.
   EOT
   approve     = true
 
@@ -176,6 +176,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
         **Purpose:** fail fast when the remote runner lacks tools or the script pack is not preloaded — before cloud2code or ingest burn cost.
         **Incremental bring-up execution:** `create_agent` is allowed (reactree). Spawn ONE preflight worker with CREATE_AGENT_EXPECTATION from the spawn context (exact `bash …/runner-capability-preflight.sh` one-liner in expectation). `tool_names` only `["${local.shell_tool_prefix}_execute_series"]`. Never invent probes — `execute_*` runs under `/bin/sh` (sessions dcfbdaa2 / 6741e13a). If shell tools are absent, emit `blocked:remote_runner_shell_unavailable: "true"` and return.
         **`working_dir` must be `/` or omitted.** Session e379516c set it to `${local.runner_work_home}/.{{workflow_run_id}}`, which the preflight script creates, so the runner rejected the call: `working_dir … does not exist`. Never point `working_dir` at the work root or any path a script has yet to create.
+        **Retry in place before reporting blocked:** if the worker reports a rejected call rather than a missing tool — `working_dir … does not exist`, a bad argument, a mangled script path — re-spawn ONE more worker with `working_dir` unset and the one-liner pasted verbatim. Only record blocked after that second attempt.
         **Hard evidence gate:** completion requires `runner_capability_preflight_ok: "true"`. Absent that, record `stage_summary:runner-capability-preflight=blocked:missing_runner_evidence` and return blocked.
         **Blocked sentinels:** `blocked:remote_runner_jq_missing`, `blocked:remote_runner_awscli_missing`, `blocked:remote_runner_python3_missing`, `blocked:remote_runner_git_missing`, `blocked:remote_runner_tofu_missing`, `blocked:remote_runner_opa_missing`, `blocked:remote_runner_cloud2code_missing`, `blocked:remote_runner_script_pack_missing`, `blocked:remote_runner_shell_unavailable`.
 
@@ -183,31 +184,20 @@ resource "sg_workflow" "aws_migrator_discovery" {
       EOT
     },
     {
-      stage_id         = "preflight-retry-loop"
-      action_type      = "loop_stage"
-      agent_ref        = ""
-      stage_depends_on = ["runner-capability-preflight"]
-      action_config = {
-        loop_to        = "runner-capability-preflight"
-        max_iterations = 3
-        exit_condition = "output_matches_regex"
-        # Exit on success or on a real capability blocker. Retry
-        # blocked:missing_runner_evidence, which means the worker mishandled the
-        # call rather than the runner lacking something: session e379516c ended
-        # the whole run because it passed a working_dir that did not exist yet.
-        exit_match = "runner_capability_preflight_ok[^\\n]{0,40}true|blocked:remote_runner_jq_missing|blocked:remote_runner_awscli_missing|blocked:remote_runner_python3_missing|blocked:remote_runner_git_missing|blocked:remote_runner_tofu_missing|blocked:remote_runner_opa_missing|blocked:remote_runner_cloud2code_missing|blocked:remote_runner_script_pack_missing|blocked:remote_runner_shell_unavailable"
-      }
-    },
-    {
       stage_id         = "preflight-blocked-gate"
       action_type      = "conditional_skip"
       agent_ref        = ""
-      stage_depends_on = ["preflight-retry-loop"]
+      stage_depends_on = ["runner-capability-preflight"]
       action_config = {
         condition = "output_matches_regex"
-        match     = "blocked:remote_runner_jq_missing|blocked:remote_runner_awscli_missing|blocked:remote_runner_python3_missing|blocked:remote_runner_git_missing|blocked:remote_runner_tofu_missing|blocked:remote_runner_opa_missing|blocked:remote_runner_cloud2code_missing|blocked:remote_runner_script_pack_missing|blocked:remote_runner_shell_unavailable|stage_summary:runner-capability-preflight=blocked:"
+        match     = "blocked:remote_runner_jq_missing|blocked:remote_runner_awscli_missing|blocked:remote_runner_python3_missing|blocked:remote_runner_git_missing|blocked:remote_runner_tofu_missing|blocked:remote_runner_opa_missing|blocked:remote_runner_cloud2code_missing|blocked:remote_runner_script_pack_missing|blocked:remote_runner_shell_unavailable"
         skip_to   = "final-gate-and-memory"
         reason    = "Runner capability preflight failed — skip scan, ingest, destination, and orphan stages"
+        # blocked:missing_runner_evidence is not listed: it means the worker
+        # mishandled the call, not that the runner lacks a tool. Session
+        # e379516c ended a whole run that way over a bad working_dir. Guild
+        # rejects a loop_stage targeting the entry stage, so the stage retries
+        # in place and the scan stage's own gate catches a truly broken runner.
       }
     },
     {

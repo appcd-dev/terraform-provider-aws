@@ -21,11 +21,15 @@ def main() -> None:
     assert "${local.aws_migrator_spawn_context_cloud2code}" in scan_stage
 
     preflight_stage = workflow.split('stage_id  = "runner-capability-preflight"', 1)[1]
-    preflight_stage = preflight_stage.split('stage_id         = "preflight-retry-loop"', 1)[0]
+    preflight_stage = preflight_stage.split('stage_id         = "preflight-blocked-gate"', 1)[0]
     assert "`working_dir` must be `/` or omitted" in preflight_stage
-    assert '"preflight-retry-loop"' in workflow
-    retry_loop = workflow.split('stage_id         = "preflight-retry-loop"', 1)[1]
-    assert "missing_runner_evidence" not in retry_loop.split("exit_match", 1)[1].split("\n", 1)[0]
+    assert "Retry in place before reporting blocked" in preflight_stage
+
+    # An evidence miss must not skip the rest of the workflow.
+    gate = workflow.split('stage_id         = "preflight-blocked-gate"', 1)[1]
+    gate_match = gate.split("match     =", 1)[1].split("\n", 1)[0]
+    assert "stage_summary:runner-capability-preflight=blocked:" not in gate_match
+    assert "blocked:remote_runner_script_pack_missing" in gate_match
 
     context = (MODULE / "stage_context.tf").read_text()
     scan_context = context.split(
