@@ -11,6 +11,8 @@ on:
       - "agent-pipeline-config/modules/aios-agent-aws-migrator/scripts/**"
       - "agent-pipeline-config/modules/aios-agent-aws-migrator/mappings/**"
       - "agent-pipeline-config/modules/aios-agent-aws-migrator/templates/ingest-execute-series-embedded.sh.tftpl"
+      - "agent-pipeline-config/modules/aios-agent-aws-migrator/templates/iac-pr-execute-series-embedded.sh.tftpl"
+      - "agent-pipeline-config/modules/aios-agent-aws-migrator/templates/converge-execute-series-embedded.sh.tftpl"
       - "agent-pipeline-config/modules/aios-agent-aws-migrator/templates/dbsplit-script-pack-env.sh.tftpl"
       - ".github/workflows/publish-runner.yml"
   pull_request:
@@ -19,6 +21,8 @@ on:
       - "agent-pipeline-config/modules/aios-agent-aws-migrator/scripts/**"
       - "agent-pipeline-config/modules/aios-agent-aws-migrator/mappings/**"
       - "agent-pipeline-config/modules/aios-agent-aws-migrator/templates/ingest-execute-series-embedded.sh.tftpl"
+      - "agent-pipeline-config/modules/aios-agent-aws-migrator/templates/iac-pr-execute-series-embedded.sh.tftpl"
+      - "agent-pipeline-config/modules/aios-agent-aws-migrator/templates/converge-execute-series-embedded.sh.tftpl"
       - "agent-pipeline-config/modules/aios-agent-aws-migrator/templates/dbsplit-script-pack-env.sh.tftpl"
       - ".github/workflows/publish-runner.yml"
 
