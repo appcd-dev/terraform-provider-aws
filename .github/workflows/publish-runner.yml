@@ -117,7 +117,9 @@ jobs:
         with:
           tag_name: pack-${{ steps.pack.outputs.version }}
           name: Script pack ${{ steps.pack.outputs.version }}
-          files: runner/dist/script-pack-${{ steps.pack.outputs.version }}.tar.gz
+          files: |
+            runner/dist/script-pack-${{ steps.pack.outputs.version }}.tar.gz
+            runner/dist/pack-entry.sh
           make_latest: false
           overwrite_files: true
         env:
