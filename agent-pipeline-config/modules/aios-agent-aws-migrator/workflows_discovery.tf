@@ -243,9 +243,9 @@ resource "sg_workflow" "aws_migrator_discovery" {
       skill_refs       = []
       note             = <<-EOT
         Goal: put every scanned resource into exactly one group folder, each with its own state file. Split-quality scores are optional.
-        Done when: your stage result includes the runner lines showing reconciliation succeeded (`count_reconciliation_ok` true), group paths present, and script pack verified (`script_pack_verify_ok` true).
+        Done when: runner lines include `count_reconciliation_ok: "true"`, group paths, and `script_pack_verify_ok: "true"`.
         How: prefer the BEGIN/END pack command in this note (one `${local.shell_tool_prefix}_execute_command`, working_dir `/`, full timeout). create_agent is fine with the same body. Do not ask the operator for the state path; do not invent shell; do not use GitHub or AWS MCP tools for this stage.
-        On failure: retry that same paste once. Prefer the pack command over inventing shell. Echo the runner success or blocker lines in your result; do not paraphrase them away.
+        On `lock_error=timeout` / `blocked:split_lock_timeout`: re-run the same pack body once (dead holders are reclaimed). Do not write `count_reconciliation_ok=true` inside a "not produced" sentence. Echo runner lines; do not paraphrase them away.
 
         ${local.dbsplit_spawn_context_ingest}
       EOT
@@ -259,7 +259,9 @@ resource "sg_workflow" "aws_migrator_discovery" {
         loop_to        = "ingest-and-split"
         max_iterations = var.max_convergence_iterations
         exit_condition = "output_matches_regex"
-        exit_match     = "count_reconciliation_ok[^\\n]{0,40}true|blocked:missing_monolith_state_uri|blocked:three_runner_attempts_failed|blocked:ingest_script_pack_failed|script_pack_verify_ok[^\\n]{0,40}false|script_pack_error="
+        # Quoted true only — prose "count_reconciliation_ok=true were not produced"
+        # false-FINISHed ingest (session c38ad01b) and skipped a real retry.
+        exit_match     = "count_reconciliation_ok:\\s*\\\"true\\\"|blocked:missing_monolith_state_uri|blocked:three_runner_attempts_failed|blocked:ingest_script_pack_failed|blocked:split_lock_timeout|script_pack_verify_ok:\\s*\\\"false\\\"|script_pack_error="
       }
     },
     {
@@ -273,7 +275,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
         # loop FINISH reasons paste the exit_match pattern text, and that substring
         # false-skipped a clean split (session cec82df8: count_reconciliation_ok=true,
         # 89 groups) straight to final-gate.
-        match   = "blocked:missing_monolith_state_uri:\\s*\\\"true\\\"|blocked:three_runner_attempts_failed:\\s*\\\"true\\\"|blocked:ingest_script_pack_failed:\\s*\\\"true\\\"|stage_summary:ingest-and-split=blocked:|script_pack_verify_ok:\\s*\\\"false\\\"|script_pack_verify_ok=false|count_reconciliation_ok:\\s*\\\"false\\\"|count_reconciliation_ok=false|script_pack_error=[A-Za-z0-9_]"
+        match   = "blocked:missing_monolith_state_uri:\\s*\\\"true\\\"|blocked:three_runner_attempts_failed:\\s*\\\"true\\\"|blocked:ingest_script_pack_failed:\\s*\\\"true\\\"|blocked:split_lock_timeout:\\s*\\\"true\\\"|stage_summary:ingest-and-split=blocked:|script_pack_verify_ok:\\s*\\\"false\\\"|script_pack_verify_ok=false|count_reconciliation_ok:\\s*\\\"false\\\"|count_reconciliation_ok=false|script_pack_error=[A-Za-z0-9_]"
         skip_to = "final-gate-and-memory"
         reason  = "The scanned resources could not be split correctly, so Terraform generation cannot continue"
       }

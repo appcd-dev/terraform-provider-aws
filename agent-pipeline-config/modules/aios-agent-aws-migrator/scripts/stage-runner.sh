@@ -4,7 +4,7 @@
 # Usage: DBSPLIT_EMBEDDED=1 bash -s <command> [args...] << 'DBSPLIT_STAGE_RUNNER' ... DBSPLIT_STAGE_RUNNER
 set -euo pipefail
 
-SCRIPT_PACK_VERSION="20260911.18"
+SCRIPT_PACK_VERSION="20260911.19"
 DBSPLIT_DEFAULT_STRATEGY="${DBSPLIT_DEFAULT_STRATEGY:-tfstate_monolith_decomposer}"
 DBSPLIT_DEFAULT_CAP="${DBSPLIT_DEFAULT_CAP:-0}"
 REQUIRED_ALLOCATE_MARKER="def merge_small_by_seed"
@@ -48,18 +48,37 @@ acquire_run_lock() {
   local name="${2:?LOCK_NAME}"
   local lock_root="${work_root}/.work/locks"
   local lock_dir="${lock_root}/${name}.lock"
-  local start now lock_mtime
+  local start now lock_mtime holder_pid
   mkdir -p "$lock_root"
   start="$(date +%s)"
   while ! mkdir "$lock_dir" 2>/dev/null; do
     now="$(date +%s)"
     lock_mtime="$(mtime_epoch "$lock_dir")"
+    holder_pid=""
+    if [ -f "${lock_dir}/holder" ]; then
+      holder_pid="$(sed -n 's/^pid=//p' "${lock_dir}/holder" 2>/dev/null | head -1 | tr -d '[:space:]')"
+    fi
+    # SIGKILL/OOM (session c38ad01b): holder never runs release_run_lock. Reclaim
+    # immediately when the recorded pid is gone instead of waiting the stale TTL.
+    if [ -n "$holder_pid" ] && [[ "$holder_pid" =~ ^[0-9]+$ ]] && ! kill -0 "$holder_pid" 2>/dev/null; then
+      echo "lock_reclaimed=dead_holder name=${name} pid=${holder_pid} path=${lock_dir}" >&2
+      rm -rf "$lock_dir" 2>/dev/null || true
+      continue
+    fi
+    # Empty/corrupt holder with a short grace — likely a crashed writer.
+    if [ -z "$holder_pid" ] && [ "$lock_mtime" -gt 0 ] && [ $((now - lock_mtime)) -gt 30 ]; then
+      echo "lock_reclaimed=no_holder name=${name} path=${lock_dir}" >&2
+      rm -rf "$lock_dir" 2>/dev/null || true
+      continue
+    fi
     if [ "$lock_mtime" -gt 0 ] && [ $((now - lock_mtime)) -gt "$DBSPLIT_LOCK_STALE_SECONDS" ]; then
+      echo "lock_reclaimed=stale name=${name} age=$((now - lock_mtime))s path=${lock_dir}" >&2
       rm -rf "$lock_dir" 2>/dev/null || true
       continue
     fi
     if [ $((now - start)) -ge "$DBSPLIT_LOCK_TIMEOUT_SECONDS" ]; then
       echo "lock_error=timeout name=${name} path=${lock_dir}" >&2
+      echo "blocked:split_lock_timeout: \"true\"" >&2
       return 1
     fi
     sleep 1
@@ -78,7 +97,9 @@ release_run_lock() {
 mirror_note() {
   local work_root="${1:?WORK_ROOT}"
   local key="${2:?KEY}"
-  local value="${3:?VALUE}"
+  # Allow empty values (${3:?} rejects null). Session c38ad01b: after a killed
+  # split, count_reconciliation_ok was empty and aborted with "3: VALUE".
+  local value="${3-}"
   local notes="${work_root}/notes.json"
   local lock tmp rc
   mkdir -p "$work_root"
@@ -1594,7 +1615,13 @@ cmd_tuned_split_manifest() {
   local final_report=""
   local history_path="${work_root}/split_tuning_history.json"
 
-  split_lock="$(acquire_run_lock "$work_root" "split")" || return 1
+  split_lock="$(acquire_run_lock "$work_root" "split")" || {
+    echo 'blocked:split_lock_timeout: "true"'
+    return 1
+  }
+  # Non-SIGKILL paths must drop the lock; SIGKILL relies on dead-pid reclaim above.
+  # shellcheck disable=SC2064
+  trap 'release_run_lock "'"$split_lock"'"' EXIT
   mkdir -p "${work_root}/.work/split-quality"
   echo '[]' >"$history_path"
   resolve_decomposer_py "$work_root" >/dev/null
@@ -1694,6 +1721,7 @@ cmd_tuned_split_manifest() {
   echo "split_quality_report=${work_root}/split_quality_report.json"
   echo "split_tuning_history=${history_path}"
   release_run_lock "$split_lock"
+  trap - EXIT
 }
 
 cmd_ingest_and_split() {
@@ -1793,6 +1821,9 @@ EOF
     mirror_note "$work_root" "readiness_suggestions_path" "$readiness_path"
   fi
   mirror_note "$work_root" "split_quality_status" "$quality_status"
+  # Quoted sentinels so agent "not produced" prose cannot false-FINISH the loop
+  # (session c38ad01b: "count_reconciliation_ok=true … were not produced").
+  echo "count_reconciliation_ok: \"${ok}\""
   echo "count_reconciliation_ok=${ok}"
   echo "split_quality_pass=${quality_pass}"
   echo "split_quality_status=${quality_status}"
@@ -1824,6 +1855,7 @@ emit_script_pack_verify() {
 
   mirror_note "$work_root" "script_pack_verify_ok" "$verify_ok"
   mirror_note "$work_root" "script_pack_version" "$SCRIPT_PACK_VERSION"
+  echo "script_pack_verify_ok: \"${verify_ok}\""
   echo "script_pack_verify_ok=${verify_ok}"
   echo "script_pack_version=${SCRIPT_PACK_VERSION}"
 

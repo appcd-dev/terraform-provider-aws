@@ -181,12 +181,25 @@ def main() -> None:
     ingest_loop = _binding(workflow, "ingest-split-loop")
     ingest_exit = _string_assign(ingest_loop, "exit_match")
     _assert_gate_not_in_finish(ingest_match, ingest_exit, "ingest")
+    # Quoted true only (session c38ad01b prose false-FINISH).
+    assert r'count_reconciliation_ok:\\s*\\\"true\\\"' in ingest_exit
+    assert "count_reconciliation_ok[^\\\\n]{0,40}true" not in ingest_exit
+    assert "blocked:split_lock_timeout" in ingest_exit
     gate_re = ingest_match.encode("utf-8").decode("unicode_escape")
     assert re.search(gate_re, "count_reconciliation_ok=false\n")
     assert re.search(gate_re, 'script_pack_verify_ok: "false"\n')
+    assert re.search(gate_re, 'blocked:split_lock_timeout: "true"\n')
     assert not re.search(
         gate_re, "count_reconciliation_ok=true\nscript_pack_verify_ok=true\n"
     )
+    # Prose that previously false-FINISHed must not match quoted exit_match.
+    prose = (
+        "The required `count_reconciliation_ok=true`, group paths, and "
+        "`script_pack_verify_ok=true` lines were not produced."
+    )
+    exit_re = ingest_exit.encode("utf-8").decode("unicode_escape")
+    assert not re.search(exit_re, prose), prose
+    assert re.search(exit_re, 'count_reconciliation_ok: "true"\n')
 
     # Scan gate vs scan loop FINISH embedding.
     scan_gate = _binding(workflow, "scan-blocked-gate")
