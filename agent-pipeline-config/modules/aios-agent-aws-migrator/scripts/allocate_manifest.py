@@ -868,9 +868,17 @@ def scaffold_group_dir(group_dir: str, group_id: str, state_path: str) -> dict:
 
     os.makedirs(group_dir, exist_ok=True)
 
+    provider_versions = {
+        "hashicorp/aws": "~> 6.0",
+        "hashicorp/azurerm": "~> 3.117",
+        "hashicorp/google": "~> 6.0",
+    }
     versions = 'terraform {\n  required_version = ">= 1.5.0"\n  required_providers {\n'
     for local, source in sorted(providers.items()):
-        versions += f'    {local} = {{\n      source = "{source}"\n    }}\n'
+        versions += f'    {local} = {{\n      source = "{source}"\n'
+        if source in provider_versions:
+            versions += f'      version = "{provider_versions[source]}"\n'
+        versions += "    }\n"
     versions += "  }\n}\n"
 
     prov_tf = ""

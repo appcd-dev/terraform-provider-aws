@@ -24,6 +24,7 @@ How Nile-Factory actually starts the process: after `tofu apply` on `deployments
 | 12 | Token rotation | Issue a new `sg_aios_…` runner token, put it in the container/Helm secret, restart. Vault-synced cloud/git secrets refresh on `--secrets-ttl` (default 5m). |
 | 13 | Share one token across runners? | No. One token is one runner identity. Pollers will steal each other's tasks. |
 | 14 | Singleton? | Yes. One process per registered runner. Helm default `replicaCount: 1`. |
+| 15 | Why is a trivial `find` / `ls` ~6s? | Guild dispatch floor (queue + claim + stdout), not CPU. See [Why remote shell probes feel slow](#15-why-remote-shell-probes-feel-slow). Do not add vCPU for that. |
 
 ## 1. What is the exact Docker image?
 
@@ -212,6 +213,44 @@ Need more capacity? Register **another** `sg_remote_runner` (new name, new token
 **Yes, per registered runner.** Guild describes remote runners as one per environment/VPC. Helm `replicaCount: 1`. Nile-Factory attaches a single runner name to the migrator agent.
 
 High availability means a supervisor that **restarts the same identity** (Kubernetes Deployment with 1 replica, Docker restart policy, systemd). It does not mean two live replicas.
+
+## 15. Why remote shell probes feel slow?
+
+Aiden-runner is pull-based. Each `execute_series` pays mothership queue + claim +
+execute + stdout return. A `find` that finishes in tens of milliseconds on the
+host often shows **~5–7s** in the UI. That floor is not fixed by adding CPU or
+RAM. Size the runner for Cloud2Code / `tofu plan` (sections 9–10), not for
+`ls`.
+
+Do not spend a whole tool call on directory probes. Prefer:
+
+```bash
+printf '%s\n' "$WORK_ROOT/groups/"*/generated.tf
+# or
+find "$WORK_ROOT/groups" -mindepth 2 -maxdepth 2 -name generated.tf
+```
+
+Never recurse `find` from `$WORK_ROOT` after hydrate: the shared plugin cache
+may live under `$WORK_ROOT/.work/tf-runtime` and walks thousands of provider
+files. Prefer `/bin/bash -c` over `bash -lc`.
+
+To separate dispatch from on-host time, fold this into the **next real** series
+(do not fire a dedicated probe):
+
+```bash
+/bin/bash -c 'd="$WORK_ROOT"
+echo "onhost_start=$(date +%s%3N)"
+TIMEFORMAT="onhost_find_groups_sec=%R"
+time find "$d/groups" -mindepth 2 -maxdepth 2 -name generated.tf | wc -l
+TIMEFORMAT="onhost_find_all_sec=%R"
+time find "$d" -name generated.tf | wc -l
+echo "onhost_end=$(date +%s%3N)"'
+```
+
+- On-host under ~0.2s, Guild still multi-second → dispatch tax. Runner size is
+  irrelevant for probes.
+- `onhost_find_all` much larger than `onhost_find_groups` → stop walking
+  `$WORK_ROOT`; list only under `groups/`.
 
 ## Nile-Factory install reminder
 

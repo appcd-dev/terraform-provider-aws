@@ -35,6 +35,10 @@ COPY agent-pipeline-config/modules/aios-agent-aws-migrator/mappings \
   /src/agent-pipeline-config/modules/aios-agent-aws-migrator/mappings
 COPY agent-pipeline-config/modules/aios-agent-aws-migrator/templates/ingest-execute-series-embedded.sh.tftpl \
   /src/agent-pipeline-config/modules/aios-agent-aws-migrator/templates/ingest-execute-series-embedded.sh.tftpl
+COPY agent-pipeline-config/modules/aios-agent-aws-migrator/templates/iac-pr-execute-series-embedded.sh.tftpl \
+  /src/agent-pipeline-config/modules/aios-agent-aws-migrator/templates/iac-pr-execute-series-embedded.sh.tftpl
+COPY agent-pipeline-config/modules/aios-agent-aws-migrator/templates/converge-execute-series-embedded.sh.tftpl \
+  /src/agent-pipeline-config/modules/aios-agent-aws-migrator/templates/converge-execute-series-embedded.sh.tftpl
 COPY agent-pipeline-config/modules/aios-agent-aws-migrator/templates/dbsplit-script-pack-env.sh.tftpl \
   /src/agent-pipeline-config/modules/aios-agent-aws-migrator/templates/dbsplit-script-pack-env.sh.tftpl
 COPY runner/embed-script-pack.sh runner/render_ingest_bootstrap.py runner/sync-script-pack-from-env.sh runner/runner-entrypoint.sh /tmp/

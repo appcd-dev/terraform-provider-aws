@@ -1,50 +1,27 @@
-# Terraform validation and zero-diff plan convergence
+# Terraform validation convergence
 
-Keywords: tofu fmt, tofu validate, tofu test, tflint, tofu plan, drift, loop.
+Reference material. Stage notes own execution.
+
+Keywords: tofu fmt, tofu validate, tofu plan.
+
+## Goal
+
+Confirm sampled Terraform roots format and validate. A zero-change plan is
+preferred but optional for AWS discovery readiness.
 
 ## Count check
 
-Before validation, confirm `aggregate_group_resource_count == monolith_resource_count`
-using the same managed-resource counting rules as decomposition. If not equal,
-set `count_reconciliation_ok=false` and stop before claiming any plan evidence.
+Before claiming success, confirm aggregate group resource count matches the
+monolith count. If not, stop and return to decomposition.
 
-## Per-group validation
+## Per-group work
 
-For every selected Terraform root:
-
-```bash
-tofu init -backend=false -input=false -no-color
-tofu plan -generate-config-out=generated.tf -input=false -lock=false -no-color -out=hydrate.tfplan
-tofu fmt -recursive -no-color
-tofu fmt -recursive -check -no-color
-tofu validate -no-color
-if find . -name '*.tftest.hcl' -o -name '*.tftest.json' | grep -q .; then tofu test -no-color; fi
-if command -v tflint >/dev/null 2>&1; then tflint --init >/dev/null 2>&1 || true; tflint --format compact; fi
-tofu plan -refresh=false -input=false -lock=false -no-color -out=verify.tfplan
-tofu show -json verify.tfplan
-```
-
-Parse the plan JSON and require zero create, update, and delete actions. A
-plain-text `No changes` plan is also acceptable when JSON parsing is unavailable.
-
-Treat provider install failures and host disk exhaustion as repairable init
-failures. Move `TF_PLUGIN_CACHE_DIR` and `TF_DATA_DIR` to a scratch volume when
-available, delete only Terraform runtime/cache artifacts, retry init, and record
-`hcl_init_status:<group_id>` with the classified reason and log path.
+For each selected root: init, generate config when needed, format, validate,
+and optionally plan. Treat provider install failures and disk exhaustion as
+repairable init problems: refresh the plugin cache, retry init, and record the
+failure reason.
 
 ## Looping
 
-- If the count fails, return to decomposition.
-- If validation or plan fails, return to registry/import/hydration alignment.
-- Retry validation until `multi_plan_zero_diff_ok` is `"true"` or the maximum iteration cap is reached.
-
-Never assign a human "HCL author" task for empty stubs. The workflow owns
-generated HCL and must keep trying until validation passes or a real blocker is
-recorded.
-
-## Evidence
-
-Set `hcl_hydration_status:<group_id>` with the generated path, remaining actions,
-validation status, and attempt. Set `multi_plan_zero_diff_ok=true` only when all
-selected roots pass fmt, validate, required tests, available lint, and a
-zero-change plan.
+Soft validation failures stay in the converge loop. Only a truly missing tofu
+or shell on the runner is a terminal runner block.

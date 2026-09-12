@@ -20,3 +20,4 @@ runner/dist/
 **/*-helm-values.local.yaml
 session-report.json
 **/session-report.json
+tfplan.*

@@ -19,6 +19,10 @@ locals {
   resolved_github_integration_name = local.provision_github ? module.github_integration[0].integration_name : (
     local.use_existing_github ? data.sg_guild_integration.github[0].name : ""
   )
+  # Prefer explicit customer model names so apply does not wipe UI selections with [].
+  resolved_model_names = length(compact(var.model_names)) > 0 ? compact(var.model_names) : (
+    local.enable_azure_openai ? [for m in var.azure_openai_models : m.name] : []
+  )
 }
 
 resource "sg_policy" "dangerous_ops" {
@@ -125,7 +129,8 @@ module "aws_migrator" {
 
   nile_rules_ref = "f8f6f171a0a15c195954c53c330e15df2af6aa99_20260827033726"
 
-  model_names = local.enable_azure_openai ? [for m in var.azure_openai_models : m.name] : []
+  model_names             = local.resolved_model_names
+  non_trivial_model_names = var.non_trivial_model_names
 }
 
 module "governance_codify" {
@@ -138,4 +143,6 @@ module "governance_codify" {
   default_target_repository_url    = "https://github.com/Walmart-StackGen/Nile-Factory.git"
   default_target_ref               = "main"
   default_base_branch              = "main"
+
+  model_names = local.resolved_model_names
 }

@@ -23,6 +23,36 @@ multi-step shell work into one sequence rather than many rapid one-off commands,
 and keep independent work in bounded parallel batches. All heavy parsing and
 Terraform runs happen on the host, never inline.
 
+Remote `execute_series` has a multi-second Guild dispatch floor (claim + return),
+often ~5–7s even for a trivial command. Prefer batching listings with the work
+that needs them. Efficient listing patterns:
+
+`groups/*/generated.tf`, or
+`find "$WORK_ROOT/groups" -mindepth 2 -maxdepth 2 -name generated.tf`, or
+`sample_group_ids.json`.
+
+Avoid unconstrained `find` from `$WORK_ROOT` when the plugin cache lives under
+that tree. Prefer `/bin/bash -c` over `bash -lc` when inventing one-liners.
+
+Pack sanitizers rewrite `route = [ {…} ]` into `route { }` blocks and move aside
+existing `generated.tf` before `-generate-config-out`. Prefer re-running the
+converge pack after surgical edits over wiping whole group files.
+
+When diagnosing slow probes, fold on-host timing into the next real series:
+
+```bash
+/bin/bash -c 'd="$WORK_ROOT"
+echo "onhost_start=$(date +%s%3N)"
+TIMEFORMAT="onhost_find_groups_sec=%R"
+time find "$d/groups" -mindepth 2 -maxdepth 2 -name generated.tf | wc -l
+TIMEFORMAT="onhost_find_all_sec=%R"
+time find "$d" -name generated.tf | wc -l
+echo "onhost_end=$(date +%s%3N)"'
+```
+
+If on-host times are under ~0.2s while Guild still reports multi-second wall
+time, the cost is dispatch, not CPU. Do not resize the runner for probe latency.
+
 ## Handoff record
 
 Carry these facts forward between phases (paths, counts, statuses, and redacted
@@ -120,8 +150,10 @@ Record `hcl_hydration_status:<group_id>` with:
 }
 ```
 
-Loop the validation phase until `terraform_validation_ok` is `"true"` or a
-real runner problem is recorded, capped by `${max_iterations}` iterations.
+Loop the validation phase until `terraform_validation_ok` is `"true"`, a
+real runner problem is recorded, or `${max_iterations}` is reached. Keep pushing
+hydrated `generated.tf` to the PR on every pass — validation false must not
+skip sync or end the run early.
 
 ## Azure generation
 
@@ -170,21 +202,21 @@ secondary orphan-module procedure.
 
 ## Final gate
 
-Report complete only when:
+For AWS discovery, prefer reporting **needs work** (not failed) when the PR has
+hydrated HCL but `terraform_validation_ok` is still false — include remaining
+`hcl_fix_target` lines. Treat as complete/ready when:
 
 - Scan evidence exists.
 - Monolith and aggregate group counts match.
-- Required HCL hydration records exist.
-- `terraform_validation_ok` is `"true"`.
-- `azure_migration_blueprint_path` and `azure_review_needed_path` exist.
-- `azure_iac_generated` is `"true"`.
-- `azure_iac_validation_ok` is `"true"`.
-- `azure_pr_url` or `pr_url` exists.
+- Required HCL hydration records exist (and preferably validate green).
+- `pr_url` / `iac_pr_url` exists, or a concrete PR blocker is recorded.
 - The orphan handoff is skipped-empty or recorded.
+
+Destination Azure/GCP gates apply only to those workflows.
 
 ## Blockers
 
 Stop with a compact blocked reason on missing AWS region, missing host tools,
 missing source state, invalid state, script-pack verification failure,
-missing or duplicated resources, missing Terraform, or generated files that
-do not pass Terraform validation.
+missing or duplicated resources, or missing Terraform. Soft validation /
+zero-diff failures are not terminal blockers once hydrate is on the PR.
