@@ -224,10 +224,12 @@ def main() -> None:
     # Converge wording matches validation exit, not zero-diff; gate vs FINISH.
     converge = _binding(workflow, "shell-converge-matrix")
     assert "create_agent" in converge.lower()
-    assert "prefer the pack command" in converge.lower()
     assert "hcl_fix_target" in converge.lower()
     assert "hcl_fix_target_count>0" in converge or "hcl_fix_target_count" in converge
     assert "bare pack re-run" in converge.lower() or "no edits" in converge.lower()
+    assert "blank" in converge.lower() or "truncate" in converge.lower()
+    assert "converge_batch_incomplete" in converge or "converge_retryable" in converge
+    assert "signal: killed" in converge or "runner_killed" in converge
     assert len(_heredoc_body(converge, "note")) <= MAX_BINDING_NOTE
 
     converge_loop = _binding(workflow, "shell-converge-loop")
@@ -239,12 +241,26 @@ def main() -> None:
     # Raw TF source keeps Terraform escapes (\\s, \\\").
     assert r'terraform_validation_ok:\\s*\\\"false\\\"' in converge_exit
     assert r'terraform_validation_ok:\\s*\\\"true\\\"' in converge_exit
+    # Batch incomplete / kill resume must NOT FINISH the loop (omit validation_ok).
+    assert "converge_batch_incomplete" not in converge_exit
+    assert "converge_retryable" not in converge_exit
+    assert "blocked:runner_killed" not in converge_exit
     stages_converge = workflow.split('stage_id    = "shell-converge-loop"', 1)[1].split(
         "},", 1
     )[0]
     assert "terraform_validation_ok" in stages_converge
     assert "zero-diff" not in stages_converge.lower()
 
+    # Incomplete batch stdout must GO_BACK (no terraform_validation_ok line).
+    exit_re = converge_exit.encode("utf-8").decode("unicode_escape")
+    batch_out = (
+        'converge_retryable: "true"\n'
+        'converge_batch_incomplete: "true"\n'
+        "hydrate_groups_remaining=12\n"
+    )
+    assert not re.search(exit_re, batch_out), batch_out
+    assert re.search(exit_re, 'terraform_validation_ok: "false"\n')
+    assert re.search(exit_re, 'terraform_validation_ok: "true"\n')
     converge_gate = _binding(workflow, "converge-blocked-gate")
     converge_match = _string_assign(converge_gate, "match")
     _assert_gate_not_in_finish(converge_match, converge_exit, "converge")

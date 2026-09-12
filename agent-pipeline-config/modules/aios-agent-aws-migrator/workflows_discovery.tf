@@ -310,9 +310,9 @@ resource "sg_workflow" "aws_migrator_discovery" {
         Done when: the runner printed `terraform_validation_ok: "true"` or `terraform_validation_ok: "false"` (plus sync status). Validation false is not a stage failure and must not skip the PR sync or stop orphan/final stages.
         How: ONE `${local.shell_tool_prefix}_execute_series` pasting the **exact** BEGIN/END `CONVERGE_EXECUTE_SERIES` one-liner (starts with `GIT_TOKEN=` / `WORKFLOW_RUN_ID=` and runs `converge-bootstrap.sh` on the pack). create_agent is fine for HCL fixes.
         **FORBIDDEN:** `command="CONVERGE_EXECUTE_SERIES"` or `exec …/CONVERGE_EXECUTE_SERIES` (exit 127). Never use the marker label as the command.
-        If `hcl_fix_target_count>0` (or the report lists targets): **in this same visit**, open `hcl_fix_report_path` / those `generated.tf` blocks and apply surgical edits, then re-run the pack command. A bare pack re-run with no edits is not progress. Do not rely on shell-converge-loop GO_BACK for edits (session e210eccd hit Guild's stage visit cap).
+        If `hcl_fix_target_count>0` (or the report lists targets): **in this same visit**, surgically edit named `generated.tf` blocks, then re-run the pack. Never truncate or blank `generated.tf`. A bare pack re-run with no edits is not progress when targets exist.
+        If the tool returns `signal: killed` / exit 137, or stdout has `converge_batch_incomplete: "true"` / `converge_retryable: "true"`: echo `blocked:runner_killed: "true"` (when killed) plus the pack retry lines, then re-run the **same** pack command. Do **not** invent HCL surgery for a kill. Pack resumes already-green groups and continues the batch.
         If the runner sentinel is truncated/missing: echo what you have and let the loop retry once. Do **not** write `terraform_validation_ok=true` in a "not produced" sentence.
-        Prefer the pack command over inventing shell. Echo the runner success or blocker lines in your result; do not paraphrase them away.
 
         ${local.dbsplit_spawn_context_converge}
       EOT
@@ -335,7 +335,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
         # (session 9a0fa0fc) — require the quoted sentinel.
         exit_match = "terraform_validation_ok:\\s*\\\"true\\\"|terraform_validation_ok:\\s*\\\"false\\\"|blocked:remote_runner_tofu_missing|blocked:remote_runner_shell_unavailable"
       }
-      note = "loop_stage only — no LLM. Exit on quoted terraform_validation_ok true|false or a terminal runner blocker. Missing/truncated sentinel may GO_BACK; do not loop forever on conclusive false."
+      note = "loop_stage only — no LLM. Exit on quoted terraform_validation_ok true|false or a terminal runner blocker. Missing sentinel, converge_batch_incomplete, or killed truncation GO_BACKs so hydrate can resume; do not FINISH on converge_retryable alone."
     },
     {
       stage_id         = "converge-blocked-gate"

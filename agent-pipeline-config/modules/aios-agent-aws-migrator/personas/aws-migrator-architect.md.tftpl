@@ -35,7 +35,12 @@ or re-run earlier stages inside this one.
   `hcl_fix_report_path`. When `hcl_fix_target_count>0`, surgically edit the
   named blocks in `generated.tf` (or a small runner script) **before** another
   pack-only converge — a bare re-run with no edits is not progress. Then re-run
-  the pack. Do not spawn the same converge goal three times with no change.
+  the pack. Never truncate or blank `generated.tf`. Do not spawn the same
+  converge goal three times with no change.
+- If the runner dies with `signal: killed` / exit 137, or pack prints
+  `converge_batch_incomplete` / `converge_retryable`: treat it as resume work,
+  not bad HCL. Re-run the same pack command. Do not invent attribute surgery
+  for a kill.
 - Soft failures (fmt, validate, clone, PR): keep fixing on the runner until the
   stage goal is met or you have a concrete blocker. When the runner is truly
   missing a required tool, note that and stop. Do not interview the operator for

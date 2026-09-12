@@ -4,7 +4,7 @@
 # Usage: DBSPLIT_EMBEDDED=1 bash -s <command> [args...] << 'DBSPLIT_STAGE_RUNNER' ... DBSPLIT_STAGE_RUNNER
 set -euo pipefail
 
-SCRIPT_PACK_VERSION="20260911.19"
+SCRIPT_PACK_VERSION="20260911.20"
 DBSPLIT_DEFAULT_STRATEGY="${DBSPLIT_DEFAULT_STRATEGY:-tfstate_monolith_decomposer}"
 DBSPLIT_DEFAULT_CAP="${DBSPLIT_DEFAULT_CAP:-0}"
 REQUIRED_ALLOCATE_MARKER="def merge_small_by_seed"
@@ -4196,6 +4196,53 @@ hydrate_one_group() {
   return 1
 }
 
+# True when a prior hydrate visit already left this group fmt+validate green with
+# a non-empty generated.tf. Used to resume after SIGKILL/OOM without redoing work.
+group_hydrate_already_ok() {
+  local work_root="${1:?WORK_ROOT}"
+  local group_id="${2:?GROUP_ID}"
+  local gen_tf="${work_root}/groups/${group_id}/generated.tf"
+  local status_blob validate_flag fmt_flag
+
+  [ -f "$gen_tf" ] || return 1
+  # Reject agent "heals" that truncate generated.tf (session 1864c3a4).
+  [ -s "$gen_tf" ] || return 1
+  status_blob="$(read_note "$work_root" "hcl_hydration_status:${group_id}" 2>/dev/null || true)"
+  [ -n "$status_blob" ] || return 1
+  validate_flag="$(printf '%s' "$status_blob" | jq -r '.validation.validate // "false"' 2>/dev/null || echo false)"
+  fmt_flag="$(printf '%s' "$status_blob" | jq -r '.validation.fmt // "false"' 2>/dev/null || echo false)"
+  [ "$validate_flag" = "true" ] && [ "$fmt_flag" = "true" ]
+}
+
+# Persist matrix progress after each group so a SIGKILL mid-loop still leaves a
+# resume point (cannot trap SIGKILL; checkpoint is the only autoheal).
+write_hydrate_checkpoint() {
+  local work_root="${1:?WORK_ROOT}"
+  local last_group="${2:-}"
+  local ok_count="${3:-0}"
+  local fail_count="${4:-0}"
+  local skipped_ok="${5:-0}"
+  local processed="${6:-0}"
+  local remaining="${7:-0}"
+  local total="${8:-0}"
+  local checkpoint="${work_root}/aws/artifacts/hydrate_checkpoint.json"
+
+  mkdir -p "${work_root}/aws/artifacts" 2>/dev/null || true
+  jq -nc \
+    --arg last "$last_group" \
+    --argjson ok "$ok_count" \
+    --argjson fail "$fail_count" \
+    --argjson skipped "$skipped_ok" \
+    --argjson processed "$processed" \
+    --argjson remaining "$remaining" \
+    --argjson total "$total" \
+    --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)" \
+    '{schema:"nile-hydrate-checkpoint/v1",last_group:$last,ok:$ok,fail:$fail,skipped_ok:$skipped,processed_this_visit:$processed,remaining:$remaining,total:$total,updated_at:$ts}' \
+    >"$checkpoint" 2>/dev/null || true
+  mirror_note "$work_root" "hydrate_checkpoint_path" "$checkpoint" || true
+  mirror_note "$work_root" "hydrate_last_group" "$last_group" || true
+}
+
 cmd_hydrate_and_plan_matrix() {
   local work_root="${1:?WORK_ROOT}"
   require_embedded_invocation || return 1
@@ -4214,17 +4261,52 @@ cmd_hydrate_and_plan_matrix() {
     cmd_prepare_parallel_artifacts "$work_root" || return 1
   fi
 
+  # Cap work per pack visit so one execute_series cannot OOM the runner
+  # (signal: killed). 0 = unlimited. Resume skips already-green groups.
+  local max_per_visit="${DBSPLIT_HYDRATE_MAX_GROUPS_PER_VISIT:-8}"
   local ok_count fail_count zero_count total missing_count soft_count
+  local skipped_ok processed_this_visit remaining deferred
   ok_count=0
   fail_count=0
   zero_count=0
   total=0
   missing_count=0
   soft_count=0
+  skipped_ok=0
+  processed_this_visit=0
+  remaining=0
+  deferred=0
 
   while IFS= read -r group_id; do
     [ -n "$group_id" ] || continue
     total=$((total + 1))
+  done < <(jq -r '.[]' "$sample_path")
+
+  while IFS= read -r group_id; do
+    [ -n "$group_id" ] || continue
+
+    if group_hydrate_already_ok "$work_root" "$group_id"; then
+      skipped_ok=$((skipped_ok + 1))
+      ok_count=$((ok_count + 1))
+      local status_blob plan_zero
+      status_blob="$(read_note "$work_root" "hcl_hydration_status:${group_id}" 2>/dev/null || true)"
+      plan_zero="$(printf '%s' "$status_blob" | jq -r '.plan_no_changes // false' 2>/dev/null || echo false)"
+      if [ "$plan_zero" = "true" ]; then
+        zero_count=$((zero_count + 1))
+      fi
+      echo "group_resume_skip=${group_id} reason=already_validate_ok"
+      write_hydrate_checkpoint "$work_root" "$group_id" "$ok_count" "$fail_count" "$skipped_ok" "$processed_this_visit" "$remaining" "$total"
+      continue
+    fi
+
+    if [ "$max_per_visit" -gt 0 ] 2>/dev/null && [ "$processed_this_visit" -ge "$max_per_visit" ]; then
+      remaining=$((remaining + 1))
+      deferred=$((deferred + 1))
+      echo "group_deferred=${group_id} reason=visit_batch_cap max=${max_per_visit}"
+      continue
+    fi
+
+    processed_this_visit=$((processed_this_visit + 1))
     if hydrate_one_group "$work_root" "$group_id" "$tofu_bin"; then
       local status_blob validate_flag fmt_flag plan_zero
       status_blob="$(read_note "$work_root" "hcl_hydration_status:${group_id}" 2>/dev/null || true)"
@@ -4248,34 +4330,48 @@ cmd_hydrate_and_plan_matrix() {
     # adds up to tens of GB across a matrix and evicts the runner for disk
     # pressure. The plugin cache keeps re-init cheap, so release them per group.
     cleanup_terraform_runtime_artifacts "$work_root" "$group_id"
+    write_hydrate_checkpoint "$work_root" "$group_id" "$ok_count" "$fail_count" "$skipped_ok" "$processed_this_visit" "$remaining" "$total"
   done < <(jq -r '.[]' "$sample_path")
+
+  # Recount remaining after the loop (deferred groups only; failed still "done").
+  remaining="$deferred"
 
   local validation_ok="false"
   local multi_ok="false"
-  if [ "$total" -gt 0 ] && [ "$fail_count" -eq 0 ]; then
-    validation_ok="true"
-  fi
-  if [ "$total" -gt 0 ] && [ "$zero_count" -eq "$total" ]; then
-    multi_ok="true"
+  local batch_incomplete="false"
+  if [ "$remaining" -gt 0 ]; then
+    batch_incomplete="true"
   fi
 
-  # Belt-and-suspenders: even if hydrate_one_group returned 0, matrix must
-  # have complete generated.tf for every selected group before sync/PR.
-  if [ "$validation_ok" = "true" ]; then
-    if ! assert_sample_groups_hydrated "$work_root" "${work_root}/groups"; then
-      validation_ok="false"
-      multi_ok="false"
-      fail_count=$((fail_count + 1))
+  if [ "$batch_incomplete" != "true" ]; then
+    if [ "$total" -gt 0 ] && [ "$fail_count" -eq 0 ]; then
+      validation_ok="true"
+    fi
+    if [ "$total" -gt 0 ] && [ "$zero_count" -eq "$total" ]; then
+      multi_ok="true"
+    fi
+
+    # Belt-and-suspenders: even if hydrate_one_group returned 0, matrix must
+    # have complete generated.tf for every selected group before sync/PR.
+    if [ "$validation_ok" = "true" ]; then
+      if ! assert_sample_groups_hydrated "$work_root" "${work_root}/groups"; then
+        validation_ok="false"
+        multi_ok="false"
+        fail_count=$((fail_count + 1))
+      fi
     fi
   fi
 
   local generated_count
-  generated_count="$(find "${work_root}/groups" -mindepth 2 -maxdepth 2 -name generated.tf 2>/dev/null | wc -l | tr -d ' ')"
+  generated_count="$(find "${work_root}/groups" -mindepth 2 -maxdepth 2 -name generated.tf -size +0 2>/dev/null | wc -l | tr -d ' ')"
 
-  mirror_note "$work_root" "terraform_validation_ok" "$validation_ok"
-  mirror_note "$work_root" "multi_plan_zero_diff_ok" "$multi_ok"
+  write_hydrate_checkpoint "$work_root" "" "$ok_count" "$fail_count" "$skipped_ok" "$processed_this_visit" "$remaining" "$total"
   mirror_note "$work_root" "hydrated_generated_tf_count" "$generated_count"
-  mirror_note "$work_root" "stage_summary:shell-converge-matrix" "valid_groups=${ok_count} invalid_groups=${fail_count} soft_hydrated_groups=${soft_count} missing_generated_tf=${missing_count} zero_change_groups=${zero_count} generated_tf_count=${generated_count}"
+  mirror_note "$work_root" "hydrate_groups_resumed" "$skipped_ok"
+  mirror_note "$work_root" "hydrate_groups_processed_this_visit" "$processed_this_visit"
+  mirror_note "$work_root" "hydrate_groups_remaining" "$remaining"
+  mirror_note "$work_root" "stage_summary:shell-converge-matrix" "valid_groups=${ok_count} invalid_groups=${fail_count} soft_hydrated_groups=${soft_count} missing_generated_tf=${missing_count} zero_change_groups=${zero_count} generated_tf_count=${generated_count} resumed=${skipped_ok} processed=${processed_this_visit} remaining=${remaining}"
+
   echo "terraform_valid_groups=${ok_count}"
   echo "terraform_invalid_groups=${fail_count}"
   echo "terraform_soft_hydrated_groups=${soft_count}"
@@ -4283,12 +4379,37 @@ cmd_hydrate_and_plan_matrix() {
   echo "terraform_zero_change_groups=${zero_count}"
   echo "hydrated_generated_tf_count=${generated_count}"
   echo "hydrate_group_selected=${total}"
-  echo "terraform_validation_ok: \"${validation_ok}\""
-  echo "multi_plan_zero_diff_ok: \"${multi_ok}\""
+  echo "hydrate_groups_resumed=${skipped_ok}"
+  echo "hydrate_groups_processed_this_visit=${processed_this_visit}"
+  echo "hydrate_groups_remaining=${remaining}"
+  echo "hydrate_max_groups_per_visit=${max_per_visit}"
+
+  if [ "$batch_incomplete" = "true" ]; then
+    # Intentionally omit terraform_validation_ok so shell-converge-loop GO_BACKs
+    # and the next visit resumes. Emitting false would FINISH and stop autoheal.
+    # Clear any stale conclusive sentinel from a prior visit's notes.
+    mirror_note "$work_root" "terraform_validation_ok" "" || true
+    mirror_note "$work_root" "converge_retryable" "true"
+    mirror_note "$work_root" "converge_batch_incomplete" "true"
+    mirror_note "$work_root" "multi_plan_zero_diff_ok" "false"
+    echo 'converge_retryable: "true"'
+    echo 'converge_batch_incomplete: "true"'
+    echo 'multi_plan_zero_diff_ok: "false"'
+    echo "hydrate_incomplete_reason=visit_batch_cap remaining=${remaining}"
+  else
+    mirror_note "$work_root" "converge_retryable" "false"
+    mirror_note "$work_root" "converge_batch_incomplete" "false"
+    mirror_note "$work_root" "terraform_validation_ok" "$validation_ok"
+    mirror_note "$work_root" "multi_plan_zero_diff_ok" "$multi_ok"
+    echo 'converge_retryable: "false"'
+    echo 'converge_batch_incomplete: "false"'
+    echo "terraform_validation_ok: \"${validation_ok}\""
+    echo "multi_plan_zero_diff_ok: \"${multi_ok}\""
+  fi
 
   # Aggregate surgical targets across the sample so the agent has one punch list
   # instead of re-running the same pack with no diagnosis.
-  if [ "$validation_ok" != "true" ]; then
+  if [ "$validation_ok" != "true" ] || [ "$batch_incomplete" = "true" ]; then
     local agg="${work_root}/aws/artifacts/hcl_fix_report.json"
     mkdir -p "${work_root}/aws/artifacts" 2>/dev/null || mkdir -p "${work_root}/artifacts" 2>/dev/null || true
     python3 - "$work_root" "$sample_path" "$agg" <<'PY' || true
