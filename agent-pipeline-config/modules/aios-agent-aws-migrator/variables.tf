@@ -373,8 +373,10 @@ variable "workflow_skill_refs" {
     Legacy keys (ingest-monolith, discover-db-anchors, hcl-hydrate-per-group,
     multi-shard-plan-convergence) are merged via try() fallbacks
     on the new stage ids — map extra skills to the v2 stage ids above.
-    Note: `shell-converge-matrix` is retried by `shell-converge-loop` until validation passes,
-    while `orphans-secondary-pipeline` handles non-hydratable addresses before final fan-in.
+    Note: `shell-converge-matrix` may GO_BACK via `shell-converge-loop` when the
+    validation sentinel is missing/truncated; a conclusive quoted true|false exits
+    so Guild's stage visit cap cannot abort the run (session e210eccd).
+    `orphans-secondary-pipeline` handles non-hydratable addresses before final fan-in.
     Blocked gates (`*-blocked-gate`) are `conditional_skip` only — skill_refs on those ids are unused.
     **Avoid duplicating runbooks:** each stage already has `runbook_refs` + `skill_refs` from this module.
     Adding the same `*-sop` name here forces Guild to prepend `[Skills] load_skill` for content already
@@ -395,9 +397,9 @@ variable "secondary_workflow_skill_refs" {
 }
 
 variable "max_convergence_iterations" {
-  description = "Cap for outer count/plan convergence loop stages. Inner tfstate split candidate tuning is controlled by tfstate_decomposer_max_tuning_iterations / DBSPLIT_MAX_TUNING_ITERATIONS."
+  description = "Cap for outer count/plan convergence loop stages. Keep at or below Guild's stage visit cap (5) so GO_BACK cannot abort the workflow (session e210eccd). Inner tfstate split candidate tuning is controlled by tfstate_decomposer_max_tuning_iterations / DBSPLIT_MAX_TUNING_ITERATIONS."
   type        = number
-  default     = 8
+  default     = 4
 
   validation {
     condition     = var.max_convergence_iterations >= 1 && var.max_convergence_iterations <= 20

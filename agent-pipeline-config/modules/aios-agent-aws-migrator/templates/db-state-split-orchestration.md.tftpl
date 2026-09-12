@@ -105,8 +105,11 @@ Use them to suggest improvements, but do not stop Terraform generation because
 they are missing or below a score threshold. Stop only when resources are
 missing, duplicated, or do not have generated group state files.
 
-Large states may validate against a sampled subset of groups for wall-time; when
-sampling is used, mark the final evidence as partial.
+Large states hydrate **every** group by default so each folder gets a
+`generated.tf`. Set `DBSPLIT_HYDRATE_SAMPLE_SIZE` only as an emergency
+wall-time / disk cap; when sampling is forced, mark final evidence as partial.
+Fmt/validate failures are readiness signals (`terraform_validation_ok=false`,
+report **needs work**) — they must not abort discovery or skip pushing HCL.
 
 ## Reverse-IaC scaffold
 

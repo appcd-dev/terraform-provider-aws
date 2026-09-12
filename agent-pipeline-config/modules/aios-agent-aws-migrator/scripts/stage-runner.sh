@@ -4,7 +4,7 @@
 # Usage: DBSPLIT_EMBEDDED=1 bash -s <command> [args...] << 'DBSPLIT_STAGE_RUNNER' ... DBSPLIT_STAGE_RUNNER
 set -euo pipefail
 
-SCRIPT_PACK_VERSION="20260911.17"
+SCRIPT_PACK_VERSION="20260911.18"
 DBSPLIT_DEFAULT_STRATEGY="${DBSPLIT_DEFAULT_STRATEGY:-tfstate_monolith_decomposer}"
 DBSPLIT_DEFAULT_CAP="${DBSPLIT_DEFAULT_CAP:-0}"
 REQUIRED_ALLOCATE_MARKER="def merge_small_by_seed"
@@ -3315,15 +3315,19 @@ sample_group_ids_json() {
   local manifest_path="${work_root}/logical_group_manifest.json"
   local group_count sample_size
   group_count="$(jq 'length' "$manifest_path")"
-  if [ "$group_count" -gt 40 ]; then
-    sample_size=20
+  # Full coverage by default. Cap only when DBSPLIT_HYDRATE_SAMPLE_SIZE is set.
+  if [ -n "${DBSPLIT_HYDRATE_SAMPLE_SIZE:-}" ] && [ "${DBSPLIT_HYDRATE_SAMPLE_SIZE}" -gt 0 ] 2>/dev/null; then
+    sample_size="$DBSPLIT_HYDRATE_SAMPLE_SIZE"
+    if [ "$sample_size" -gt "$group_count" ]; then
+      sample_size="$group_count"
+    fi
     mirror_note "$work_root" "large_state_sample_mode" "true"
-    mirror_note "$work_root" "large_state_sample_size" "$sample_size"
   else
     sample_size="$group_count"
     mirror_note "$work_root" "large_state_sample_mode" "false"
-    mirror_note "$work_root" "large_state_sample_size" "$sample_size"
   fi
+  mirror_note "$work_root" "large_state_sample_size" "$sample_size"
+  mirror_note "$work_root" "hydrate_group_total" "$group_count"
   jq -c --argjson n "$sample_size" 'keys | sort | .[0:$n]' "$manifest_path"
 }
 
@@ -3343,20 +3347,21 @@ cmd_prepare_parallel_artifacts() {
 
   local group_count sample_size
   group_count="$(jq 'length' "${work_root}/logical_group_manifest.json")"
-  if [ "$group_count" -gt 40 ]; then
-    sample_size=20
+  sample_size="$(jq 'length' "${work_root}/sample_group_ids.json")"
+  if [ "$sample_size" -lt "$group_count" ]; then
     mirror_note "$work_root" "large_state_sample_mode" "true"
-    mirror_note "$work_root" "large_state_sample_size" "$sample_size"
   else
-    sample_size="$group_count"
     mirror_note "$work_root" "large_state_sample_mode" "false"
-    mirror_note "$work_root" "large_state_sample_size" "$sample_size"
   fi
+  mirror_note "$work_root" "large_state_sample_size" "$sample_size"
+  mirror_note "$work_root" "hydrate_group_total" "$group_count"
 
   echo "sample_group_ids_path=${work_root}/sample_group_ids.json"
   echo "batch_payloads_path=${work_root}/batch_payloads.json"
   echo "identifier_map_path=${work_root}/identifier_map.json"
   echo "large_state_sample_group_ids=${sample_ids}"
+  echo "hydrate_group_total=${group_count}"
+  echo "hydrate_group_selected=${sample_size}"
 }
 
 fix_generated_tf_name_conflicts() {
@@ -4149,6 +4154,12 @@ hydrate_one_group() {
   fi
   status_json="{\"generated_tf_path\":\"${gen_tf}\",\"plan_no_changes\":false,\"plan_exit_code\":${plan_rc:-1},\"import_generated_parity\":${parity_ok:-false},\"remaining_actions\":${remaining_json},\"validation\":{\"fmt\":\"${fmt_status:-false}\",\"validate\":\"${validate_status:-false}\",\"test\":\"${test_status:-unknown}\",\"lint\":\"${lint_status:-unknown}\"},\"attempt\":$((max_attempts))}"
   mirror_note "$work_root" "hcl_hydration_status:${group_id}" "$status_json"
+  # Soft coverage: keep generated.tf even when fmt/validate still fail. Matrix
+  # records terraform_validation_ok=false; sync still pushes the HCL.
+  if [ -f "$gen_tf" ]; then
+    echo "group_hydrated_soft=${group_id} remaining=${remaining_json} attempt=${max_attempts}"
+    return 0
+  fi
   echo "group_fail=${group_id} remaining=${remaining_json} attempt=${max_attempts}"
   return 1
 }
@@ -4171,21 +4182,34 @@ cmd_hydrate_and_plan_matrix() {
     cmd_prepare_parallel_artifacts "$work_root" || return 1
   fi
 
-  local ok_count fail_count zero_count total
+  local ok_count fail_count zero_count total missing_count soft_count
   ok_count=0
   fail_count=0
   zero_count=0
   total=0
+  missing_count=0
+  soft_count=0
 
   while IFS= read -r group_id; do
     [ -n "$group_id" ] || continue
     total=$((total + 1))
     if hydrate_one_group "$work_root" "$group_id" "$tofu_bin"; then
-      ok_count=$((ok_count + 1))
-      if [ "$(read_note "$work_root" "hcl_hydration_status:${group_id}" 2>/dev/null | jq -r '.plan_no_changes // false' 2>/dev/null || echo false)" = "true" ]; then
-        zero_count=$((zero_count + 1))
+      local status_blob validate_flag fmt_flag plan_zero
+      status_blob="$(read_note "$work_root" "hcl_hydration_status:${group_id}" 2>/dev/null || true)"
+      validate_flag="$(printf '%s' "$status_blob" | jq -r '.validation.validate // "false"' 2>/dev/null || echo false)"
+      fmt_flag="$(printf '%s' "$status_blob" | jq -r '.validation.fmt // "false"' 2>/dev/null || echo false)"
+      plan_zero="$(printf '%s' "$status_blob" | jq -r '.plan_no_changes // false' 2>/dev/null || echo false)"
+      if [ "$validate_flag" = "true" ] && [ "$fmt_flag" = "true" ]; then
+        ok_count=$((ok_count + 1))
+        if [ "$plan_zero" = "true" ]; then
+          zero_count=$((zero_count + 1))
+        fi
+      else
+        soft_count=$((soft_count + 1))
+        fail_count=$((fail_count + 1))
       fi
     else
+      missing_count=$((missing_count + 1))
       fail_count=$((fail_count + 1))
     fi
     # Each initialized group holds its own copy of the provider binaries, which
@@ -4203,8 +4227,8 @@ cmd_hydrate_and_plan_matrix() {
     multi_ok="true"
   fi
 
-  # Belt-and-suspenders: even if hydrate_one_group returned 0, refuse must
-  # have complete generated.tf for every sample group before sync/PR.
+  # Belt-and-suspenders: even if hydrate_one_group returned 0, matrix must
+  # have complete generated.tf for every selected group before sync/PR.
   if [ "$validation_ok" = "true" ]; then
     if ! assert_sample_groups_hydrated "$work_root" "${work_root}/groups"; then
       validation_ok="false"
@@ -4213,12 +4237,20 @@ cmd_hydrate_and_plan_matrix() {
     fi
   fi
 
+  local generated_count
+  generated_count="$(find "${work_root}/groups" -mindepth 2 -maxdepth 2 -name generated.tf 2>/dev/null | wc -l | tr -d ' ')"
+
   mirror_note "$work_root" "terraform_validation_ok" "$validation_ok"
   mirror_note "$work_root" "multi_plan_zero_diff_ok" "$multi_ok"
-  mirror_note "$work_root" "stage_summary:shell-converge-matrix" "valid_groups=${ok_count} invalid_groups=${fail_count} zero_change_groups=${zero_count}"
+  mirror_note "$work_root" "hydrated_generated_tf_count" "$generated_count"
+  mirror_note "$work_root" "stage_summary:shell-converge-matrix" "valid_groups=${ok_count} invalid_groups=${fail_count} soft_hydrated_groups=${soft_count} missing_generated_tf=${missing_count} zero_change_groups=${zero_count} generated_tf_count=${generated_count}"
   echo "terraform_valid_groups=${ok_count}"
   echo "terraform_invalid_groups=${fail_count}"
+  echo "terraform_soft_hydrated_groups=${soft_count}"
+  echo "terraform_missing_generated_tf=${missing_count}"
   echo "terraform_zero_change_groups=${zero_count}"
+  echo "hydrated_generated_tf_count=${generated_count}"
+  echo "hydrate_group_selected=${total}"
   echo "terraform_validation_ok: \"${validation_ok}\""
   echo "multi_plan_zero_diff_ok: \"${multi_ok}\""
 

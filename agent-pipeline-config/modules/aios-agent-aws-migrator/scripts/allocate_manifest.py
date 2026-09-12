@@ -235,12 +235,17 @@ def build_batch_payloads(
     return payloads
 
 
-def sample_group_ids_from_manifest(manifest: dict, sample_size: int) -> List[str]:
-    """Pick the first N group ids in stable sort order (mirrors stage-runner.sh)."""
+def sample_group_ids_from_manifest(
+    manifest: dict, sample_size: Optional[int] = None
+) -> List[str]:
+    """Return group ids to hydrate. Default is every group (full generated.tf coverage).
+
+    Optional sample_size caps the list for emergency wall-time / disk pressure only.
+    """
     keys = sorted(manifest.keys())
-    if len(keys) > 40:
-        return keys[:sample_size]
-    return keys
+    if sample_size is None or sample_size <= 0 or sample_size >= len(keys):
+        return keys
+    return keys[:sample_size]
 
 
 def cmd_prepare_parallel_artifacts(work_root: str) -> int:
@@ -254,8 +259,13 @@ def cmd_prepare_parallel_artifacts(work_root: str) -> int:
         manifest = json.load(fh)
 
     group_count = len(manifest)
-    sample_size = 20 if group_count > 40 else group_count
+    # Full coverage by default. Cap only when DBSPLIT_HYDRATE_SAMPLE_SIZE is set.
+    raw_cap = (os.environ.get("DBSPLIT_HYDRATE_SAMPLE_SIZE") or "").strip()
+    sample_size: int | None = None
+    if raw_cap.isdigit() and int(raw_cap) > 0:
+        sample_size = int(raw_cap)
     sample_ids = sample_group_ids_from_manifest(manifest, sample_size)
+    sampled = len(sample_ids) < group_count
 
     id_map = load_identifier_map(work_root)
     idmap_path = os.path.join(work_root, "identifier_map.json")
@@ -275,8 +285,10 @@ def cmd_prepare_parallel_artifacts(work_root: str) -> int:
     print(f"batch_payloads_path={payloads_path}")
     print(f"identifier_map_path={idmap_path}")
     print(f"large_state_sample_group_ids={json.dumps(sample_ids)}")
-    print(f"large_state_sample_mode={'true' if group_count > 40 else 'false'}")
-    print(f"large_state_sample_size={sample_size}")
+    print(f"large_state_sample_mode={'true' if sampled else 'false'}")
+    print(f"large_state_sample_size={len(sample_ids)}")
+    print(f"hydrate_group_total={group_count}")
+    print(f"hydrate_group_selected={len(sample_ids)}")
     return 0
 
 

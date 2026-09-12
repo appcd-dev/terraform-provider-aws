@@ -220,9 +220,12 @@ def main() -> None:
     converge_loop = _binding(workflow, "shell-converge-loop")
     assert "terraform_validation_ok" in converge_loop
     assert "zero-diff" not in converge_loop.lower()
-    assert "stage_summary:shell-converge-matrix=blocked:" not in _string_assign(
-        converge_loop, "exit_match"
-    )
+    converge_exit = _string_assign(converge_loop, "exit_match")
+    assert "stage_summary:shell-converge-matrix=blocked:" not in converge_exit
+    # Conclusive false must FINISH (session e210eccd visit-cap abort).
+    # Raw TF source keeps Terraform escapes (\\s, \\\").
+    assert r'terraform_validation_ok:\\s*\\\"false\\\"' in converge_exit
+    assert r'terraform_validation_ok:\\s*\\\"true\\\"' in converge_exit
     stages_converge = workflow.split('stage_id    = "shell-converge-loop"', 1)[1].split(
         "},", 1
     )[0]
@@ -231,7 +234,6 @@ def main() -> None:
 
     converge_gate = _binding(workflow, "converge-blocked-gate")
     converge_match = _string_assign(converge_gate, "match")
-    converge_exit = _string_assign(converge_loop, "exit_match")
     _assert_gate_not_in_finish(converge_match, converge_exit, "converge")
     assert "blocked:remote_runner_tofu_missing:" in converge_match
     assert re.search(r"blocked:remote_runner_tofu_missing:\\s*", converge_match)
@@ -247,6 +249,11 @@ def main() -> None:
     assert re.search(
         converge_re, 'blocked:remote_runner_tofu_missing: "true"\n'
     )
+    # Quoted false FINISH must not trip the blocked gate.
+    false_finish = (
+        'output matches regex "terraform_validation_ok:\\s*\\"false\\"" — loop complete'
+    )
+    assert not re.search(converge_re, false_finish), false_finish
 
     print("OK: discovery prompts are short, consistent, and pack-backed")
 

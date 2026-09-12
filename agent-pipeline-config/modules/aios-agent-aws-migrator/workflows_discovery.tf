@@ -57,7 +57,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
   evidence_checklist_ref = sg_evidence_checklist.aws_migrator_discovery_evidence.name
 
   example_queries = [
-    "Scan AWS us-east-1 with cloud2code, split the generated tfstate into app projects, reverse HCL, and prove each sampled group has a successful terraform plan",
+    "Scan AWS us-east-1 with cloud2code, split the generated tfstate into app projects, reverse HCL for every group, and treat fmt/validate as soft readiness (needs work), not a workflow abort",
     "Run cloud2code for us-west-2 (IAM excluded by default), then decompose by tag-seeded connectivity and open a PR with grouped Terraform roots",
     "Scan AWS us-east-1 resources tagged Environment:Production, split the synthesized state into smaller project states, and verify zero-diff plans",
     "Full-region AWS inventory: grouping_strategy=tfstate_monolith_decomposer, max_resources_per_appstack=120, tfstate_decomposer_env_scope=l2l3",
@@ -136,8 +136,8 @@ resource "sg_workflow" "aws_migrator_discovery" {
       },
       {
         stage_id    = "shell-converge-loop"
-        description = "Retry hydrate/fix until validation passes, max iterations, or a terminal runner blocker"
-        note        = "loop_stage only — no LLM. Exit on terraform_validation_ok=true or a terminal runner blocker. Do not exit on sync alone."
+        description = "Retry only when the validation sentinel is missing/truncated; exit on quoted true|false"
+        note        = "loop_stage only — no LLM. Exit on terraform_validation_ok quoted true|false or a terminal runner blocker. Do not exit on sync alone."
         required    = false
       },
       {
@@ -305,11 +305,11 @@ resource "sg_workflow" "aws_migrator_discovery" {
       )
       note = <<-EOT
         Goal: hydrate generated Terraform HCL for sampled groups, push it to the discovery PR, and keep fixing until fmt/validate passes when possible. A zero-change plan is nice but optional.
-        Done when: the runner printed `terraform_validation_ok: "true"`, or you echoed `hydrated_iac_sync_status=ok` plus concrete `hcl_fix_target` lines so the loop can GO_BACK for another fix pass. Validation false is not a stage failure and must not skip the PR sync or stop orphan/final stages.
+        Done when: the runner printed `terraform_validation_ok: "true"` or `terraform_validation_ok: "false"` (plus sync status). Validation false is not a stage failure and must not skip the PR sync or stop orphan/final stages.
         How: ONE `${local.shell_tool_prefix}_execute_series` pasting the **exact** BEGIN/END `CONVERGE_EXECUTE_SERIES` one-liner (starts with `GIT_TOKEN=` / `WORKFLOW_RUN_ID=` and runs `converge-bootstrap.sh` on the pack). create_agent is fine for HCL fixes.
         **FORBIDDEN:** `command="CONVERGE_EXECUTE_SERIES"` or `exec …/CONVERGE_EXECUTE_SERIES` (exit 127). Never use the marker label as the command.
-        If `hcl_fix_target_count>0` (or the report lists targets): before another pack-only converge, open `hcl_fix_report_path` / those `generated.tf` blocks and apply surgical edits (or a small runner script). A bare pack re-run with no edits is not progress.
-        If validation is false with no targets yet: sync the PR, then on the next pass read targets and edit. Do **not** write `terraform_validation_ok=true` in a "not produced" sentence.
+        If `hcl_fix_target_count>0` (or the report lists targets): **in this same visit**, open `hcl_fix_report_path` / those `generated.tf` blocks and apply surgical edits, then re-run the pack command. A bare pack re-run with no edits is not progress. Do not rely on shell-converge-loop GO_BACK for edits (session e210eccd hit Guild's stage visit cap).
+        If the runner sentinel is truncated/missing: echo what you have and let the loop retry once. Do **not** write `terraform_validation_ok=true` in a "not produced" sentence.
         Prefer the pack command over inventing shell. Echo the runner success or blocker lines in your result; do not paraphrase them away.
 
         ${local.dbsplit_spawn_context_converge}
@@ -326,11 +326,14 @@ resource "sg_workflow" "aws_migrator_discovery" {
         loop_to        = "shell-converge-matrix"
         max_iterations = var.max_convergence_iterations
         exit_condition = "output_matches_regex"
-        # Quoted validation only — "No terraform_validation_ok=true" prose must not FINISH
-        # (session 9a0fa0fc). Sync-ok alone must not FINISH (session 1c6b91d6).
-        exit_match = "terraform_validation_ok:\\s*\\\"true\\\"|blocked:remote_runner_tofu_missing|blocked:remote_runner_shell_unavailable"
+        # Quoted true OR false (session e210eccd / bfde676a): false-only GO_BACK burned
+        # Guild's stage visit cap (5) while max_iterations defaulted above that cap.
+        # Same pattern as azure/gcp validate loops. Sync-ok alone must not FINISH
+        # (session 1c6b91d6). Prose "No terraform_validation_ok=true" must not FINISH
+        # (session 9a0fa0fc) — require the quoted sentinel.
+        exit_match = "terraform_validation_ok:\\s*\\\"true\\\"|terraform_validation_ok:\\s*\\\"false\\\"|blocked:remote_runner_tofu_missing|blocked:remote_runner_shell_unavailable"
       }
-      note = "loop_stage only — no LLM. Exit on terraform_validation_ok: \"true\" or a terminal runner blocker. Sync success alone keeps GO_BACK so fix passes continue."
+      note = "loop_stage only — no LLM. Exit on quoted terraform_validation_ok true|false or a terminal runner blocker. Missing/truncated sentinel may GO_BACK; do not loop forever on conclusive false."
     },
     {
       stage_id         = "converge-blocked-gate"
