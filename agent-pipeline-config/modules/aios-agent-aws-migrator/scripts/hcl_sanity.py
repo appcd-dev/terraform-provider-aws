@@ -167,6 +167,8 @@ def _should_skip_attr(key: str, value: Any) -> bool:
         "key_pair_id",
         "launch_template_id",
         "target_group_arn",
+        "parent_id",
+        "rest_api_id",
     }:
         # Many *_id fields are computed; keep common relational ones.
         if key in {"account_id", "user_id", "caller_id"}:
@@ -179,29 +181,20 @@ def _should_skip_attr(key: str, value: Any) -> bool:
     return False
 
 
-def _render_route_blocks(routes: Any, indent: int = 2) -> str:
-    """Render state route list as nested route { } blocks for aws_route_table."""
-    if not isinstance(routes, list):
+def _render_nested_object_blocks(
+    items: Any,
+    block_name: str,
+    *,
+    indent: int = 2,
+    skip_empty_keys: frozenset[str] | None = None,
+) -> str:
+    """Render a state list-of-objects as repeated nested blocks (not attr = [ {...} ])."""
+    if not isinstance(items, list):
         return ""
     pad = " " * indent
-    skip_empty = {
-        "carrier_gateway_id",
-        "core_network_arn",
-        "destination_prefix_list_id",
-        "egress_only_gateway_id",
-        "gateway_id",
-        "ipv6_cidr_block",
-        "local_gateway_id",
-        "nat_gateway_id",
-        "network_interface_id",
-        "odb_network_arn",
-        "outpost_arn",
-        "transit_gateway_id",
-        "vpc_endpoint_id",
-        "vpc_peering_connection_id",
-    }
+    skip_empty_keys = skip_empty_keys or frozenset()
     chunks: list[str] = []
-    for item in routes:
+    for item in items:
         if not isinstance(item, dict):
             continue
         body: list[str] = []
@@ -209,15 +202,49 @@ def _render_route_blocks(routes: Any, indent: int = 2) -> str:
             value = item[key]
             if value is None or value == "" or value == [] or value == {}:
                 continue
-            if key in skip_empty and value in ("", None):
+            if key in skip_empty_keys and value in ("", None):
                 continue
+            # Nested block attrs use bare identifiers, not JSON-quoted keys.
             body.append(f"{pad}  {key} = {_render_value(value, indent + 2)}")
         if not body:
             continue
-        chunks.append(f"{pad}route {{")
+        chunks.append(f"{pad}{block_name} {{")
         chunks.extend(body)
         chunks.append(f"{pad}}}")
     return "\n".join(chunks)
+
+
+def _render_route_blocks(routes: Any, indent: int = 2) -> str:
+    """Render state route list as nested route { } blocks for aws_route_table."""
+    skip_empty = frozenset(
+        {
+            "carrier_gateway_id",
+            "core_network_arn",
+            "destination_prefix_list_id",
+            "egress_only_gateway_id",
+            "gateway_id",
+            "ipv6_cidr_block",
+            "local_gateway_id",
+            "nat_gateway_id",
+            "network_interface_id",
+            "odb_network_arn",
+            "outpost_arn",
+            "transit_gateway_id",
+            "vpc_endpoint_id",
+            "vpc_peering_connection_id",
+        }
+    )
+    return _render_nested_object_blocks(
+        routes, "route", indent=indent, skip_empty_keys=skip_empty
+    )
+
+
+# Resource attrs stored as list-of-objects in state that must emit as nested blocks.
+_NESTED_BLOCK_LIST_ATTRS: dict[str, tuple[str, ...]] = {
+    "aws_autoscaling_group": ("tag",),
+    "aws_ecs_task_definition": ("runtime_platform",),
+    "aws_ecs_service": ("runtime_platform",),
+}
 
 
 def _attrs_for_resource(attrs: dict[str, Any], *, resource_type: str = "") -> dict[str, Any]:
@@ -234,14 +261,43 @@ def _attrs_for_resource(attrs: dict[str, Any], *, resource_type: str = "") -> di
         out.pop("path", None)
         if "path_part" in attrs:
             out["path_part"] = attrs["path_part"] if attrs["path_part"] is not None else ""
-        if attrs.get("parent_id"):
+        # Prefer truthy parent_id; empty/null means AWS root — skip in emit_from_state.
+        if "parent_id" in attrs and attrs["parent_id"] not in (None, ""):
             out["parent_id"] = attrs["parent_id"]
-        if attrs.get("rest_api_id"):
+        elif "parent_id" in out and out["parent_id"] in (None, ""):
+            out.pop("parent_id", None)
+        if "rest_api_id" in attrs and attrs["rest_api_id"] not in (None, ""):
             out["rest_api_id"] = attrs["rest_api_id"]
     if resource_type == "aws_route_table":
         # Handled as nested blocks in emit_from_state.
         out.pop("route", None)
+    for block_attr in _NESTED_BLOCK_LIST_ATTRS.get(resource_type, ()):
+        out.pop(block_attr, None)
     return out
+
+
+def _is_api_gateway_root_without_parent(attrs: dict[str, Any]) -> bool:
+    path_part = attrs.get("path_part")
+    parent_id = attrs.get("parent_id")
+    if path_part not in ("", "/", None):
+        return False
+    return parent_id in (None, "")
+
+
+def _strip_import_address(imports_tf: Path, address: str) -> None:
+    """Remove import blocks targeting address so skipped roots do not fail parity."""
+    if not imports_tf.is_file():
+        return
+    text = imports_tf.read_text(encoding="utf-8", errors="replace")
+    # import {\n  to = TYPE.NAME\n  id = "..."\n}
+    pattern = re.compile(
+        rf"import\s*\{{[^{{}}]*?\bto\s*=\s*{re.escape(address)}\s*\n[^{{}}]*?\}}",
+        re.M,
+    )
+    new_text, n = pattern.subn("", text)
+    if n:
+        imports_tf.write_text(new_text, encoding="utf-8")
+        print(f"emit_strip_import address={address} removed={n}")
 
 
 def _load_state_resources(state_path: Path) -> dict[str, dict[str, Any]]:
@@ -289,12 +345,23 @@ def emit_from_state(group_dir: Path, *, only_missing: bool = True) -> int:
 
     blocks: list[str] = []
     missing_state: list[str] = []
+    skipped_root: list[str] = []
     for addr in targets:
         attrs = state_map.get(addr)
         if attrs is None:
             missing_state.append(addr)
             continue
         typ, _, name = addr.partition(".")
+        if typ == "aws_api_gateway_resource" and _is_api_gateway_root_without_parent(attrs):
+            # Root REST API resources have empty parent_id in AWS; provider still
+            # requires parent_id. Skip emit + strip import (children keep string ids).
+            skipped_root.append(addr)
+            _strip_import_address(imports_tf, addr)
+            print(
+                f"emit_skip=api_gateway_root_without_parent_id address={addr} "
+                f"group={group_dir.name}"
+            )
+            continue
         cleaned = _attrs_for_resource(attrs, resource_type=typ)
         lines = [
             f'resource "{typ}" "{name}" {{',
@@ -302,19 +369,24 @@ def emit_from_state(group_dir: Path, *, only_missing: bool = True) -> int:
         ]
         for key in sorted(cleaned):
             rendered = _render_value(cleaned[key], 2)
-            if "\n" in rendered:
-                lines.append(f"  {key} = {rendered}")
-            else:
-                lines.append(f"  {key} = {rendered}")
+            lines.append(f"  {key} = {rendered}")
         if typ == "aws_route_table" and isinstance(attrs.get("route"), list):
             route_hcl = _render_route_blocks(attrs.get("route"), 2)
             if route_hcl:
                 lines.append(route_hcl)
+        for block_attr in _NESTED_BLOCK_LIST_ATTRS.get(typ, ()):
+            raw = attrs.get(block_attr)
+            # State sometimes stores a single object instead of a one-element list.
+            if isinstance(raw, dict):
+                raw = [raw]
+            nested = _render_nested_object_blocks(raw, block_attr, indent=2)
+            if nested:
+                lines.append(nested)
         lines.append("}")
         lines.append("")
         blocks.append("\n".join(lines))
 
-    if missing_state and not blocks:
+    if missing_state and not blocks and not skipped_root:
         print(
             f"emit_fail=no_state_attrs group={group_dir.name} missing={len(missing_state)}",
             file=sys.stderr,
@@ -322,6 +394,13 @@ def emit_from_state(group_dir: Path, *, only_missing: bool = True) -> int:
         for addr in missing_state[:20]:
             print(f"  missing_state={addr}", file=sys.stderr)
         return 1
+
+    if not blocks:
+        print(
+            f"emit_ok=noop group={group_dir.name} have={len(have)} "
+            f"skipped_root={len(skipped_root)}"
+        )
+        return 0
 
     header = (
         "# GENERATED — review-candidate reverse IaC from group terraform.tfstate\n"
@@ -340,9 +419,34 @@ def emit_from_state(group_dir: Path, *, only_missing: bool = True) -> int:
 
     print(
         f"emit_ok group={group_dir.name} wrote={len(blocks)} "
-        f"missing_state={len(missing_state)} path={gen_tf}"
+        f"missing_state={len(missing_state)} skipped_root={len(skipped_root)} path={gen_tf}"
     )
     return 0
+
+
+def _rewrite_hint_for_target(*, suggestion: str, kind: str, excerpt: str, attr: str) -> str:
+    if suggestion == "repair_broken_resource_block":
+        if "runtime_platform" in excerpt or re.search(r"\{\s*\"?cpu_architecture", excerpt):
+            return (
+                "rewrite orphan object/list as runtime_platform { cpu_architecture=... "
+                "operating_system_family=... }; remove stray ]"
+            )
+        if re.search(r"tag\s*=\s*\[", excerpt) or (
+            "capacity_distribution" in excerpt and "{" in excerpt
+        ):
+            return (
+                "rewrite list-of-objects as nested blocks (e.g. tag { key=... value=... "
+                "propagate_at_launch=... }); remove orphan { ... }, and stray ]"
+            )
+        return (
+            "resource body has orphan { ... }, or ] from list-of-objects emit; "
+            "rewrite as nested blocks or drop the malformed list"
+        )
+    if suggestion == "add_required_attribute" and attr:
+        return f"add required argument {attr}=... using sibling/import context in the same file"
+    if suggestion == "rewrite_list_as_nested_blocks":
+        return "rewrite attr = [ { ... } ] as repeated nested blocks"
+    return ""
 
 
 def parse_tofu_errors(log_text: str, *, group_id: str = "", log_path: str = "") -> list[dict[str, Any]]:
@@ -406,11 +510,19 @@ def parse_tofu_errors(log_text: str, *, group_id: str = "", log_path: str = "") 
             suggestion = "rewrite_attribute_as_block_or_object"
         elif "argument or block definition required" in kind_l:
             suggestion = "repair_broken_resource_block"
+            # Error text is "An argument or block definition is required" — the
+            # word "definition" is not an attribute name (session e210eccd).
+            if attr in {"definition", "block", "argument"}:
+                attr = ""
         elif "unconfigurable attribute" in kind_l:
             suggestion = "drop_computed_attribute" if attr else "drop_computed_attributes"
         elif "resource has no configuration" in kind_l:
             suggestion = "emit_or_restore_resource_block"
 
+        excerpt = " ".join(chunk.split())[:280]
+        hint = _rewrite_hint_for_target(
+            suggestion=suggestion, kind=kind, excerpt=excerpt, attr=attr
+        )
         targets.append(
             {
                 "group_id": group_id,
@@ -419,7 +531,8 @@ def parse_tofu_errors(log_text: str, *, group_id: str = "", log_path: str = "") 
                 "error": kind,
                 "suggestion": suggestion,
                 "log_path": log_path,
-                "excerpt": " ".join(chunk.split())[:280],
+                "excerpt": excerpt,
+                "rewrite_hint": hint,
             }
         )
     return targets

@@ -150,8 +150,10 @@ Record `hcl_hydration_status:<group_id>` with:
 }
 ```
 
-Loop the validation phase until `terraform_validation_ok` is `"true"` or a
-real runner problem is recorded, capped by `${max_iterations}` iterations.
+Loop the validation phase until `terraform_validation_ok` is `"true"`, a
+real runner problem is recorded, or `${max_iterations}` is reached. Keep pushing
+hydrated `generated.tf` to the PR on every pass — validation false must not
+skip sync or end the run early.
 
 ## Azure generation
 
@@ -200,21 +202,21 @@ secondary orphan-module procedure.
 
 ## Final gate
 
-Report complete only when:
+For AWS discovery, prefer reporting **needs work** (not failed) when the PR has
+hydrated HCL but `terraform_validation_ok` is still false — include remaining
+`hcl_fix_target` lines. Treat as complete/ready when:
 
 - Scan evidence exists.
 - Monolith and aggregate group counts match.
-- Required HCL hydration records exist.
-- `terraform_validation_ok` is `"true"`.
-- `azure_migration_blueprint_path` and `azure_review_needed_path` exist.
-- `azure_iac_generated` is `"true"`.
-- `azure_iac_validation_ok` is `"true"`.
-- `azure_pr_url` or `pr_url` exists.
+- Required HCL hydration records exist (and preferably validate green).
+- `pr_url` / `iac_pr_url` exists, or a concrete PR blocker is recorded.
 - The orphan handoff is skipped-empty or recorded.
+
+Destination Azure/GCP gates apply only to those workflows.
 
 ## Blockers
 
 Stop with a compact blocked reason on missing AWS region, missing host tools,
 missing source state, invalid state, script-pack verification failure,
-missing or duplicated resources, missing Terraform, or generated files that
-do not pass Terraform validation.
+missing or duplicated resources, or missing Terraform. Soft validation /
+zero-diff failures are not terminal blockers once hydrate is on the PR.

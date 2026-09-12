@@ -164,7 +164,7 @@ locals {
   gcp_mapping_catalog_script   = file("${path.module}/scripts/gcp_mapping_catalog.py")
   gcp_mapping_catalog_json     = file("${path.module}/mappings/aws-to-gcp.json")
   ensure_cloud2code_script     = file("${path.module}/scripts/ensure_cloud2code.sh")
-  script_pack_version          = "20260911.13"
+  script_pack_version          = "20260911.17"
   script_pack_git_ref          = "main"
   # Baked into the runner image under /opt, not under HOME. The ACA Azure Files
   # share mounts over /home/runner, so a pack under HOME depends on the
@@ -198,7 +198,8 @@ locals {
   ingest_bootstrap_sha256 = sha256(local.ingest_bootstrap_script)
   # Single execute_command copied from spawn context. It invokes the raw
   # preloaded bootstrap; no script-pack bytes are transported through runner env.
-  ingest_bootstrap_execute_command = "WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 bash ${local.script_pack_preload_dir}/ingest-bootstrap.sh"
+  # Prefixed with fetch at definition site below (after runner_script_pack_fetch_bootstrap).
+  ingest_bootstrap_execute_command_core = "WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 bash ${local.script_pack_preload_dir}/ingest-bootstrap.sh"
 
   subagent_budget_defaults = {
     script_runner_max_llm_calls                = 40
@@ -334,15 +335,10 @@ locals {
     local.template_vars,
   )
 
-  iac_pr_execute_series_body = templatefile(
-    "${path.module}/templates/iac-pr-execute-series-embedded.sh.tftpl",
-    local.template_vars,
-  )
+  # Final bodies defined after runner_script_pack_fetch_bootstrap (self-heal pack on every stage).
+  iac_pr_execute_series_body_core = "WORKFLOW_RUN_ID='{{workflow_run_id}}' IAC_REPOSITORY_URL='${trimspace(var.default_iac_repository_url)}' DEFAULT_BRANCH='${var.default_branch}' DBSPLIT_EMBEDDED=1 bash ${local.script_pack_preload_dir}/iac-pr-bootstrap.sh"
 
-  converge_execute_series_body = templatefile(
-    "${path.module}/templates/converge-execute-series-embedded.sh.tftpl",
-    local.template_vars,
-  )
+  converge_execute_series_body_core = "WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 bash ${local.script_pack_preload_dir}/converge-bootstrap.sh"
 
   azure_source_fetch_execute_series_body = templatefile(
     "${path.module}/templates/azure-source-fetch-execute-series-embedded.sh.tftpl",
@@ -439,16 +435,23 @@ locals {
   runner_git_env_prefix                           = "GIT_TOKEN=\"$${GIT_TOKEN:-$${GITHUB_TOKEN:-$${GH_TOKEN:-$${token:-}}}}\"; export GIT_TOKEN; export GH_TOKEN=\"$${GH_TOKEN:-$${GIT_TOKEN}}\" GITHUB_TOKEN=\"$${GITHUB_TOKEN:-$${GIT_TOKEN}}\" GIT_TERMINAL_PROMPT=0"
   runner_git_credential_bootstrap                 = "mkdir -p \"$${HOME}/.aws-migrator/bin\"; echo IyEvYmluL3NoCmNhc2UgIiQxIiBpbgpnZXQpCiAgdG9rPSIke0dJVF9UT0tFTjotJHtHSVRIVUJfVE9LRU46LSR7R0hfVE9LRU46LSR7dG9rZW46LX19fX0iCiAgWyAtbiAiJHRvayIgXSB8fCBleGl0IDAKICBwcmludGYgInVzZXJuYW1lPXgtYWNjZXNzLXRva2VuXG5wYXNzd29yZD0lc1xuIiAiJHRvayIKICA7Owplc2FjCg== | base64 -d > \"$${HOME}/.aws-migrator/bin/git-credential-stackgen\"; chmod 0755 \"$${HOME}/.aws-migrator/bin/git-credential-stackgen\"; git config --global credential.helper \"$${HOME}/.aws-migrator/bin/git-credential-stackgen\""
   # Walmart ACA bakes packs into the image and disables vault sync. When /opt lags
-  # the module version, fetch the GitHub release tarball before preflight.
+  # the module version, fetch the GitHub release tarball before pack scripts run.
   # OpenTofu only escapes $${…} → ${…}; bare $$( stays literal $$( and breaks mktemp.
   # Use unescaped $(mktemp -d) here (not a TF interpolation).
-  runner_script_pack_fetch_bootstrap = "PRELOAD_DIR='${local.script_pack_preload_dir}'; PACK_VER='${local.script_pack_version}'; PACK_REPO='${trimspace(var.script_pack_release_repo)}'; PACK_URL='${local.script_pack_tarball_url}'; if [ ! -f \"$${PRELOAD_DIR}/runner-capability-preflight.sh\" ] || [ ! -f \"$${PRELOAD_DIR}/cloud2code-aws-scan.sh\" ]; then TOK=\"$${GIT_TOKEN:-$${GITHUB_TOKEN:-$${GH_TOKEN:-$${token:-}}}}\"; export GIT_TOKEN=\"$${TOK}\" GH_TOKEN=\"$${GH_TOKEN:-$${TOK}}\" GITHUB_TOKEN=\"$${GITHUB_TOKEN:-$${TOK}}\"; TMP=$(mktemp -d); if command -v gh >/dev/null 2>&1; then gh release download \"pack-$${PACK_VER}\" -R \"$${PACK_REPO}\" -p \"script-pack-$${PACK_VER}.tar.gz\" -D \"$${TMP}\"; else curl -fsSL -H \"Authorization: Bearer $${TOK}\" -H \"Accept: application/octet-stream\" \"$${PACK_URL}\" -o \"$${TMP}/script-pack-$${PACK_VER}.tar.gz\"; fi; mkdir -p \"$${PRELOAD_DIR}\"; tar -xzf \"$${TMP}/script-pack-$${PACK_VER}.tar.gz\" -C \"$${PRELOAD_DIR}\"; chmod +x \"$${PRELOAD_DIR}\"/*.sh 2>/dev/null || true; rm -rf \"$${TMP}\"; if [ ! -f \"$${PRELOAD_DIR}/runner-capability-preflight.sh\" ] || [ ! -f \"$${PRELOAD_DIR}/cloud2code-aws-scan.sh\" ]; then echo \"script_pack_error=fetch_incomplete path=$${PRELOAD_DIR} version=$${PACK_VER}\" >&2; ls -la \"$${PRELOAD_DIR}\" >&2 || true; exit 1; fi; echo \"script_pack_fetch=ok path=$${PRELOAD_DIR} version=$${PACK_VER}\"; fi"
-  runner_capability_preflight_execute_series_body = "${local.runner_git_env_prefix}; ${local.runner_git_credential_bootstrap}; ${local.runner_script_pack_fetch_bootstrap}; bash ${local.script_pack_preload_dir}/runner-capability-preflight.sh '{{workflow_run_id}}'"
-  # Scan one-liner: thin wrapper so mangled env-only pastes still work
-  # (session 32e2ad9f set workflow_run_id=/aws_region= and dropped argv;
-  # session 6dac05f9 invented `cloud2code aws discover`). Always ends in
-  # pack cloud2code-aws-scan.sh → `cloud2code import aws`.
-  cloud2code_scan_execute_series_body = "CLOUD2CODE_INCLUDE='' CLOUD2CODE_EXCLUDE='' CLOUD2CODE_TAGS='' bash -c 'WF=\"$${1:-$${WORKFLOW_RUN_ID:-$${workflow_run_id:-}}}\"; RG=\"$${2:-$${AWS_REGION:-$${aws_region:-$${AWS_DEFAULT_REGION:-}}}}\"; export WORKFLOW_RUN_ID=\"$${WF}\" AWS_REGION=\"$${RG}\" AWS_DEFAULT_REGION=\"$${RG}\" CLOUD2CODE_INCLUDE CLOUD2CODE_EXCLUDE CLOUD2CODE_TAGS; exec bash \"$${0}\" \"$${WF}\" \"$${RG}\"' ${local.script_pack_preload_dir}/cloud2code-aws-scan.sh '{{workflow_run_id}}' 'AWS_REGION_PLACEHOLDER'"
+  # Require bootstraps too so a partial extract fails closed (session b506b854).
+  runner_script_pack_fetch_bootstrap = "PRELOAD_DIR='${local.script_pack_preload_dir}'; PACK_VER='${local.script_pack_version}'; PACK_REPO='${trimspace(var.script_pack_release_repo)}'; PACK_URL='${local.script_pack_tarball_url}'; if [ ! -f \"$${PRELOAD_DIR}/runner-capability-preflight.sh\" ] || [ ! -f \"$${PRELOAD_DIR}/cloud2code-aws-scan.sh\" ] || [ ! -f \"$${PRELOAD_DIR}/ingest-bootstrap.sh\" ] || [ ! -f \"$${PRELOAD_DIR}/iac-pr-bootstrap.sh\" ] || [ ! -f \"$${PRELOAD_DIR}/converge-bootstrap.sh\" ]; then TOK=\"$${GIT_TOKEN:-$${GITHUB_TOKEN:-$${GH_TOKEN:-$${token:-}}}}\"; export GIT_TOKEN=\"$${TOK}\" GH_TOKEN=\"$${GH_TOKEN:-$${TOK}}\" GITHUB_TOKEN=\"$${GITHUB_TOKEN:-$${TOK}}\"; TMP=$(mktemp -d); if command -v gh >/dev/null 2>&1; then gh release download \"pack-$${PACK_VER}\" -R \"$${PACK_REPO}\" -p \"script-pack-$${PACK_VER}.tar.gz\" -D \"$${TMP}\"; else curl -fsSL -H \"Authorization: Bearer $${TOK}\" -H \"Accept: application/octet-stream\" \"$${PACK_URL}\" -o \"$${TMP}/script-pack-$${PACK_VER}.tar.gz\"; fi; mkdir -p \"$${PRELOAD_DIR}\"; tar -xzf \"$${TMP}/script-pack-$${PACK_VER}.tar.gz\" -C \"$${PRELOAD_DIR}\"; chmod +x \"$${PRELOAD_DIR}\"/*.sh 2>/dev/null || true; rm -rf \"$${TMP}\"; if [ ! -f \"$${PRELOAD_DIR}/runner-capability-preflight.sh\" ] || [ ! -f \"$${PRELOAD_DIR}/cloud2code-aws-scan.sh\" ] || [ ! -f \"$${PRELOAD_DIR}/ingest-bootstrap.sh\" ] || [ ! -f \"$${PRELOAD_DIR}/iac-pr-bootstrap.sh\" ] || [ ! -f \"$${PRELOAD_DIR}/converge-bootstrap.sh\" ]; then echo \"script_pack_error=fetch_incomplete path=$${PRELOAD_DIR} version=$${PACK_VER}\" >&2; ls -la \"$${PRELOAD_DIR}\" >&2 || true; exit 1; fi; echo \"script_pack_fetch=ok path=$${PRELOAD_DIR} version=$${PACK_VER}\"; fi"
+  # Short gh|bash entry (session 90082b12 invented script_pack_dir_missing instead of
+  # pasting multi-KB inline fetch; session d8faf9c8: browser download URL 404s on
+  # private repos — use gh release download / API asset URL instead).
+  script_pack_entry_url = "https://github.com/${trimspace(var.script_pack_release_repo)}/releases/download/pack-${local.script_pack_version}/pack-entry.sh"
+  runner_pack_entry_invoke = "${local.runner_git_env_prefix}; D=$(mktemp -d); gh release download 'pack-${local.script_pack_version}' -R '${trimspace(var.script_pack_release_repo)}' -p pack-entry.sh -D \"$${D}\" && bash \"$${D}/pack-entry.sh\""
+  # Self-heal pack fetch on every pack-path stage so a faked preflight (session
+  # b506b854: printf runner_capability_preflight_ok) cannot leave /opt empty.
+  runner_capability_preflight_execute_series_body = "${local.runner_pack_entry_invoke} preflight '{{workflow_run_id}}'"
+  ingest_bootstrap_execute_command                = "${local.runner_pack_entry_invoke} ingest '{{workflow_run_id}}'"
+  cloud2code_scan_execute_series_body             = "${local.runner_pack_entry_invoke} scan '{{workflow_run_id}}' 'AWS_REGION_PLACEHOLDER'"
+  iac_pr_execute_series_body                      = "${local.runner_pack_entry_invoke} iac-pr '{{workflow_run_id}}'"
+  converge_execute_series_body                    = "${local.runner_pack_entry_invoke} converge '{{workflow_run_id}}'"
 
   rendered_persona = templatefile("${path.module}/personas/aws-migrator-architect.md.tftpl", local.template_vars)
 

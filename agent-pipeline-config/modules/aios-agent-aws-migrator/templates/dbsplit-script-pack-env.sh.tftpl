@@ -11,7 +11,10 @@ dbsplit_fetch_script_pack_tarball() {
   if [ -f "$preload_dir/stage-runner.sh" ] \
     && [ -f "$preload_dir/allocate_manifest.py" ] \
     && [ -f "$preload_dir/runner-capability-preflight.sh" ] \
-    && [ -f "$preload_dir/cloud2code-aws-scan.sh" ]; then
+    && [ -f "$preload_dir/cloud2code-aws-scan.sh" ] \
+    && [ -f "$preload_dir/ingest-bootstrap.sh" ] \
+    && [ -f "$preload_dir/iac-pr-bootstrap.sh" ] \
+    && [ -f "$preload_dir/converge-bootstrap.sh" ]; then
     return 0
   fi
   local pack_url="${script_pack_tarball_url}"

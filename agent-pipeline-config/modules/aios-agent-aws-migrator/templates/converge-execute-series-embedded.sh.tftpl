@@ -1,7 +1,13 @@
-/bin/bash <<'DBSPLIT_CONVERGE_EXECUTE'
 set -euo pipefail
+# Preloaded as ${script_pack_preload_dir}/converge-bootstrap.sh.
+# Stage note pastes only: WORKFLOW_RUN_ID='…' DBSPLIT_EMBEDDED=1 bash …/converge-bootstrap.sh
 export HOME=${runner_work_home}
-ABS_WORK_ROOT="${runner_work_home}/.{{workflow_run_id}}"
+export WORKFLOW_RUN_ID="$${WORKFLOW_RUN_ID:-}"
+if [ -z "$${WORKFLOW_RUN_ID}" ] || printf '%s' "$${WORKFLOW_RUN_ID}" | grep -q '{{'; then
+  echo "error=WORKFLOW_RUN_ID_unset" >&2
+  exit 1
+fi
+ABS_WORK_ROOT="${runner_work_home}/.$${WORKFLOW_RUN_ID}"
 WORK_ROOT="$ABS_WORK_ROOT"
 export DBSPLIT_EMBEDDED=1
 export DBSPLIT_ALLOCATE_SHA256="${script_pack_allocate_sha256}"
@@ -23,6 +29,5 @@ bash -s hydrate-and-plan-matrix "$WORK_ROOT" < "$WORK_ROOT/scripts/stage-runner.
 # hydrate may soft-fail (validation false); do not let set -e skip the sync.
 IAC_REPOSITORY_URL="$(jq -r --arg d "${default_iac_repository_url}" '.iac_repository_url // $d' "$WORK_ROOT/notes.json" 2>/dev/null || echo "${default_iac_repository_url}")"
 DEFAULT_BRANCH="$(jq -r --arg d "${default_branch}" '.default_branch // $d' "$WORK_ROOT/notes.json" 2>/dev/null || echo "${default_branch}")"
-bash -s sync-hydrated-iac-pr "$WORK_ROOT" "$${IAC_REPOSITORY_URL}" "$${DEFAULT_BRANCH}" "{{workflow_run_id}}" \
+bash -s sync-hydrated-iac-pr "$WORK_ROOT" "$${IAC_REPOSITORY_URL}" "$${DEFAULT_BRANCH}" "$${WORKFLOW_RUN_ID}" \
   < "$WORK_ROOT/scripts/stage-runner.sh" || true
-DBSPLIT_CONVERGE_EXECUTE

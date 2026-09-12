@@ -98,9 +98,37 @@ def main() -> None:
     assert "session " not in scan_ctx.lower()
     assert "---BEGIN CLOUD2CODE_SCAN_EXECUTE_SERIES---" in scan_ctx
 
-    command = main_tf.split("cloud2code_scan_execute_series_body =", 1)[1].split("\n", 1)[0]
-    assert "cloud2code-aws-scan.sh" in command
+    command = re.search(
+        r"cloud2code_scan_execute_series_body\s*=\s*\"(.*)\"\s*$",
+        main_tf,
+        re.MULTILINE,
+    ).group(1)
+    invoke = re.search(
+        r"runner_pack_entry_invoke\s*=\s*\"(.*)\"\s*$",
+        main_tf,
+        re.MULTILINE,
+    ).group(1)
+    entry_url = re.search(
+        r"script_pack_entry_url\s*=\s*\"(.*)\"\s*$",
+        main_tf,
+        re.MULTILINE,
+    ).group(1)
+    assert "pack-entry.sh" in entry_url
+    assert "gh release download" in invoke
+    assert "pack-entry.sh" in invoke
+    assert "runner_pack_entry_invoke" in command
+    assert " scan " in command
     assert "cloud2code scan aws" not in command
+    preflight_cmd = re.search(
+        r"runner_capability_preflight_execute_series_body\s*=\s*\"(.*)\"\s*$",
+        main_tf,
+        re.MULTILINE,
+    ).group(1)
+    assert "runner_pack_entry_invoke" in preflight_cmd
+    assert "preflight" in preflight_cmd
+    assert len(invoke) < 550, f"pack-entry invoke too long: {len(invoke)}"
+    assert len(command) < 200, f"scan body too long: {len(command)}"
+    assert len(preflight_cmd) < 200, f"preflight body too long: {len(preflight_cmd)}"
 
     preload = re.search(
         r"^\s*script_pack_preload_dir\s*=\s*(.+)$", main_tf, re.MULTILINE
@@ -185,6 +213,8 @@ def main() -> None:
     assert "create_agent" in converge.lower()
     assert "prefer the pack command" in converge.lower()
     assert "hcl_fix_target" in converge.lower()
+    assert "hcl_fix_target_count>0" in converge or "hcl_fix_target_count" in converge
+    assert "bare pack re-run" in converge.lower() or "no edits" in converge.lower()
     assert len(_heredoc_body(converge, "note")) <= MAX_BINDING_NOTE
 
     converge_loop = _binding(workflow, "shell-converge-loop")

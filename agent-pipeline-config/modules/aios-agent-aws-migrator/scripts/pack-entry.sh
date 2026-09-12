@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+# Tiny release-asset entrypoint. Stage notes curl|bash this instead of pasting the
+# multi-KB fetch bootstrap (agents invent checks like script_pack_dir_missing).
+set -euo pipefail
+
+PACK_VER="${PACK_VER:-__SCRIPT_PACK_VERSION__}"
+PACK_REPO="${PACK_REPO:-Walmart-StackGen/Nile-Factory}"
+PRELOAD_DIR="${PRELOAD_DIR:-/opt/aws-migrator/script-pack/${PACK_VER}}"
+PACK_URL="${PACK_URL:-https://github.com/${PACK_REPO}/releases/download/pack-${PACK_VER}/script-pack-${PACK_VER}.tar.gz}"
+
+usage() {
+  echo "usage: pack-entry.sh preflight <workflow_run_id>" >&2
+  echo "       pack-entry.sh scan <workflow_run_id> <aws_region>" >&2
+  echo "       pack-entry.sh ingest <workflow_run_id>" >&2
+  echo "       pack-entry.sh iac-pr <workflow_run_id>" >&2
+  echo "       pack-entry.sh converge <workflow_run_id>" >&2
+  exit 2
+}
+
+install_git_cred_helper() {
+  local tok cred_dir
+  tok="${GIT_TOKEN:-${GITHUB_TOKEN:-${GH_TOKEN:-${token:-}}}}"
+  [ -n "$tok" ] || return 0
+  export GIT_TOKEN="$tok" GH_TOKEN="${GH_TOKEN:-$tok}" GITHUB_TOKEN="${GITHUB_TOKEN:-$tok}" GIT_TERMINAL_PROMPT=0
+  cred_dir="${HOME:-/home/runner}/.aws-migrator/bin"
+  mkdir -p "$cred_dir"
+  cat >"${cred_dir}/git-credential-stackgen" <<'GCEOF'
+#!/bin/sh
+case "$1" in
+get)
+  tok="${GIT_TOKEN:-${GITHUB_TOKEN:-${GH_TOKEN:-${token:-}}}}"
+  [ -n "$tok" ] || exit 0
+  printf "username=x-access-token\npassword=%s\n" "$tok"
+  ;;
+esac
+GCEOF
+  chmod 0755 "${cred_dir}/git-credential-stackgen"
+  git config --global credential.helper "${cred_dir}/git-credential-stackgen" 2>/dev/null || true
+}
+
+ensure_pack() {
+  local tok tmp
+  tok="${GIT_TOKEN:-${GITHUB_TOKEN:-${GH_TOKEN:-${token:-}}}}"
+  if [ -n "$tok" ]; then
+    export GIT_TOKEN="$tok" GH_TOKEN="${GH_TOKEN:-$tok}" GITHUB_TOKEN="${GITHUB_TOKEN:-$tok}"
+  fi
+
+  if [ -f "${PRELOAD_DIR}/runner-capability-preflight.sh" ] \
+    && [ -f "${PRELOAD_DIR}/cloud2code-aws-scan.sh" ] \
+    && [ -f "${PRELOAD_DIR}/ingest-bootstrap.sh" ] \
+    && [ -f "${PRELOAD_DIR}/iac-pr-bootstrap.sh" ] \
+    && [ -f "${PRELOAD_DIR}/converge-bootstrap.sh" ]; then
+    echo "script_pack_already_present path=${PRELOAD_DIR} version=${PACK_VER}"
+    return 0
+  fi
+
+  if [ -z "$tok" ]; then
+    echo "script_pack_error=fetch_missing_token path=${PRELOAD_DIR} version=${PACK_VER}" >&2
+    exit 1
+  fi
+  tmp="$(mktemp -d)"
+  if command -v gh >/dev/null 2>&1; then
+    gh release download "pack-${PACK_VER}" -R "${PACK_REPO}" -p "script-pack-${PACK_VER}.tar.gz" -D "${tmp}"
+  else
+    curl -fsSL -H "Authorization: Bearer ${tok}" -H "Accept: application/octet-stream" \
+      "${PACK_URL}" -o "${tmp}/script-pack-${PACK_VER}.tar.gz"
+  fi
+  mkdir -p "${PRELOAD_DIR}"
+  tar -xzf "${tmp}/script-pack-${PACK_VER}.tar.gz" -C "${PRELOAD_DIR}"
+  chmod +x "${PRELOAD_DIR}"/*.sh 2>/dev/null || true
+  rm -rf "${tmp}"
+  if [ ! -f "${PRELOAD_DIR}/runner-capability-preflight.sh" ] \
+    || [ ! -f "${PRELOAD_DIR}/cloud2code-aws-scan.sh" ] \
+    || [ ! -f "${PRELOAD_DIR}/ingest-bootstrap.sh" ] \
+    || [ ! -f "${PRELOAD_DIR}/iac-pr-bootstrap.sh" ] \
+    || [ ! -f "${PRELOAD_DIR}/converge-bootstrap.sh" ]; then
+    echo "script_pack_error=fetch_incomplete path=${PRELOAD_DIR} version=${PACK_VER}" >&2
+    ls -la "${PRELOAD_DIR}" >&2 || true
+    exit 1
+  fi
+  echo "script_pack_fetch=ok path=${PRELOAD_DIR} version=${PACK_VER}"
+}
+
+cmd="${1:-}"
+shift || true
+
+ensure_pack
+install_git_cred_helper
+
+case "$cmd" in
+  preflight)
+    exec bash "${PRELOAD_DIR}/runner-capability-preflight.sh" "${1:-}"
+    ;;
+  scan)
+    export CLOUD2CODE_INCLUDE="${CLOUD2CODE_INCLUDE:-}"
+    export CLOUD2CODE_EXCLUDE="${CLOUD2CODE_EXCLUDE:-}"
+    export CLOUD2CODE_TAGS="${CLOUD2CODE_TAGS:-}"
+    export WORKFLOW_RUN_ID="${1:-${WORKFLOW_RUN_ID:-}}"
+    export AWS_REGION="${2:-${AWS_REGION:-${AWS_DEFAULT_REGION:-}}}"
+    export AWS_DEFAULT_REGION="${AWS_REGION}"
+    exec bash "${PRELOAD_DIR}/cloud2code-aws-scan.sh" "${WORKFLOW_RUN_ID}" "${AWS_REGION}"
+    ;;
+  ingest)
+    export WORKFLOW_RUN_ID="${1:-${WORKFLOW_RUN_ID:-}}"
+    export DBSPLIT_EMBEDDED=1
+    exec bash "${PRELOAD_DIR}/ingest-bootstrap.sh"
+    ;;
+  iac-pr)
+    export WORKFLOW_RUN_ID="${1:-${WORKFLOW_RUN_ID:-}}"
+    export DBSPLIT_EMBEDDED=1
+    exec bash "${PRELOAD_DIR}/iac-pr-bootstrap.sh"
+    ;;
+  converge)
+    export WORKFLOW_RUN_ID="${1:-${WORKFLOW_RUN_ID:-}}"
+    export DBSPLIT_EMBEDDED=1
+    exec bash "${PRELOAD_DIR}/converge-bootstrap.sh"
+    ;;
+  *)
+    usage
+    ;;
+esac

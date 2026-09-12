@@ -1,14 +1,19 @@
-/bin/bash <<'DBSPLIT_IAC_PR_EXECUTE'
 set -euo pipefail
+# Preloaded as ${script_pack_preload_dir}/iac-pr-bootstrap.sh.
+# Stage note pastes only: WORKFLOW_RUN_ID='…' DBSPLIT_EMBEDDED=1 bash …/iac-pr-bootstrap.sh
 export HOME=${runner_work_home}
-ABS_WORK_ROOT="${runner_work_home}/.{{workflow_run_id}}"
+export WORKFLOW_RUN_ID="$${WORKFLOW_RUN_ID:-}"
+if [ -z "$${WORKFLOW_RUN_ID}" ] || printf '%s' "$${WORKFLOW_RUN_ID}" | grep -q '{{'; then
+  echo "error=WORKFLOW_RUN_ID_unset" >&2
+  exit 1
+fi
+ABS_WORK_ROOT="${runner_work_home}/.$${WORKFLOW_RUN_ID}"
 WORK_ROOT="$ABS_WORK_ROOT"
 export DBSPLIT_EMBEDDED=1
 export DBSPLIT_ALLOCATE_SHA256="${script_pack_allocate_sha256}"
 export DBSPLIT_DECOMPOSER_SHA256="${script_pack_decomposer_sha256}"
-export IAC_REPOSITORY_URL="${default_iac_repository_url}"
-export DEFAULT_BRANCH="${default_branch}"
-export WORKFLOW_RUN_ID="{{workflow_run_id}}"
+export IAC_REPOSITORY_URL="$${IAC_REPOSITORY_URL:-${default_iac_repository_url}}"
+export DEFAULT_BRANCH="$${DEFAULT_BRANCH:-${default_branch}}"
 # SCM github vault sync exposes `token` (session 8da4f049). Alias for git/gh.
 export GIT_TOKEN="$${GIT_TOKEN:-$${GITHUB_TOKEN:-$${GH_TOKEN:-$${token:-}}}}"
 export GH_TOKEN="$${GH_TOKEN:-$${GIT_TOKEN}}"
@@ -27,4 +32,3 @@ if [ -n "$${IAC_REPOSITORY_URL:-}" ] && [ -f "$WORK_ROOT/notes.json" ]; then
 fi
 bash -s iac-pr-pipeline "$WORK_ROOT" "$${IAC_REPOSITORY_URL}" "$${DEFAULT_BRANCH}" "$${WORKFLOW_RUN_ID}" \
   < "$WORK_ROOT/scripts/stage-runner.sh"
-DBSPLIT_IAC_PR_EXECUTE

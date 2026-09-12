@@ -202,6 +202,141 @@ class HclSanityTests(unittest.TestCase):
             self.assertIn('rest_api_id = "api"', text)
             self.assertNotIn("path =", text)
 
+    def test_emit_api_gateway_root_without_parent_skipped(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "imports.tf").write_text(
+                'import {\n  to = aws_api_gateway_resource.root\n  id = "api/rootid"\n}\n'
+                'import {\n  to = aws_api_gateway_resource.child\n  id = "api/child"\n}\n',
+                encoding="utf-8",
+            )
+            state = {
+                "resources": [
+                    {
+                        "mode": "managed",
+                        "type": "aws_api_gateway_resource",
+                        "name": "root",
+                        "instances": [
+                            {
+                                "attributes": {
+                                    "id": "rootid",
+                                    "path": "/",
+                                    "path_part": "",
+                                    "parent_id": "",
+                                    "rest_api_id": "api",
+                                }
+                            }
+                        ],
+                    },
+                    {
+                        "mode": "managed",
+                        "type": "aws_api_gateway_resource",
+                        "name": "child",
+                        "instances": [
+                            {
+                                "attributes": {
+                                    "id": "child",
+                                    "path": "/x",
+                                    "path_part": "x",
+                                    "parent_id": "rootid",
+                                    "rest_api_id": "api",
+                                }
+                            }
+                        ],
+                    },
+                ]
+            }
+            (root / "terraform.tfstate").write_text(
+                __import__("json").dumps(state), encoding="utf-8"
+            )
+            self.assertEqual(emit_from_state(root), 0)
+            text = (root / "generated.tf").read_text(encoding="utf-8")
+            self.assertNotIn('resource "aws_api_gateway_resource" "root"', text)
+            self.assertIn('resource "aws_api_gateway_resource" "child"', text)
+            self.assertIn('parent_id = "rootid"', text)
+            imports = (root / "imports.tf").read_text(encoding="utf-8")
+            self.assertNotIn("aws_api_gateway_resource.root", imports)
+            self.assertIn("aws_api_gateway_resource.child", imports)
+
+    def test_emit_asg_tag_and_ecs_runtime_platform_as_blocks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "imports.tf").write_text(
+                'import {\n  to = aws_autoscaling_group.asg\n  id = "asg-1"\n}\n'
+                'import {\n  to = aws_ecs_task_definition.td\n  id = "arn:aws:ecs:x:1:task-definition/app:1"\n}\n',
+                encoding="utf-8",
+            )
+            state = {
+                "resources": [
+                    {
+                        "mode": "managed",
+                        "type": "aws_autoscaling_group",
+                        "name": "asg",
+                        "instances": [
+                            {
+                                "attributes": {
+                                    "id": "asg-1",
+                                    "name": "asg-1",
+                                    "min_size": 1,
+                                    "max_size": 2,
+                                    "tag": [
+                                        {
+                                            "key": "Name",
+                                            "value": "asg",
+                                            "propagate_at_launch": True,
+                                        }
+                                    ],
+                                }
+                            }
+                        ],
+                    },
+                    {
+                        "mode": "managed",
+                        "type": "aws_ecs_task_definition",
+                        "name": "td",
+                        "instances": [
+                            {
+                                "attributes": {
+                                    "id": "arn:aws:ecs:x:1:task-definition/app:1",
+                                    "family": "app",
+                                    "revision": 1,
+                                    "runtime_platform": [
+                                        {
+                                            "cpu_architecture": "X86_64",
+                                            "operating_system_family": "LINUX",
+                                        }
+                                    ],
+                                }
+                            }
+                        ],
+                    },
+                ]
+            }
+            (root / "terraform.tfstate").write_text(
+                __import__("json").dumps(state), encoding="utf-8"
+            )
+            self.assertEqual(emit_from_state(root), 0)
+            text = (root / "generated.tf").read_text(encoding="utf-8")
+            self.assertIn("tag {", text)
+            self.assertNotIn("tag = [", text)
+            self.assertIn('key = "Name"', text)
+            self.assertIn("runtime_platform {", text)
+            self.assertNotIn("runtime_platform = [", text)
+            self.assertIn('operating_system_family = "LINUX"', text)
+
+    def test_parse_repair_broken_does_not_use_definition_attr(self) -> None:
+        log = (
+            "Error: Argument or block definition required\n\n"
+            "  on generated.tf line 6, in resource \"aws_autoscaling_group\" \"asg\":\n"
+            "   6:     {\n\n"
+            "An argument or block definition is required here.\n"
+        )
+        targets = parse_tofu_errors(log, group_id="g1")
+        self.assertEqual(len(targets), 1)
+        self.assertEqual(targets[0]["suggestion"], "repair_broken_resource_block")
+        self.assertEqual(targets[0].get("attribute") or "", "")
+        self.assertIn("rewrite", targets[0].get("rewrite_hint") or "")
+
     def test_parse_and_apply_surgical_fixes(self) -> None:
         log = (
             "Error: Unsupported argument\n\n"

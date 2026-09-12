@@ -4,7 +4,7 @@
 # Usage: DBSPLIT_EMBEDDED=1 bash -s <command> [args...] << 'DBSPLIT_STAGE_RUNNER' ... DBSPLIT_STAGE_RUNNER
 set -euo pipefail
 
-SCRIPT_PACK_VERSION="20260911.13"
+SCRIPT_PACK_VERSION="20260911.17"
 DBSPLIT_DEFAULT_STRATEGY="${DBSPLIT_DEFAULT_STRATEGY:-tfstate_monolith_decomposer}"
 DBSPLIT_DEFAULT_CAP="${DBSPLIT_DEFAULT_CAP:-0}"
 REQUIRED_ALLOCATE_MARKER="def merge_small_by_seed"
@@ -3494,7 +3494,13 @@ def _extract_bracket_span(text: str, open_idx: int) -> int:
 
 def rewrite_route_list_as_blocks(block: str) -> str:
     """Turn route = [ { ... }, ... ] into repeated route { } blocks."""
-    pattern = re.compile(r"^(\s*)route\s*=\s*\[", re.M)
+    return rewrite_named_list_as_blocks(block, "route", route_null_attrs)
+
+
+def rewrite_named_list_as_blocks(block: str, attr: str, null_attrs=None) -> str:
+    """Turn attr = [ { ... }, ... ] into repeated attr { } blocks."""
+    null_attrs = set(null_attrs or ())
+    pattern = re.compile(rf"^(\s*){re.escape(attr)}\s*=\s*\[", re.M)
     while True:
         m = pattern.search(block)
         if not m:
@@ -3503,7 +3509,6 @@ def rewrite_route_list_as_blocks(block: str) -> str:
         list_start = m.end() - 1
         list_end = _extract_bracket_span(block, list_start)
         raw = block[list_start:list_end]
-        # Walk top-level { ... } objects inside the list.
         objects = []
         i = 1  # skip '['
         while i < len(raw) - 1:
@@ -3526,23 +3531,58 @@ def rewrite_route_list_as_blocks(block: str) -> str:
                 stripped = line.strip().rstrip(",")
                 if not stripped or stripped in ("{", "}"):
                     continue
-                # JSON-ish keys from generate-config-out: "cidr_block" = "..."
                 stripped = re.sub(r'^"([A-Za-z0-9_]+)"\s*=', r"\1 =", stripped)
-                # Drop empty optional nexthop / destination fields.
                 empty = re.match(
                     r"^([A-Za-z0-9_]+)\s*=\s*(?:\"\"|null)\s*$",
                     stripped,
                 )
-                if empty and empty.group(1) in route_null_attrs:
+                if empty and empty.group(1) in null_attrs:
                     continue
                 if re.search(r'=\s*""\s*$', stripped) or re.search(r"=\s*null\s*$", stripped):
                     continue
                 lines_out.append(f"{indent}  {stripped}")
             if not lines_out:
                 continue
-            new_parts.append(f"{indent}route {{\n" + "\n".join(lines_out) + f"\n{indent}}}")
+            new_parts.append(
+                f"{indent}{attr} {{\n" + "\n".join(lines_out) + f"\n{indent}}}"
+            )
         replacement = ("\n".join(new_parts) + "\n") if new_parts else ""
         end = list_end
+        while end < len(block) and block[end] in " \t":
+            end += 1
+        if end < len(block) and block[end] == "\n":
+            end += 1
+        block = block[: m.start()] + replacement + block[end:]
+    return block
+
+
+def rewrite_single_object_attr_as_block(block: str, attr: str) -> str:
+    """Turn attr = { ... } into attr { ... } (nested block, not object assign)."""
+    pattern = re.compile(rf"^(\s*){re.escape(attr)}\s*=\s*\{{", re.M)
+    while True:
+        m = pattern.search(block)
+        if not m:
+            break
+        indent = m.group(1)
+        obj_start = m.end() - 1
+        obj_end = _extract_bracket_span(block, obj_start)
+        raw = block[obj_start:obj_end]
+        inner = raw[1:-1] if raw.startswith("{") and raw.endswith("}") else raw
+        lines_out = []
+        for line in inner.splitlines():
+            stripped = line.strip().rstrip(",")
+            if not stripped:
+                continue
+            stripped = re.sub(r'^"([A-Za-z0-9_]+)"\s*=', r"\1 =", stripped)
+            if re.search(r'=\s*""\s*$', stripped) or re.search(r"=\s*null\s*$", stripped):
+                continue
+            lines_out.append(f"{indent}  {stripped}")
+        replacement = (
+            f"{indent}{attr} {{\n" + "\n".join(lines_out) + f"\n{indent}}}\n"
+            if lines_out
+            else ""
+        )
+        end = obj_end
         while end < len(block) and block[end] in " \t":
             end += 1
         if end < len(block) and block[end] == "\n":
@@ -3583,6 +3623,7 @@ for block in re.split(r"(?=resource\s+\"[^\"]+\"\s+\"[^\"]+\"\s+\{)", text):
         block = drop_list_or_block_attr(block, "mixed_instances_policy")
         block = drop_list_or_block_attr(block, "launch_template")
         # Prefer launch_template block when both ID and name forms conflict later.
+        block = rewrite_named_list_as_blocks(block, "tag")
     # dns_options on vpc endpoints must be a block, not a list attribute.
     if 'resource "aws_vpc_endpoint"' in block[:80] or block.startswith('resource "aws_vpc_endpoint"'):
         block = drop_list_or_block_attr(block, "dns_options")
@@ -3590,6 +3631,21 @@ for block in re.split(r"(?=resource\s+\"[^\"]+\"\s+\"[^\"]+\"\s+\{)", text):
     # repeated route { } blocks. Rewrite in place so validate and zero-diff plan both work.
     if block.startswith('resource "aws_route_table"'):
         block = rewrite_route_list_as_blocks(block)
+    if block.startswith('resource "aws_ecs_task_definition"') or block.startswith(
+        'resource "aws_ecs_service"'
+    ):
+        block = rewrite_named_list_as_blocks(block, "runtime_platform")
+        block = rewrite_single_object_attr_as_block(block, "runtime_platform")
+    # Root API GW resources with empty parent_id cannot validate; drop the block.
+    if block.startswith('resource "aws_api_gateway_resource"'):
+        if re.search(r'^\s*path_part\s*=\s*""\s*$', block, re.M) or re.search(
+            r"^\s*path_part\s*=\s*\"/\"\s*$", block, re.M
+        ):
+            if not re.search(r'^\s*parent_id\s*=\s*\"[^\"]+\"\s*$', block, re.M):
+                block = (
+                    "# dropped aws_api_gateway_resource root without parent_id "
+                    "(provider requires parent_id; use rest_api.root_resource_id)\n"
+                )
     block = re.sub(r"^\s*enable_lni_at_device_index\s*=\s*0\s*\n", "", block, flags=re.M)
     # Zero netmask lengths are invalid enums; empty string IPAM pool IDs conflict
     # with assign_generated_* flags. Drop both forms before validate.
@@ -3717,7 +3773,17 @@ for t in targets[:25]:
     attr = t.get("attribute") or "-"
     sug = t.get("suggestion") or "-"
     err = (t.get("error") or "")[:80]
-    print(f"hcl_fix_target group={data.get('group_id','')} address={addr} attr={attr} suggestion={sug} error={err}")
+    hint = (t.get("rewrite_hint") or "")[:120]
+    excerpt = (t.get("excerpt") or "")[:120]
+    line = (
+        f"hcl_fix_target group={data.get('group_id','')} address={addr} "
+        f"attr={attr} suggestion={sug} error={err}"
+    )
+    if hint:
+        line += f" hint={hint}"
+    elif excerpt:
+        line += f" excerpt={excerpt}"
+    print(line)
 PY
     if [ -f "${groups_dir}/generated.tf" ]; then
       removed="$(python3 "$sanity_py" apply-surgical-fixes "$groups_dir" "$report_path" 2>/dev/null | awk -F= '/removed_attrs=/{print $NF}' | tail -1)"
@@ -4184,6 +4250,9 @@ Path(agg).write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 print(f"hcl_fix_report_path={agg}")
 print(f"hcl_fix_report_targets={len(all_targets)}")
 for t in all_targets[:40]:
+    hint = (t.get("rewrite_hint") or "")[:100]
+    excerpt = (t.get("excerpt") or "")[:100]
+    extra = f" hint={hint}" if hint else (f" excerpt={excerpt}" if excerpt else "")
     print(
         "hcl_fix_target "
         f"group={t.get('group_id','')} "
@@ -4191,6 +4260,7 @@ for t in all_targets[:40]:
         f"attr={t.get('attribute') or '-'} "
         f"suggestion={t.get('suggestion') or '-'} "
         f"error={(t.get('error') or '')[:80]}"
+        f"{extra}"
     )
 PY
     if [ -f "$agg" ]; then
