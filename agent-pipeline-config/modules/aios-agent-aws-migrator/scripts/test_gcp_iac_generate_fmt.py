@@ -6,7 +6,37 @@ from __future__ import annotations
 import textwrap
 import unittest
 
-from gcp_iac_generate import hcl_string_map
+from gcp_iac_generate import REQUIRED_GCP_LABELS, hcl_string_map
+
+# Nile tagging-labeling-standard §7 / TAG-002 (session c6cb3339 deny root cause).
+NILE_REQUIRED_LABEL_KEYS = (
+    "owner",
+    "created_by",
+    "cost_center",
+    "environment",
+    "function",
+    "service",
+    "repo",
+    "application_name",
+    "name",
+    "notification_distlist",
+    "ssp",
+    "tr_product_id",
+    "apm_id",
+)
+
+
+class RequiredGcpLabelsTests(unittest.TestCase):
+    def test_required_defaults_cover_nile_keys(self):
+        # `name` is filled per group at emit time; the other 12 are constants.
+        self.assertEqual(
+            set(REQUIRED_GCP_LABELS),
+            set(NILE_REQUIRED_LABEL_KEYS) - {"name"},
+        )
+        banned = {"tbd", "test", "unknown", "placeholder", "changeme", "none"}
+        for key, value in REQUIRED_GCP_LABELS.items():
+            self.assertTrue(str(value).strip(), key)
+            self.assertNotIn(str(value).lower(), banned, key)
 
 
 class HclStringMapTests(unittest.TestCase):

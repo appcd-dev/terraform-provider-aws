@@ -203,22 +203,22 @@ Loop stages: `gcp-iac-loop`, `gcp-iac-governance-loop`.
 
 | Template | Module | First line (truncated) |
 | --- | --- | --- |
-| `azure-iac-generate-execute-series-embedded.sh.tftpl` | `aios-agent-aws-migrator` | `WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 ${runner_pack_entry_invoke} destination azu` |
-| `azure-iac-governance-conform-execute-series-embedded.sh.tftpl` | `aios-agent-aws-migrator` | `WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 NILE_GOVERNANCE_REPO='${nile_governance_rep` |
-| `azure-iac-harden-execute-series-embedded.sh.tftpl` | `aios-agent-aws-migrator` | `WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 DEST_HARDEN_PARALLELISM='${dest_harden_para` |
-| `azure-iac-validate-execute-series-embedded.sh.tftpl` | `aios-agent-aws-migrator` | `WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 REQUIRE_AZURE_LIVE_PLAN='${require_azure_li` |
-| `azure-migration-blueprint-execute-series-embedded.sh.tftpl` | `aios-agent-aws-migrator` | `WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 ${runner_pack_entry_invoke} destination azu` |
-| `azure-pr-execute-series-embedded.sh.tftpl` | `aios-agent-aws-migrator` | `WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 IAC_REPOSITORY_URL='${default_iac_repositor` |
-| `azure-source-fetch-execute-series-embedded.sh.tftpl` | `aios-agent-aws-migrator` | `SOURCE_PR='' SOURCE_IAC_BRANCH='${azure_only_source_branch}' SOURCE_IAC_REPOSITORY_URL='${default_ia` |
+| `azure-iac-generate-execute-series-embedded.sh.tftpl` | `aios-agent-aws-migrator` | `export WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 ${runner_pack_entry_invoke} destinat` |
+| `azure-iac-governance-conform-execute-series-embedded.sh.tftpl` | `aios-agent-aws-migrator` | `export WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 NILE_GOVERNANCE_REPO='${nile_governa` |
+| `azure-iac-harden-execute-series-embedded.sh.tftpl` | `aios-agent-aws-migrator` | `export WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 DEST_HARDEN_PARALLELISM='${dest_hard` |
+| `azure-iac-validate-execute-series-embedded.sh.tftpl` | `aios-agent-aws-migrator` | `export WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 REQUIRE_AZURE_LIVE_PLAN='${require_a` |
+| `azure-migration-blueprint-execute-series-embedded.sh.tftpl` | `aios-agent-aws-migrator` | `export WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 ${runner_pack_entry_invoke} destinat` |
+| `azure-pr-execute-series-embedded.sh.tftpl` | `aios-agent-aws-migrator` | `export WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 IAC_REPOSITORY_URL='${default_iac_re` |
+| `azure-source-fetch-execute-series-embedded.sh.tftpl` | `aios-agent-aws-migrator` | `export SOURCE_PR='' SOURCE_IAC_BRANCH='${azure_only_source_branch}' SOURCE_IAC_REPOSITORY_URL='${def` |
 | `cloud2code-aws-scan-execute-series.sh.tftpl` | `aios-agent-aws-migrator` | `set -euo pipefail` |
 | `converge-execute-series-embedded.sh.tftpl` | `aios-agent-aws-migrator` | `set -euo pipefail` |
-| `gcp-iac-generate-execute-series-embedded.sh.tftpl` | `aios-agent-aws-migrator` | `WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 ${runner_pack_entry_invoke} destination gcp` |
-| `gcp-iac-governance-conform-execute-series-embedded.sh.tftpl` | `aios-agent-aws-migrator` | `WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 NILE_GOVERNANCE_REPO='${nile_governance_rep` |
-| `gcp-iac-harden-execute-series-embedded.sh.tftpl` | `aios-agent-aws-migrator` | `WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 DEST_HARDEN_PARALLELISM='${dest_harden_para` |
-| `gcp-iac-validate-execute-series-embedded.sh.tftpl` | `aios-agent-aws-migrator` | `WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 REQUIRE_GCP_LIVE_PLAN='${require_gcp_live_p` |
-| `gcp-migration-blueprint-execute-series-embedded.sh.tftpl` | `aios-agent-aws-migrator` | `WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 ${runner_pack_entry_invoke} destination gcp` |
-| `gcp-pr-execute-series-embedded.sh.tftpl` | `aios-agent-aws-migrator` | `WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 ${runner_pack_entry_invoke} destination gcp` |
-| `gcp-source-fetch-execute-series-embedded.sh.tftpl` | `aios-agent-aws-migrator` | `SOURCE_PR='' SOURCE_IAC_BRANCH='${gcp_only_source_branch}' WORKFLOW_RUN_ID='{{workflow_run_id}}' DBS` |
+| `gcp-iac-generate-execute-series-embedded.sh.tftpl` | `aios-agent-aws-migrator` | `export WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 ${runner_pack_entry_invoke} destinat` |
+| `gcp-iac-governance-conform-execute-series-embedded.sh.tftpl` | `aios-agent-aws-migrator` | `export WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 NILE_GOVERNANCE_REPO='${nile_governa` |
+| `gcp-iac-harden-execute-series-embedded.sh.tftpl` | `aios-agent-aws-migrator` | `export WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 DEST_HARDEN_PARALLELISM='${dest_hard` |
+| `gcp-iac-validate-execute-series-embedded.sh.tftpl` | `aios-agent-aws-migrator` | `export WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 REQUIRE_GCP_LIVE_PLAN='${require_gcp` |
+| `gcp-migration-blueprint-execute-series-embedded.sh.tftpl` | `aios-agent-aws-migrator` | `export WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 ${runner_pack_entry_invoke} destinat` |
+| `gcp-pr-execute-series-embedded.sh.tftpl` | `aios-agent-aws-migrator` | `export WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 ${runner_pack_entry_invoke} destinat` |
+| `gcp-source-fetch-execute-series-embedded.sh.tftpl` | `aios-agent-aws-migrator` | `export SOURCE_PR='' SOURCE_IAC_BRANCH='${gcp_only_source_branch}' WORKFLOW_RUN_ID='{{workflow_run_id` |
 | `iac-pr-execute-series-embedded.sh.tftpl` | `aios-agent-aws-migrator` | `set -euo pipefail` |
 | `ingest-execute-series-embedded.sh.tftpl` | `aios-agent-aws-migrator` | `set -euo pipefail` |
 | `runner-capability-preflight-execute-series.sh.tftpl` | `aios-agent-aws-migrator` | `set -euo pipefail` |

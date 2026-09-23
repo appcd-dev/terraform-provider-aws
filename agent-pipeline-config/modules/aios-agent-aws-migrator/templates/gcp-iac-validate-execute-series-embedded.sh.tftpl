@@ -1,1 +1,1 @@
-WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 REQUIRE_GCP_LIVE_PLAN='${require_gcp_live_plan}' ${runner_pack_entry_invoke} destination gcp-iac-validate '{{workflow_run_id}}'
+export WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 REQUIRE_GCP_LIVE_PLAN='${require_gcp_live_plan}' ${runner_pack_entry_invoke} destination gcp-iac-validate '{{workflow_run_id}}'

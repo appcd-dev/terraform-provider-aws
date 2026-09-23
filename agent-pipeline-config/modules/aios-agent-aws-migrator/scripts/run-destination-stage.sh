@@ -26,8 +26,8 @@ export DBSPLIT_EMBEDDED=1
 export WORKFLOW_RUN_ID
 export IAC_REPOSITORY_URL="${IAC_REPOSITORY_URL:-https://github.com/Walmart-StackGen/Nile-Factory.git}"
 export NILE_RULES_REPO="${NILE_RULES_REPO:-$IAC_REPOSITORY_URL}"
-# Prefer the Nile rules pack branch used by walle/ai.dev (main has no rules/).
-export NILE_RULES_REF="${NILE_RULES_REF:-f8f6f171a0a15c195954c53c330e15df2af6aa99_20260827033726}"
+# Prefer Nile-Factory main for rules/ Rego packs (PR branches with rules/ are optional overrides).
+export NILE_RULES_REF="${NILE_RULES_REF:-main}"
 export NILE_GOVERNANCE_REPO="${NILE_GOVERNANCE_REPO:-https://github.com/Walmart-StackGen/Governance-and-Policy.git}"
 export NILE_GOVERNANCE_REF="${NILE_GOVERNANCE_REF:-main}"
 export SOURCE_IAC_REPOSITORY_URL="${SOURCE_IAC_REPOSITORY_URL:-$IAC_REPOSITORY_URL}"

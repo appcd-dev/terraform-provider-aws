@@ -164,7 +164,7 @@ locals {
   gcp_mapping_catalog_script   = file("${path.module}/scripts/gcp_mapping_catalog.py")
   gcp_mapping_catalog_json     = file("${path.module}/mappings/aws-to-gcp.json")
   ensure_cloud2code_script     = file("${path.module}/scripts/ensure_cloud2code.sh")
-  script_pack_version          = "20260911.21"
+  script_pack_version          = "20260911.22"
   script_pack_git_ref          = "main"
   # Baked into the runner image under /opt, not under HOME. The ACA Azure Files
   # share mounts over /home/runner, so a pack under HOME depends on the
@@ -451,7 +451,8 @@ locals {
   # pasting multi-KB inline fetch; session d8faf9c8: browser download URL 404s on
   # private repos — use gh release download / API asset URL instead).
   script_pack_entry_url = "https://github.com/${trimspace(var.script_pack_release_repo)}/releases/download/pack-${local.script_pack_version}/pack-entry.sh"
-  runner_pack_entry_invoke = "${local.runner_git_env_prefix}; D=$(mktemp -d); gh release download 'pack-${local.script_pack_version}' -R '${trimspace(var.script_pack_release_repo)}' -p pack-entry.sh -D \"$${D}\" && bash \"$${D}/pack-entry.sh\""
+  # Prefix already ends with `;` — do not add another or dash sees `;;` (session c6cb3339).
+  runner_pack_entry_invoke = "${local.runner_git_env_prefix} D=$(mktemp -d); gh release download 'pack-${local.script_pack_version}' -R '${trimspace(var.script_pack_release_repo)}' -p pack-entry.sh -D \"$${D}\" && bash \"$${D}/pack-entry.sh\""
   # Self-heal pack fetch on every pack-path stage so a faked preflight (session
   # b506b854: printf runner_capability_preflight_ok) cannot leave /opt empty.
   runner_capability_preflight_execute_series_body = "${local.runner_pack_entry_invoke} preflight '{{workflow_run_id}}'"

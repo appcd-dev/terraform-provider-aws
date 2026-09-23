@@ -1,1 +1,1 @@
-WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 DEST_HARDEN_PARALLELISM='${dest_harden_parallelism}' ${runner_pack_entry_invoke} destination gcp-iac-harden '{{workflow_run_id}}'
+export WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 DEST_HARDEN_PARALLELISM='${dest_harden_parallelism}' ${runner_pack_entry_invoke} destination gcp-iac-harden '{{workflow_run_id}}'

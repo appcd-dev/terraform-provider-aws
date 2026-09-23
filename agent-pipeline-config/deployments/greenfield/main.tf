@@ -185,7 +185,7 @@ module "aws_migrator" {
   default_branch             = var.default_branch
   enable_github_webhook      = false
 
-  nile_rules_ref = "f8f6f171a0a15c195954c53c330e15df2af6aa99_20260827033726"
+  nile_rules_ref = "main"
 
   # Empty when Azure OpenAI is off or azure_openai_models is [] → Guild built-in default.
   model_names = local.enable_azure_openai ? [for m in var.azure_openai_models : m.name] : []
