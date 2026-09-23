@@ -59,12 +59,23 @@ variable "remote_runner_name" {
 }
 
 variable "runner_aws_env_secret_id" {
-  description = "Vault secret UUID bound to nile-runner typed aws slot (AWS_* via vault resolve). Default is nile-vibe-scanner-main (Nile scanner for cloud2code; prior discovery PRs used IAM user nile-factory in 366938945728)."
+  description = "Vault secret UUID bound to nile-runner typed aws slot when inline runner_aws_* keys are empty. Default nile-vibe-scanner-main (still Vibe-scoped — prefer TF_VAR_runner_aws_access_key_id for iam::366938945728:user/nile-factory)."
   type        = string
-  # Prior successful discovery (PR #53/#60) authenticated as
-  # arn:aws:iam::366938945728:user/nile-factory. vibe-aws-scanner* secrets are
-  # Vibe's main account and only list ~38 resources with ALB/API GW read_failed.
-  default = "59dfde2a-3980-56a5-81f8-bb9be5de5e33"
+  default     = "59dfde2a-3980-56a5-81f8-bb9be5de5e33"
+}
+
+variable "runner_aws_access_key_id" {
+  description = "Inline AWS access key for runner sync (creates aws-migrator-runner-aws-env). Use nile-factory keys for account 366938945728. Pass via TF_VAR_runner_aws_access_key_id."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "runner_aws_secret_access_key" {
+  description = "Inline AWS secret key paired with runner_aws_access_key_id. Pass via TF_VAR_runner_aws_secret_access_key."
+  type        = string
+  sensitive   = true
+  default     = ""
 }
 
 variable "runner_aws_region" {
