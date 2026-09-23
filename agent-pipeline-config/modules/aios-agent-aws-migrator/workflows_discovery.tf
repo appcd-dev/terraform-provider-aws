@@ -376,7 +376,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
       note = <<-EOT
         Goal: close this AWS discovery run for the operator.
         Done when: you reported ready, needs work, or could not generate Terraform, with Result, Checks, and Ways to improve readiness.
-        Ready means: scan done, every resource in exactly one folder, a PR URL (or concrete PR blocker), and hydrate synced when generated.tf exists. Fmt/validate green is preferred; if `terraform_validation_ok` is false, report **needs work** with the PR link and remaining `hcl_fix_target` lines — that is not a failed discovery run. Zero-change plan and split-quality reports are optional. Missing Azure or GCP evidence is not a failure here.
+        Ready means: scan done, every resource in exactly one folder, a PR URL (or concrete PR blocker), **all** selected groups hydrated (`hydrate_groups_remaining=0` and each has `generated.tf`), and stub-var `tofu plan` compile-ok (`compile_ok=true` / `terraform_compile_ok_groups` matches). If `hydrate_groups_remaining>0` or `terraform_validation_ok` is false, report **needs work** with the PR link and remaining `hcl_fix_target` lines — never label Result Ready while groups lack generated.tf. Zero-change plan and split-quality reports are optional. Missing Azure or GCP evidence is not a failure here.
       EOT
     },
   ]

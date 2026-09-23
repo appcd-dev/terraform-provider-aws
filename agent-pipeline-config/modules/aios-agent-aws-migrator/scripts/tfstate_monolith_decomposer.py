@@ -3,8 +3,9 @@
 
 New partitioning philosophy: resources are classified into Foundation (L1), Platform (L2),
 and Application (L3) layers. A dependency edge that crosses a layer boundary is NOT a merge
-signal — it becomes a terraform_remote_state reference wired in upstream.tf. This inverts
-the central assumption of the connectivity-first allocate_manifest.py strategy.
+signal — it is recorded in upstream_refs.json for operators. Generated HCL keeps literal
+attribute IDs (no terraform_remote_state / upstream.tf scaffolds). This inverts the
+central assumption of the connectivity-first allocate_manifest.py strategy.
 
 This file is a **deliberate full clone** of allocate_manifest.py so allocate_manifest.py
 stays 100% untouched as the demo fallback. Duplication is accepted; de-dup is a later
@@ -1609,41 +1610,26 @@ def compute_upstream_refs(manifest: Dict[str, dict], deps_map: Dict[str, Set[str
 
 
 def scaffold_remote_state(group_dir: str, group_id: str, upstream_refs: List[dict]) -> None:
-    """Generate upstream.tf with terraform_remote_state data sources (TODO markers)."""
-    if not upstream_refs:
-        return
+    """No-op: do not emit terraform_remote_state / upstream.tf TODO scaffolds.
 
-    upstream_groups: Dict[str, dict] = {}
-    for ref in upstream_refs:
-        gid = ref["to_group"]
-        if gid not in upstream_groups:
-            upstream_groups[gid] = {
-                "layer": ref["to_layer"],
-                "addresses_referenced": [],
-            }
-        upstream_groups[gid]["addresses_referenced"].append(ref["to_address"])
+    Cross-group deps stay as literal IDs in generated.tf (hydrate emit-from-state).
+    Operators still get upstream_refs.json from cmd_layered_split.
+    """
+    del group_dir, group_id, upstream_refs  # kept for call-site compatibility
+    return
 
-    lines = ["# Auto-generated upstream references (cross-layer dependencies)\n"]
-    lines.append("# TODO: Configure backend paths for your environment\n\n")
 
-    for upstream_gid, info in sorted(upstream_groups.items()):
-        safe_name = sanitize_identifier(upstream_gid)
-        lines.append(f'data "terraform_remote_state" "{safe_name}" {{\n')
-        lines.append(f'  backend = "local" # TODO: replace with your backend (s3, gcs, etc.)\n')
-        lines.append(f'  config = {{\n')
-        lines.append(f'    path = "../{upstream_gid}/terraform.tfstate" # TODO: real path\n')
-        lines.append(f'  }}\n')
-        lines.append(f'}}\n\n')
-        lines.append(f'# Referenced resources from {upstream_gid} (layer {info["layer"]}):\n')
-        for addr in sorted(set(info["addresses_referenced"])):
-            lines.append(f'#   {addr}\n')
-        lines.append(f'# TODO: map to specific outputs, e.g.:\n')
-        lines.append(f'#   data.terraform_remote_state.{safe_name}.outputs.<output_name>\n\n')
-
-    os.makedirs(group_dir, exist_ok=True)
-    upstream_path = os.path.join(group_dir, "upstream.tf")
-    with open(upstream_path, "w", encoding="utf-8") as fh:
-        fh.writelines(lines)
+def write_upstream_refs_artifact(work_root: str, manifest: Dict[str, dict]) -> str:
+    """Persist per-group upstream_refs for operators (no HCL emission)."""
+    payload: Dict[str, list] = {}
+    for gid, entry in sorted(manifest.items()):
+        refs = entry.get("upstream_refs") or []
+        if refs:
+            payload[gid] = refs
+    out_path = os.path.join(work_root, "upstream_refs.json")
+    with open(out_path, "w", encoding="utf-8") as fh:
+        json.dump(payload, fh, indent=2, sort_keys=True)
+    return out_path
 
 
 # ---------------------------------------------------------------------------
@@ -1803,7 +1789,7 @@ def cmd_layered_split(
     Stage B → layer classify
     cross-env → promote shared
     Stage C → per-layer group
-    Stage D → upstream refs + scaffold upstream.tf
+    Stage D → upstream refs recorded in upstream_refs.json (no upstream.tf)
     review queue → review_items.json
     extract states → groups/<id>/terraform.tfstate
     scaffold registry → versions/providers/imports.tf
@@ -1893,7 +1879,7 @@ def cmd_layered_split(
     shard_path = os.path.join(work_root, "shard_manifest.json")
     counts_path = os.path.join(work_root, "per_group_resource_counts.json")
 
-    # Strip upstream_refs from manifest before writing (stored separately to keep manifest clean)
+    # Strip upstream_refs from manifest before writing (stored in upstream_refs.json)
     manifest_clean = {}
     for gid, entry in manifest.items():
         e = {k: v for k, v in entry.items() if k != "upstream_refs"}
@@ -1910,19 +1896,25 @@ def cmd_layered_split(
         json.dump(review_queue, fh, indent=2)
     with open(summary_path, "w", encoding="utf-8") as fh:
         json.dump(layer_summary, fh, indent=2)
+    upstream_refs_path = write_upstream_refs_artifact(work_root, manifest)
+    layer_summary["upstream_refs_path"] = upstream_refs_path
+    with open(summary_path, "w", encoding="utf-8") as fh:
+        json.dump(layer_summary, fh, indent=2)
 
     # Extract per-group state shards
     group_paths = extract_group_states(state_path, work_root, manifest_clean)
 
-    # Scaffold HCL (versions/providers/imports.tf) + upstream.tf
+    # Scaffold HCL (versions/providers/imports.tf). No upstream.tf / remote_state TODOs —
+    # cross-group deps stay as literal IDs after hydrate emit-from-state.
     for gid, entry in manifest.items():
         state_shard = group_paths.get(gid) or os.path.join(work_root, "groups", gid, "terraform.tfstate")
         if os.path.isfile(state_shard):
             group_dir = os.path.join(work_root, "groups", gid)
             scaffold_group_dir(group_dir, gid, state_shard)
-            upstream_refs = entry.get("upstream_refs") or []
-            if upstream_refs:
-                scaffold_remote_state(group_dir, gid, upstream_refs)
+            # Remove stale upstream.tf from older pack versions if present.
+            stale_upstream = os.path.join(group_dir, "upstream.tf")
+            if os.path.isfile(stale_upstream):
+                os.remove(stale_upstream)
 
     # Reconcile
     result = reconcile(state_path, manifest_clean)

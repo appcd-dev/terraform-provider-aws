@@ -38,10 +38,48 @@ ALWAYS_SKIP_ATTRS = frozenset(
         "default_route_table_id",
         "default_security_group_id",
         "main_route_table_id",
-        "owner_id",
         "partition",
         "zone_id",  # often computed on route53; keep if present as optional later
     }
+)
+
+# Writable attrs that hold secrets — emit agent-controlled placeholders for plan.
+SECRET_ATTR_KEYS = frozenset(
+    {
+        "password",
+        "master_password",
+        "password_wo",
+        "secret_string",
+        "secret_binary",
+        "private_key",
+        "private_key_pem",
+        "access_key",
+        "secret_key",
+        "secret_access_key",
+        "token",
+        "auth_token",
+        "api_key",
+        "api_token",
+        "client_secret",
+        "connection_string",
+        "primary_connection_string",
+        "secondary_connection_string",
+    }
+)
+SECRET_ATTR_SUFFIXES = (
+    "_password",
+    "_secret",
+    "_token",
+    "_api_key",
+    "_private_key",
+)
+STUB_SECRET_STRING = "***STUB_SECRET***"
+STUB_SECRET_NUMBER = 0
+STUB_SECRET_BOOL = False
+
+VARIABLE_BLOCK_RE = re.compile(
+    r'variable\s+"([^"]+)"\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}',
+    re.MULTILINE | re.DOTALL,
 )
 
 
@@ -244,13 +282,38 @@ _NESTED_BLOCK_LIST_ATTRS: dict[str, tuple[str, ...]] = {
     "aws_autoscaling_group": ("tag",),
     "aws_ecs_task_definition": ("runtime_platform",),
     "aws_ecs_service": ("runtime_platform",),
+    "aws_security_group": ("ingress", "egress"),
+    "aws_lb_listener": ("default_action",),
+    "aws_lb_target_group": ("health_check",),
 }
+
+
+def _is_secret_attr(key: str) -> bool:
+    lower = key.lower()
+    if lower in SECRET_ATTR_KEYS:
+        return True
+    return any(lower.endswith(suf) for suf in SECRET_ATTR_SUFFIXES)
+
+
+def _stub_secret_value(value: Any) -> Any:
+    if isinstance(value, bool):
+        return STUB_SECRET_BOOL
+    if isinstance(value, (int, float)):
+        return STUB_SECRET_NUMBER
+    if isinstance(value, list):
+        return [STUB_SECRET_STRING]
+    if isinstance(value, dict):
+        return {k: STUB_SECRET_STRING for k in value}
+    return STUB_SECRET_STRING
 
 
 def _attrs_for_resource(attrs: dict[str, Any], *, resource_type: str = "") -> dict[str, Any]:
     out: dict[str, Any] = {}
     for key, value in attrs.items():
         if _should_skip_attr(key, value):
+            continue
+        if _is_secret_attr(key):
+            out[key] = _stub_secret_value(value)
             continue
         out[key] = value
     if "name" in out and "name_prefix" in out:
@@ -379,6 +442,23 @@ def emit_from_state(group_dir: Path, *, only_missing: bool = True) -> int:
             # State sometimes stores a single object instead of a one-element list.
             if isinstance(raw, dict):
                 raw = [raw]
+            if isinstance(raw, list):
+                scrubbed: list[Any] = []
+                for item in raw:
+                    if isinstance(item, dict):
+                        scrubbed.append(
+                            {
+                                k: (
+                                    _stub_secret_value(v)
+                                    if _is_secret_attr(str(k))
+                                    else v
+                                )
+                                for k, v in item.items()
+                            }
+                        )
+                    else:
+                        scrubbed.append(item)
+                raw = scrubbed
             nested = _render_nested_object_blocks(raw, block_attr, indent=2)
             if nested:
                 lines.append(nested)
@@ -602,6 +682,109 @@ def apply_surgical_fixes(group_dir: Path, targets: list[dict[str, Any]]) -> int:
     return removed
 
 
+def _parse_variable_blocks(text: str) -> list[dict[str, Any]]:
+    """Return [{name, type, has_default, sensitive}] for variable blocks in HCL."""
+    found: list[dict[str, Any]] = []
+    for match in VARIABLE_BLOCK_RE.finditer(text):
+        name = match.group(1)
+        body = match.group(2)
+        typ = "string"
+        type_m = re.search(r"\btype\s*=\s*([^\n#]+)", body)
+        if type_m:
+            typ = type_m.group(1).strip()
+        has_default = bool(re.search(r"\bdefault\s*=", body))
+        sensitive = bool(re.search(r"\bsensitive\s*=\s*true\b", body))
+        found.append(
+            {
+                "name": name,
+                "type": typ,
+                "has_default": has_default,
+                "sensitive": sensitive,
+            }
+        )
+    return found
+
+
+def _stub_value_for_variable_type(type_expr: str, *, sensitive: bool) -> str:
+    """Render an HCL literal suitable for agent.auto.tfvars."""
+    t = type_expr.strip().lower().replace(" ", "")
+    if sensitive or "string" in t or t in ("", "any"):
+        if "list" in t or "set" in t:
+            return f'["{STUB_SECRET_STRING}"]' if sensitive else '["stub"]'
+        if "map" in t or "object" in t:
+            return (
+                f'{{ key = "{STUB_SECRET_STRING}" }}'
+                if sensitive
+                else '{ key = "stub" }'
+            )
+        return f'"{STUB_SECRET_STRING}"' if sensitive else '"stub-agent-value"'
+    if t.startswith("bool") or t == "bool":
+        return "false"
+    if t.startswith("number") or t == "number":
+        return "0"
+    if t.startswith("list") or t.startswith("set"):
+        if "string" in t:
+            return '["stub"]'
+        if "number" in t:
+            return "[0]"
+        if "bool" in t:
+            return "[false]"
+        return '["stub"]'
+    if t.startswith("map") or t.startswith("object"):
+        return '{ key = "stub" }'
+    return f'"{STUB_SECRET_STRING}"' if sensitive else '"stub-agent-value"'
+
+
+def write_agent_stub_tfvars(group_dir: Path) -> int:
+    """Write agent.auto.tfvars with type-correct stubs for declared variables.
+
+    Always stubs sensitive variables. Non-sensitive variables without defaults
+    also get stubs so ``tofu plan -input=false`` can compile. Returns the number
+    of variables written.
+    """
+    group_dir = group_dir.resolve()
+    variables: list[dict[str, Any]] = []
+    for tf_path in sorted(group_dir.glob("*.tf")):
+        if tf_path.name.endswith(".tfvars") or "override" in tf_path.name:
+            continue
+        text = tf_path.read_text(encoding="utf-8", errors="replace")
+        variables.extend(_parse_variable_blocks(text))
+
+    # De-dupe by name (last wins).
+    by_name: dict[str, dict[str, Any]] = {}
+    for var in variables:
+        by_name[var["name"]] = var
+
+    lines = [
+        "# GENERATED — agent-controlled stubs for tofu plan (never apply).",
+        f'# Secrets use "{STUB_SECRET_STRING}".',
+        "",
+    ]
+    written = 0
+    for name, var in sorted(by_name.items()):
+        if var["has_default"] and not var["sensitive"]:
+            continue
+        literal = _stub_value_for_variable_type(
+            str(var["type"]), sensitive=bool(var["sensitive"])
+        )
+        lines.append(f"{name} = {literal}")
+        written += 1
+
+    out = group_dir / "agent.auto.tfvars"
+    if written == 0:
+        # Still write an empty marker so hydrate can prove the stub pass ran.
+        out.write_text(
+            "# GENERATED — no required variables; stub pass complete.\n",
+            encoding="utf-8",
+        )
+        print(f"stub_tfvars group={group_dir.name} variables=0 path={out}")
+        return 0
+
+    out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"stub_tfvars group={group_dir.name} variables={written} path={out}")
+    return written
+
+
 def write_fix_report(
     report_path: Path,
     targets: list[dict[str, Any]],
@@ -642,6 +825,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Replace generated.tf entirely instead of appending missing addresses",
     )
 
+    stub = sub.add_parser(
+        "write-stub-tfvars",
+        help="Write agent.auto.tfvars with type-correct stubs for declared variables",
+    )
+    stub.add_argument("group_dir", type=Path)
+
     parse = sub.add_parser(
         "parse-tofu-errors",
         help="Parse tofu init/validate logs into surgical fix targets JSON",
@@ -664,6 +853,9 @@ def main(argv: list[str] | None = None) -> int:
         return check_destination_resources(args.group_dir)
     if args.command == "emit-from-state":
         return emit_from_state(args.group_dir, only_missing=not args.replace)
+    if args.command == "write-stub-tfvars":
+        write_agent_stub_tfvars(args.group_dir)
+        return 0
     if args.command == "parse-tofu-errors":
         text = args.log_file.read_text(encoding="utf-8", errors="replace")
         targets = parse_tofu_errors(

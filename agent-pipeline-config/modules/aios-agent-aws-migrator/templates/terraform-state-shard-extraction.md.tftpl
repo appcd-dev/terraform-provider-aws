@@ -14,7 +14,7 @@ Keywords: terraform show -json, state list, jq, dependency closure, connectivity
   - **Resource type regex** (e.g. `^(aws_db_|azurerm_mssql_)`).
   - **Explicit include/exclude lists** of addresses.
 - Optional **`grouping_strategy`** string:
-  - Omitted or **`tfstate_monolith_decomposer`** — primary path. Run **`tfstate_monolith_decomposer.py split`**, which classifies resources into Foundation (L1), Platform (L2), and Application (L3), treats cross-layer dependencies as `terraform_remote_state` wiring instead of merge signals, and emits per-group state shards.
+  - Omitted or **`tfstate_monolith_decomposer`** — primary path. Run **`tfstate_monolith_decomposer.py split`**, which classifies resources into Foundation (L1), Platform (L2), and Application (L3), records cross-layer dependencies in **`upstream_refs.json`** (not merge signals), and emits per-group state shards. Hydrate inlines literal attribute IDs in `generated.tf`; do **not** emit `terraform_remote_state` / `upstream.tf` scaffolds.
   - **`layered_three_tier`** — alias for the same decomposer algorithm.
   - Legacy values **`policy_first`**, **`tag_seeded_connectivity`**, **`tag_seeded_connectivity_capped`**, **`connectivity`**, **`connectivity_capped`**, and **`type_chunk`** remain accepted for old payloads, but this AWS-to-Azure workflow should normalize back to **`tfstate_monolith_decomposer`** unless an operator explicitly directs otherwise.
 - Optional **`max_resources_per_appstack`** — hard ceiling on **managed resource instance count** per `group_id` in **`logical_group_manifest`** after allocation. With `tfstate_monolith_decomposer`, this is a candidate knob for deterministic cap partitioning; `0` means unlimited and is often best when cap-splitting creates cross-group references.
@@ -77,7 +77,7 @@ After initial groups exist, **split** any `group_id` whose managed `resource_add
 2. **Partition** into new `group_id`s each with **<= N** addresses, best-effort **minimizing cut edges** (fewer cross-group references):
    - Preferred: **seeded expansion** — pick a high-degree or policy-tagged seed, BFS/DFS add neighbors until N, start the next group from an unvisited high-degree node.
    - Acceptable fallback: **deterministic bin-packing** (lexicographic order into chunks of N) when time-bounded; note `notes.partition: greedy-chunk` so plans can be revisited.
-3. If a **hub** resource would need to appear in multiple groups for correctness, keep it in **one** primary group and record dependent addresses that reference it in `notes.cross_shard_refs` (expect follow-up wiring via `terraform_remote_state` or later IaC). Avoid duplicating the same address in two `group_id` lists.
+3. If a **hub** resource would need to appear in multiple groups for correctness, keep it in **one** primary group and record dependent addresses that reference it in `notes.cross_shard_refs` / `upstream_refs.json`. Downstream hydrate keeps **literal IDs** in `generated.tf` (no `terraform_remote_state` lookup). Avoid duplicating the same address in two `group_id` lists.
 4. Assign fresh **`group_id`**s (suffix `-shard-01`, incrementing counter, etc.), recompute counts, and assert **every** group has `≤ N` resources and the global sum still equals `monolith_resource_count`.
 
 ## 9. Per-group state shards (`groups/<group_id>/terraform.tfstate`)
@@ -179,9 +179,10 @@ the pull request and add plain-language suggestions for reports that do not.
 High fan-in resources (IAM roles/policies, KMS keys, shared log groups, S3
 buckets referenced by many services) are pulled into **`{cloud}-shared-NNN`**
 groups when in-degree ≥ threshold. Workload groups record **`shared_refs`** /
-**`cross_shard_refs`** in manifest notes for later `terraform_remote_state`
-wiring. Hydrate **shared groups first**, then workload shards — this reduces plan
-drift from missing dependency targets.
+**`cross_shard_refs`** in manifest notes and **`upstream_refs.json`**. Hydrate
+inlines literal IDs so each group root plans without remote-state lookups.
+Hydrate **shared groups first**, then workload shards — this reduces plan drift
+from missing dependency targets.
 
 ### Large states (speed + reliability)
 

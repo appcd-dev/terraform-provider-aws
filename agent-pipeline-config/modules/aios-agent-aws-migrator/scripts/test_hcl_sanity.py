@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 
 from hcl_sanity import (
+    STUB_SECRET_STRING,
     apply_surgical_fixes,
     check_destination_resources,
     check_source_parity,
@@ -15,6 +16,7 @@ from hcl_sanity import (
     import_addresses,
     parse_tofu_errors,
     resource_addresses,
+    write_agent_stub_tfvars,
 )
 
 
@@ -371,6 +373,124 @@ class HclSanityTests(unittest.TestCase):
             text = (root / "generated.tf").read_text(encoding="utf-8")
             self.assertNotIn("ipv6_ipam_pool_id", text)
             self.assertIn("cidr_block", text)
+
+    def test_emit_stubs_secret_attrs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "imports.tf").write_text(
+                'import {\n  to = aws_db_instance.db\n  id = "db-1"\n}\n',
+                encoding="utf-8",
+            )
+            state = {
+                "resources": [
+                    {
+                        "mode": "managed",
+                        "type": "aws_db_instance",
+                        "name": "db",
+                        "instances": [
+                            {
+                                "attributes": {
+                                    "id": "db-1",
+                                    "engine": "postgres",
+                                    "password": "super-secret-real",
+                                    "master_password": "also-secret",
+                                    "username": "admin",
+                                }
+                            }
+                        ],
+                    }
+                ]
+            }
+            (root / "terraform.tfstate").write_text(
+                __import__("json").dumps(state), encoding="utf-8"
+            )
+            self.assertEqual(emit_from_state(root), 0)
+            text = (root / "generated.tf").read_text(encoding="utf-8")
+            self.assertIn(f'password = "{STUB_SECRET_STRING}"', text)
+            self.assertIn(f'master_password = "{STUB_SECRET_STRING}"', text)
+            self.assertNotIn("super-secret-real", text)
+            self.assertIn('engine = "postgres"', text)
+            self.assertNotIn("data.terraform_remote_state", text)
+
+    def test_emit_security_group_ingress_as_blocks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "imports.tf").write_text(
+                'import {\n  to = aws_security_group.web\n  id = "sg-1"\n}\n',
+                encoding="utf-8",
+            )
+            state = {
+                "resources": [
+                    {
+                        "mode": "managed",
+                        "type": "aws_security_group",
+                        "name": "web",
+                        "instances": [
+                            {
+                                "attributes": {
+                                    "id": "sg-1",
+                                    "name": "web",
+                                    "vpc_id": "vpc-1",
+                                    "ingress": [
+                                        {
+                                            "from_port": 443,
+                                            "to_port": 443,
+                                            "protocol": "tcp",
+                                            "cidr_blocks": ["0.0.0.0/0"],
+                                        }
+                                    ],
+                                    "egress": [
+                                        {
+                                            "from_port": 0,
+                                            "to_port": 0,
+                                            "protocol": "-1",
+                                            "cidr_blocks": ["0.0.0.0/0"],
+                                        }
+                                    ],
+                                }
+                            }
+                        ],
+                    }
+                ]
+            }
+            (root / "terraform.tfstate").write_text(
+                __import__("json").dumps(state), encoding="utf-8"
+            )
+            self.assertEqual(emit_from_state(root), 0)
+            text = (root / "generated.tf").read_text(encoding="utf-8")
+            self.assertIn("ingress {", text)
+            self.assertIn("egress {", text)
+            self.assertNotIn("ingress = [", text)
+            self.assertIn('vpc_id = "vpc-1"', text)
+
+    def test_write_agent_stub_tfvars(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "variables.tf").write_text(
+                'variable "region" {\n  type = string\n}\n'
+                'variable "db_password" {\n  type = string\n  sensitive = true\n'
+                '  default = "ignored-for-sensitive"\n}\n'
+                'variable "optional_cidr" {\n  type = string\n  default = "10.0.0.0/16"\n}\n',
+                encoding="utf-8",
+            )
+            written = write_agent_stub_tfvars(root)
+            self.assertEqual(written, 2)
+            text = (root / "agent.auto.tfvars").read_text(encoding="utf-8")
+            self.assertIn("region = ", text)
+            self.assertIn(f'db_password = "{STUB_SECRET_STRING}"', text)
+            self.assertNotIn("optional_cidr", text)
+
+    def test_write_agent_stub_tfvars_empty_marker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "providers.tf").write_text(
+                'provider "aws" {\n  region = "us-east-1"\n}\n',
+                encoding="utf-8",
+            )
+            written = write_agent_stub_tfvars(root)
+            self.assertEqual(written, 0)
+            text = (root / "agent.auto.tfvars").read_text(encoding="utf-8")
+            self.assertIn("stub pass complete", text)
 
 
 if __name__ == "__main__":

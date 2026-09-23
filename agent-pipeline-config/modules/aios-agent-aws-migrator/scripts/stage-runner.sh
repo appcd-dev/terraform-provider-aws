@@ -1244,6 +1244,7 @@ cmd_run_tfstate_monolith_decomposer() {
     "${work_root}/reconcile_result.json" \
     "${work_root}/review_items.json" \
     "${work_root}/layer_summary.json" \
+    "${work_root}/upstream_refs.json" \
     "${work_root}/registry_mapping_report.json" \
     "${work_root}/orphans_bundle.json"
   rm -rf "${work_root}/groups"
@@ -1286,6 +1287,9 @@ cmd_run_tfstate_monolith_decomposer() {
   fi
   if [ -f "${work_root}/layer_summary.json" ]; then
     mirror_note "$work_root" "layer_summary_path" "${work_root}/layer_summary.json"
+  fi
+  if [ -f "${work_root}/upstream_refs.json" ]; then
+    mirror_note "$work_root" "upstream_refs_path" "${work_root}/upstream_refs.json"
   fi
   if [ -f "${work_root}/orphans_bundle.json" ]; then
     mirror_note "$work_root" "orphans_bundle" "${work_root}/orphans_bundle.json"
@@ -1567,6 +1571,7 @@ for name in (
     "reconcile_result.json",
     "review_items.json",
     "layer_summary.json",
+    "upstream_refs.json",
     "registry_mapping_report.json",
     "orphans_bundle.json",
 ):
@@ -4004,10 +4009,8 @@ hydrate_one_group() {
   }
 
   while [ "$attempt" -le "$max_attempts" ]; do
-    # OpenTofu refuses -generate-config-out when the target file already exists.
-    # Skip regenerate when generated.tf is present and import parity holds so
-    # pack sanitizers / agent surgical edits survive hydrate retries. Only move
-    # the file aside when we actually need a fresh generate.
+    # Prefer state-backed full attribute emit (literal IDs, secret stubs). Live
+    # plan -generate-config-out is a secondary enricher when parity still fails.
     local need_generate=0
     local pre_generate=""
     if [ ! -f "$gen_tf" ]; then
@@ -4017,36 +4020,47 @@ hydrate_one_group() {
     fi
 
     if [ "$need_generate" -eq 1 ]; then
-      if [ -f "$gen_tf" ]; then
-        pre_generate="generated.tf.pre-${attempt}"
-        mv -f "$gen_tf" "$pre_generate"
+      local sanity_py=""
+      if sanity_py="$(resolve_hcl_sanity_py "$work_root")"; then
+        # Primary: replace/write all import addresses from the group shard.
+        python3 "$sanity_py" emit-from-state --replace "$groups_dir" \
+          >"emit-primary-${attempt}.out" 2>&1 || true
       fi
-      # Capture generate-config-out errors (deleted remotes, tofu bugs). Never discard
-      # stderr — hydrate failures were opaque when this redirected to /dev/null.
-      "$tofu_bin" plan -generate-config-out=generated.tf -input=false -lock=false -no-color \
-        -out="hydrate-${attempt}.tfplan" >"generate-${attempt}.out" 2>&1 || true
-      if [ ! -f "$gen_tf" ] && [ -n "$pre_generate" ] && [ -f "$pre_generate" ]; then
-        mv -f "$pre_generate" "$gen_tf"
+      if [ ! -f "$gen_tf" ] || ! assert_source_group_parity "$work_root" "$groups_dir" >"parity-after-emit-${attempt}.out" 2>&1; then
+        # Secondary: live reverse-config when AWS read still works.
+        if [ -f "$gen_tf" ]; then
+          pre_generate="generated.tf.pre-${attempt}"
+          mv -f "$gen_tf" "$pre_generate"
+        fi
+        "$tofu_bin" plan -generate-config-out=generated.tf -input=false -lock=false -no-color \
+          -out="hydrate-${attempt}.tfplan" >"generate-${attempt}.out" 2>&1 || true
+        if [ ! -f "$gen_tf" ] && [ -n "$pre_generate" ] && [ -f "$pre_generate" ]; then
+          mv -f "$pre_generate" "$gen_tf"
+        fi
+        # If live generate still incomplete, merge missing addresses from state.
+        if [ ! -f "$gen_tf" ] || ! assert_source_group_parity "$work_root" "$groups_dir" >"parity-emit-${attempt}.out" 2>&1; then
+          if [ -n "${sanity_py:-}" ] || sanity_py="$(resolve_hcl_sanity_py "$work_root")"; then
+            python3 "$sanity_py" emit-from-state "$groups_dir" >"emit-${attempt}.out" 2>&1 || true
+          fi
+        fi
+      else
+        echo "emit_primary_ok=${group_id} attempt=${attempt}" >"generate-${attempt}.out"
       fi
     else
       echo "generate_skipped=${group_id} reason=existing_generated_tf_parity_ok attempt=${attempt}" \
         >"generate-${attempt}.out"
     fi
-
-    # Fallback: emit resource stubs from terraform.tfstate when live generate fails
-    # (gone EIPs, "Resource has no configuration", etc.). verify plan uses
-    # -refresh=false so deleted remotes can still zero-diff against state.
-    if [ ! -f "$gen_tf" ] || ! assert_source_group_parity "$work_root" "$groups_dir" >"parity-emit-${attempt}.out" 2>&1; then
-      local sanity_py=""
-      if sanity_py="$(resolve_hcl_sanity_py "$work_root")"; then
-        python3 "$sanity_py" emit-from-state "$groups_dir" >"emit-${attempt}.out" 2>&1 || true
-      fi
-    fi
     if [ -f "$gen_tf" ]; then
       fix_generated_tf_name_conflicts "$gen_tf"
     fi
 
-    local fmt_status validate_status test_status lint_status validation_ok has_tests parity_ok plan_rc
+    # Agent-controlled stub vars/secrets so plan -input=false can compile.
+    local sanity_stub=""
+    if sanity_stub="$(resolve_hcl_sanity_py "$work_root")"; then
+      python3 "$sanity_stub" write-stub-tfvars "$groups_dir" >"stub-tfvars-${attempt}.out" 2>&1 || true
+    fi
+
+    local fmt_status validate_status test_status lint_status validation_ok has_tests parity_ok plan_rc compile_ok
     local error_snippet=""
     fmt_status="false"
     validate_status="false"
@@ -4054,6 +4068,7 @@ hydrate_one_group() {
     lint_status="skipped:tflint_missing"
     parity_ok="false"
     validation_ok="true"
+    compile_ok="false"
     plan_rc=1
 
     # Incomplete hydrate must fail closed: missing generated.tf or import gaps
@@ -4132,13 +4147,15 @@ hydrate_one_group() {
         --arg validate "$validate_status" \
         --arg test "$test_status" \
         --arg lint "$lint_status" \
+        --argjson compile false \
         --arg snippet "$error_snippet" \
         --argjson attempt "$attempt" \
-        '{generated_tf_path:$path,plan_no_changes:false,plan_exit_code:null,import_generated_parity:$parity,remaining_actions:{add:0,change:0,destroy:0},validation:{fmt:$fmt,validate:$validate,test:$test,lint:$lint},error_snippet:$snippet,attempt:$attempt}')"
+        '{generated_tf_path:$path,plan_no_changes:false,plan_exit_code:null,import_generated_parity:$parity,remaining_actions:{add:0,change:0,destroy:0},validation:{fmt:$fmt,validate:$validate,test:$test,lint:$lint},compile_ok:$compile,error_snippet:$snippet,attempt:$attempt}')"
       mirror_note "$work_root" "hcl_hydration_status:${group_id}" "$status_json"
       if [ -n "$error_snippet" ]; then
         echo "group_validate_error=${group_id} ${error_snippet}"
       fi
+      echo "group_compile_ok=${group_id} false attempt=${attempt}"
       attempt=$((attempt + 1))
       continue
     fi
@@ -4152,40 +4169,102 @@ hydrate_one_group() {
     # "N to add" lines and used to default remaining_actions to zeros (PR #44).
     if [ "$plan_rc" -ne 0 ]; then
       remaining_json='{"add":0,"change":0,"destroy":0}'
-      status_json="{\"generated_tf_path\":\"${gen_tf}\",\"plan_no_changes\":false,\"plan_exit_code\":${plan_rc},\"import_generated_parity\":${parity_ok},\"remaining_actions\":${remaining_json},\"validation\":{\"fmt\":\"${fmt_status}\",\"validate\":\"${validate_status}\",\"test\":\"${test_status}\",\"lint\":\"${lint_status}\"},\"attempt\":${attempt}}"
+      emit_hcl_fix_targets "$work_root" "$group_id" "plan-${attempt}.out" || true
+      error_snippet="$(validation_error_snippet "plan-${attempt}.out" 500)"
+      status_json="$(jq -nc \
+        --arg path "$gen_tf" \
+        --argjson parity "$parity_ok" \
+        --arg fmt "$fmt_status" \
+        --arg validate "$validate_status" \
+        --arg test "$test_status" \
+        --arg lint "$lint_status" \
+        --argjson compile false \
+        --argjson plan_rc "$plan_rc" \
+        --argjson remaining "$remaining_json" \
+        --arg snippet "$error_snippet" \
+        --argjson attempt "$attempt" \
+        '{generated_tf_path:$path,plan_no_changes:false,plan_exit_code:$plan_rc,import_generated_parity:$parity,remaining_actions:$remaining,validation:{fmt:$fmt,validate:$validate,test:$test,lint:$lint},compile_ok:$compile,error_snippet:$snippet,attempt:$attempt}')"
       mirror_note "$work_root" "hcl_hydration_status:${group_id}" "$status_json"
       echo "group_valid=${group_id} plan_status=failed attempt=${attempt}"
-      return 0
+      echo "group_compile_ok=${group_id} false attempt=${attempt}"
+      attempt=$((attempt + 1))
+      continue
     fi
 
+    compile_ok="true"
     remaining_json="$(plan_change_counts_json "$tofu_bin" "$plan_file" 2>/dev/null || echo '{"add":0,"change":0,"destroy":0}')"
 
     if printf '%s' "$plan_out" | grep -q 'No changes'; then
-      status_json="{\"generated_tf_path\":\"${gen_tf}\",\"plan_no_changes\":true,\"plan_exit_code\":0,\"import_generated_parity\":${parity_ok},\"remaining_actions\":${remaining_json},\"validation\":{\"fmt\":\"${fmt_status}\",\"validate\":\"${validate_status}\",\"test\":\"${test_status}\",\"lint\":\"${lint_status}\"},\"attempt\":${attempt}}"
+      status_json="$(jq -nc \
+        --arg path "$gen_tf" \
+        --argjson parity "$parity_ok" \
+        --arg fmt "$fmt_status" \
+        --arg validate "$validate_status" \
+        --arg test "$test_status" \
+        --arg lint "$lint_status" \
+        --argjson compile true \
+        --argjson remaining "$remaining_json" \
+        --argjson attempt "$attempt" \
+        '{generated_tf_path:$path,plan_no_changes:true,plan_exit_code:0,import_generated_parity:$parity,remaining_actions:$remaining,validation:{fmt:$fmt,validate:$validate,test:$test,lint:$lint},compile_ok:$compile,attempt:$attempt}')"
       mirror_note "$work_root" "hcl_hydration_status:${group_id}" "$status_json"
       echo "group_ok=${group_id} attempt=${attempt}"
+      echo "group_compile_ok=${group_id} true attempt=${attempt}"
       return 0
     fi
 
     if [ "$remaining_json" = '{"add":0,"change":0,"destroy":0}' ] && \
       ! printf '%s' "$plan_out" | grep -qE '[0-9]+ to (add|change|destroy)'; then
-      status_json="{\"generated_tf_path\":\"${gen_tf}\",\"plan_no_changes\":true,\"plan_exit_code\":0,\"import_generated_parity\":${parity_ok},\"remaining_actions\":${remaining_json},\"validation\":{\"fmt\":\"${fmt_status}\",\"validate\":\"${validate_status}\",\"test\":\"${test_status}\",\"lint\":\"${lint_status}\"},\"attempt\":${attempt}}"
+      status_json="$(jq -nc \
+        --arg path "$gen_tf" \
+        --argjson parity "$parity_ok" \
+        --arg fmt "$fmt_status" \
+        --arg validate "$validate_status" \
+        --arg test "$test_status" \
+        --arg lint "$lint_status" \
+        --argjson compile true \
+        --argjson remaining "$remaining_json" \
+        --argjson attempt "$attempt" \
+        '{generated_tf_path:$path,plan_no_changes:true,plan_exit_code:0,import_generated_parity:$parity,remaining_actions:$remaining,validation:{fmt:$fmt,validate:$validate,test:$test,lint:$lint},compile_ok:$compile,attempt:$attempt}')"
       mirror_note "$work_root" "hcl_hydration_status:${group_id}" "$status_json"
       echo "group_ok=${group_id} attempt=${attempt}"
+      echo "group_compile_ok=${group_id} true attempt=${attempt}"
       return 0
     fi
 
-    status_json="{\"generated_tf_path\":\"${gen_tf}\",\"plan_no_changes\":false,\"plan_exit_code\":0,\"import_generated_parity\":${parity_ok},\"remaining_actions\":${remaining_json},\"validation\":{\"fmt\":\"${fmt_status}\",\"validate\":\"${validate_status}\",\"test\":\"${test_status}\",\"lint\":\"${lint_status}\"},\"attempt\":${attempt}}"
+    status_json="$(jq -nc \
+      --arg path "$gen_tf" \
+      --argjson parity "$parity_ok" \
+      --arg fmt "$fmt_status" \
+      --arg validate "$validate_status" \
+      --arg test "$test_status" \
+      --arg lint "$lint_status" \
+      --argjson compile true \
+      --argjson remaining "$remaining_json" \
+      --argjson attempt "$attempt" \
+      '{generated_tf_path:$path,plan_no_changes:false,plan_exit_code:0,import_generated_parity:$parity,remaining_actions:$remaining,validation:{fmt:$fmt,validate:$validate,test:$test,lint:$lint},compile_ok:$compile,attempt:$attempt}')"
     mirror_note "$work_root" "hcl_hydration_status:${group_id}" "$status_json"
     echo "group_valid=${group_id} plan_status=changes_remaining remaining=${remaining_json} attempt=${attempt}"
+    echo "group_compile_ok=${group_id} true attempt=${attempt}"
     return 0
   done
 
   if [ -z "${remaining_json:-}" ]; then
     remaining_json='{"add":0,"change":0,"destroy":0}'
   fi
-  status_json="{\"generated_tf_path\":\"${gen_tf}\",\"plan_no_changes\":false,\"plan_exit_code\":${plan_rc:-1},\"import_generated_parity\":${parity_ok:-false},\"remaining_actions\":${remaining_json},\"validation\":{\"fmt\":\"${fmt_status:-false}\",\"validate\":\"${validate_status:-false}\",\"test\":\"${test_status:-unknown}\",\"lint\":\"${lint_status:-unknown}\"},\"attempt\":$((max_attempts))}"
+  status_json="$(jq -nc \
+    --arg path "$gen_tf" \
+    --argjson parity "${parity_ok:-false}" \
+    --arg fmt "${fmt_status:-false}" \
+    --arg validate "${validate_status:-false}" \
+    --arg test "${test_status:-unknown}" \
+    --arg lint "${lint_status:-unknown}" \
+    --argjson compile false \
+    --argjson plan_rc "${plan_rc:-1}" \
+    --argjson remaining "$remaining_json" \
+    --argjson attempt "$max_attempts" \
+    '{generated_tf_path:$path,plan_no_changes:false,plan_exit_code:$plan_rc,import_generated_parity:$parity,remaining_actions:$remaining,validation:{fmt:$fmt,validate:$validate,test:$test,lint:$lint},compile_ok:$compile,attempt:$attempt}')"
   mirror_note "$work_root" "hcl_hydration_status:${group_id}" "$status_json"
+  echo "group_compile_ok=${group_id} false attempt=${max_attempts}"
   # Soft coverage: keep generated.tf even when fmt/validate still fail. Matrix
   # records terraform_validation_ok=false; sync still pushes the HCL.
   if [ -f "$gen_tf" ]; then
@@ -4196,13 +4275,13 @@ hydrate_one_group() {
   return 1
 }
 
-# True when a prior hydrate visit already left this group fmt+validate green with
-# a non-empty generated.tf. Used to resume after SIGKILL/OOM without redoing work.
+# True when a prior hydrate visit already left this group fmt+validate+compile
+# green with a non-empty generated.tf. Used to resume after SIGKILL/OOM.
 group_hydrate_already_ok() {
   local work_root="${1:?WORK_ROOT}"
   local group_id="${2:?GROUP_ID}"
   local gen_tf="${work_root}/groups/${group_id}/generated.tf"
-  local status_blob validate_flag fmt_flag
+  local status_blob validate_flag fmt_flag compile_flag
 
   [ -f "$gen_tf" ] || return 1
   # Reject agent "heals" that truncate generated.tf (session 1864c3a4).
@@ -4211,7 +4290,8 @@ group_hydrate_already_ok() {
   [ -n "$status_blob" ] || return 1
   validate_flag="$(printf '%s' "$status_blob" | jq -r '.validation.validate // "false"' 2>/dev/null || echo false)"
   fmt_flag="$(printf '%s' "$status_blob" | jq -r '.validation.fmt // "false"' 2>/dev/null || echo false)"
-  [ "$validate_flag" = "true" ] && [ "$fmt_flag" = "true" ]
+  compile_flag="$(printf '%s' "$status_blob" | jq -r '.compile_ok // false' 2>/dev/null || echo false)"
+  [ "$validate_flag" = "true" ] && [ "$fmt_flag" = "true" ] && [ "$compile_flag" = "true" ]
 }
 
 # Persist matrix progress after each group so a SIGKILL mid-loop still leaves a
@@ -4262,9 +4342,11 @@ cmd_hydrate_and_plan_matrix() {
   fi
 
   # Cap work per pack visit so one execute_series cannot OOM the runner
-  # (signal: killed). 0 = unlimited. Resume skips already-green groups.
-  local max_per_visit="${DBSPLIT_HYDRATE_MAX_GROUPS_PER_VISIT:-8}"
-  local ok_count fail_count zero_count total missing_count soft_count
+  # (signal: killed). 0 = unlimited (default) — finish all groups before Ready.
+  # Set DBSPLIT_HYDRATE_MAX_GROUPS_PER_VISIT>0 only when deliberately batching;
+  # shell-converge-loop GO_BACKs until hydrate_groups_remaining=0.
+  local max_per_visit="${DBSPLIT_HYDRATE_MAX_GROUPS_PER_VISIT:-0}"
+  local ok_count fail_count zero_count total missing_count soft_count compile_ok_count
   local skipped_ok processed_this_visit remaining deferred
   ok_count=0
   fail_count=0
@@ -4272,6 +4354,7 @@ cmd_hydrate_and_plan_matrix() {
   total=0
   missing_count=0
   soft_count=0
+  compile_ok_count=0
   skipped_ok=0
   processed_this_visit=0
   remaining=0
@@ -4288,6 +4371,7 @@ cmd_hydrate_and_plan_matrix() {
     if group_hydrate_already_ok "$work_root" "$group_id"; then
       skipped_ok=$((skipped_ok + 1))
       ok_count=$((ok_count + 1))
+      compile_ok_count=$((compile_ok_count + 1))
       local status_blob plan_zero
       status_blob="$(read_note "$work_root" "hcl_hydration_status:${group_id}" 2>/dev/null || true)"
       plan_zero="$(printf '%s' "$status_blob" | jq -r '.plan_no_changes // false' 2>/dev/null || echo false)"
@@ -4308,13 +4392,15 @@ cmd_hydrate_and_plan_matrix() {
 
     processed_this_visit=$((processed_this_visit + 1))
     if hydrate_one_group "$work_root" "$group_id" "$tofu_bin"; then
-      local status_blob validate_flag fmt_flag plan_zero
+      local status_blob validate_flag fmt_flag plan_zero compile_flag
       status_blob="$(read_note "$work_root" "hcl_hydration_status:${group_id}" 2>/dev/null || true)"
       validate_flag="$(printf '%s' "$status_blob" | jq -r '.validation.validate // "false"' 2>/dev/null || echo false)"
       fmt_flag="$(printf '%s' "$status_blob" | jq -r '.validation.fmt // "false"' 2>/dev/null || echo false)"
       plan_zero="$(printf '%s' "$status_blob" | jq -r '.plan_no_changes // false' 2>/dev/null || echo false)"
-      if [ "$validate_flag" = "true" ] && [ "$fmt_flag" = "true" ]; then
+      compile_flag="$(printf '%s' "$status_blob" | jq -r '.compile_ok // false' 2>/dev/null || echo false)"
+      if [ "$validate_flag" = "true" ] && [ "$fmt_flag" = "true" ] && [ "$compile_flag" = "true" ]; then
         ok_count=$((ok_count + 1))
+        compile_ok_count=$((compile_ok_count + 1))
         if [ "$plan_zero" = "true" ]; then
           zero_count=$((zero_count + 1))
         fi
@@ -4370,13 +4456,15 @@ cmd_hydrate_and_plan_matrix() {
   mirror_note "$work_root" "hydrate_groups_resumed" "$skipped_ok"
   mirror_note "$work_root" "hydrate_groups_processed_this_visit" "$processed_this_visit"
   mirror_note "$work_root" "hydrate_groups_remaining" "$remaining"
-  mirror_note "$work_root" "stage_summary:shell-converge-matrix" "valid_groups=${ok_count} invalid_groups=${fail_count} soft_hydrated_groups=${soft_count} missing_generated_tf=${missing_count} zero_change_groups=${zero_count} generated_tf_count=${generated_count} resumed=${skipped_ok} processed=${processed_this_visit} remaining=${remaining}"
+  mirror_note "$work_root" "hydrate_compile_ok_count" "$compile_ok_count"
+  mirror_note "$work_root" "stage_summary:shell-converge-matrix" "valid_groups=${ok_count} invalid_groups=${fail_count} soft_hydrated_groups=${soft_count} missing_generated_tf=${missing_count} zero_change_groups=${zero_count} compile_ok_groups=${compile_ok_count} generated_tf_count=${generated_count} resumed=${skipped_ok} processed=${processed_this_visit} remaining=${remaining}"
 
   echo "terraform_valid_groups=${ok_count}"
   echo "terraform_invalid_groups=${fail_count}"
   echo "terraform_soft_hydrated_groups=${soft_count}"
   echo "terraform_missing_generated_tf=${missing_count}"
   echo "terraform_zero_change_groups=${zero_count}"
+  echo "terraform_compile_ok_groups=${compile_ok_count}"
   echo "hydrated_generated_tf_count=${generated_count}"
   echo "hydrate_group_selected=${total}"
   echo "hydrate_groups_resumed=${skipped_ok}"
