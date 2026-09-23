@@ -115,10 +115,16 @@ module "aws_migrator" {
   create_remote_runner          = false
   remote_runner_name            = data.sg_remote_runner.customer[0].name
   remote_runner_attach_to_agent = true
-  # Walmart Guild rejects Generic/env vault secrets; pack is baked into the ACA
-  # nile-factory-runner image (Stackgen-Runner), not synced via mothership.
+  # Pack is baked into the ACA nile-factory-runner image (Stackgen-Runner). Keep
+  # SCRIPT_PACK_* generic vault sync off — Walmart Guild rejects Generic/env
+  # secrets for that path. Git credentials MUST sync: without them nile-runner_gh /
+  # pack-entry / gh pr create fail with "populate GH_TOKEN" even when the
+  # cloud-github MCP integration works.
   remote_runner_script_pack_sync_enabled = false
-  remote_runner_secret_sync_enabled      = false
+  remote_runner_secret_sync_enabled      = true
+  # Same PAT as cloud-github integration; typed slot `github` → GIT_TOKEN/GH_TOKEN
+  # on the runner via mothership secret sync (memory-only).
+  runner_git_token = var.github_token
 
   azure_only_source_branch = var.azure_only_source_branch
   gcp_only_source_branch   = var.gcp_only_source_branch
