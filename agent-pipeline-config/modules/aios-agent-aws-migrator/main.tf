@@ -75,8 +75,11 @@ locals {
   resolved_gcp_integration_name   = trimspace(var.existing_gcp_integration_name)
 
   # Runner mothership sync: vault metadata must be flat env keys (GIT_TOKEN, AWS_ACCESS_KEY_ID, ARM_*, …).
+  # Create vault secrets whenever inline creds are set — including customer-managed runners
+  # (create_remote_runner=false). Gating AWS on create_remote_runner left Walmart with git
+  # sync only and empty AWS_* on nile-runner (session 1db33f6a cloud2code IMDS failure).
   create_runner_git_env_secret = trimspace(var.runner_git_token) != ""
-  create_runner_aws_env_secret = var.create_remote_runner && (
+  create_runner_aws_env_secret = (
     trimspace(var.runner_aws_access_key_id) != "" && trimspace(var.runner_aws_secret_access_key) != ""
   )
 

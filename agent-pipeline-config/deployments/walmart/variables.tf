@@ -58,6 +58,18 @@ variable "remote_runner_name" {
   default     = ""
 }
 
+variable "runner_aws_env_secret_id" {
+  description = "Vault secret UUID bound to nile-runner typed aws slot (AWS_* via vault resolve). Default is vibe-aws-scanner-key-main (Vibe main-account access keys)."
+  type        = string
+  default     = "03648a3e-e892-5e8e-88f3-adf33adb9c91"
+}
+
+variable "runner_aws_region" {
+  description = "AWS region written into runner sync context for discovery scans."
+  type        = string
+  default     = "us-east-1"
+}
+
 variable "azure_integration_name" {
   description = "Optional existing Azure Aiden integration name to attach to the agent."
   type        = string

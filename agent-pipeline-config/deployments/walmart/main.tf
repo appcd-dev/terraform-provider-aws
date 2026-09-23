@@ -125,6 +125,12 @@ module "aws_migrator" {
   # Same PAT as cloud-github integration; typed slot `github` → GIT_TOKEN/GH_TOKEN
   # on the runner via mothership secret sync (memory-only).
   runner_git_token = var.github_token
+  # Typed slot `aws` → AWS_ACCESS_KEY_ID/SECRET via vault resolve. Default
+  # runner_aws_env_secret_id is vibe-aws-scanner-key-main (Vibe main access keys).
+  # cloud2code on ACA has no EC2 IMDS; without this sync scan fails with
+  # "no EC2 IMDS role found" (session 1db33f6a).
+  runner_aws_env_secret_id = var.runner_aws_env_secret_id
+  runner_aws_region        = var.runner_aws_region
 
   azure_only_source_branch = var.azure_only_source_branch
   gcp_only_source_branch   = var.gcp_only_source_branch
