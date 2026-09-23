@@ -59,12 +59,12 @@ variable "remote_runner_name" {
 }
 
 variable "runner_aws_env_secret_id" {
-  description = "Vault secret UUID bound to nile-runner typed aws slot (AWS_* via vault resolve). Default is vibe-aws-scanner (role-based; broader than vibe-aws-scanner-key-main access keys)."
+  description = "Vault secret UUID bound to nile-runner typed aws slot (AWS_* via vault resolve). Default is nile-vibe-scanner-main (Nile scanner for cloud2code; prior discovery PRs used IAM user nile-factory in 366938945728)."
   type        = string
-  # vibe-aws-scanner integration secret_ref (assume_role). key-main access keys
-  # sync and STS-identity work, but cloud2code still read_failed on aws_alb /
-  # aws_api_gateway_rest_api (session 894d9f8d).
-  default = "b400ee9e-7d8e-5060-b20d-75eec372df07"
+  # Prior successful discovery (PR #53/#60) authenticated as
+  # arn:aws:iam::366938945728:user/nile-factory. vibe-aws-scanner* secrets are
+  # Vibe's main account and only list ~38 resources with ALB/API GW read_failed.
+  default = "59dfde2a-3980-56a5-81f8-bb9be5de5e33"
 }
 
 variable "runner_aws_region" {
