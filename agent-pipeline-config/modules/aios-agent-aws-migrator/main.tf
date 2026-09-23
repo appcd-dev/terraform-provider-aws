@@ -452,8 +452,17 @@ locals {
   # pasting multi-KB inline fetch; session d8faf9c8: browser download URL 404s on
   # private repos — use gh release download / API asset URL instead).
   script_pack_entry_url = "https://github.com/${trimspace(var.script_pack_release_repo)}/releases/download/pack-${local.script_pack_version}/pack-entry.sh"
+  # Prefer baked /opt stage scripts when the ACA image already has this pack
+  # (embed-script-pack.sh does not copy pack-entry.sh; Walmart disables vault pack
+  # sync). After a revision roll GIT_TOKEN/`token` may be absent and
+  # `gh release download` fails before any stage runs (session b55b2b3d / 62970ce6).
+  # Fall back to gh pack-entry for greenfield / lagging images.
   # Prefix already ends with `;` — do not add another or dash sees `;;` (session c6cb3339).
-  runner_pack_entry_invoke = "${local.runner_git_env_prefix} D=$(mktemp -d); gh release download 'pack-${local.script_pack_version}' -R '${trimspace(var.script_pack_release_repo)}' -p pack-entry.sh -D \"$${D}\" && bash \"$${D}/pack-entry.sh\""
+  # Use "$@"/$(mktemp) unescaped — $${@} corrupts under TF interpolation.
+  # Drop stale Azure Files ~/.aws cache so SDK does not chase expired IMDS/SSO
+  # before typed-secret env keys (session 3f867683 / ced6484d).
+  runner_aws_cred_hygiene = "unset AWS_PROFILE; rm -rf \"$${HOME}/.aws/cli/cache\" \"$${HOME}/.aws/sso\" 2>/dev/null || true; echo \"aws_env_keys=$(env | grep '^AWS_' | cut -d= -f1 | tr '\\n' ' ')\"; if [ -f \"$${HOME}/.aws/credentials\" ]; then echo aws_credentials_file=present; else echo aws_credentials_file=absent; fi;"
+  runner_pack_entry_invoke = "${local.runner_git_env_prefix} ${local.runner_aws_cred_hygiene} pack_entry(){ P='${local.script_pack_preload_dir}'; if [ -f \"$${P}/cloud2code-aws-scan.sh\" ] && [ -f \"$${P}/runner-capability-preflight.sh\" ] && [ -f \"$${P}/ingest-bootstrap.sh\" ] && [ -f \"$${P}/iac-pr-bootstrap.sh\" ] && [ -f \"$${P}/converge-bootstrap.sh\" ]; then case \"$${1}\" in preflight) shift; exec bash \"$${P}/runner-capability-preflight.sh\" \"$@\"; ;; scan) shift; exec bash \"$${P}/cloud2code-aws-scan.sh\" \"$@\"; ;; ingest) shift; exec bash \"$${P}/ingest-bootstrap.sh\" \"$@\"; ;; iac-pr) shift; exec bash \"$${P}/iac-pr-bootstrap.sh\" \"$@\"; ;; converge) shift; exec bash \"$${P}/converge-bootstrap.sh\" \"$@\"; ;; destination) shift; exec bash \"$${P}/run-destination-stage.sh\" \"$@\"; ;; *) echo \"pack_entry_error=unknown_cmd cmd=$${1}\" >&2; exit 2; ;; esac; fi; D=$(mktemp -d); gh release download 'pack-${local.script_pack_version}' -R '${trimspace(var.script_pack_release_repo)}' -p pack-entry.sh -D \"$${D}\" && exec bash \"$${D}/pack-entry.sh\" \"$@\"; }; pack_entry"
   # Self-heal pack fetch on every pack-path stage so a faked preflight (session
   # b506b854: printf runner_capability_preflight_ok) cannot leave /opt empty.
   runner_capability_preflight_execute_series_body = "${local.runner_pack_entry_invoke} preflight '{{workflow_run_id}}'"
