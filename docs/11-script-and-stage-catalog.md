@@ -132,6 +132,7 @@ Loop stages: `gcp-iac-loop`, `gcp-iac-governance-loop`.
 | `cmd_destination_iac_governance_conform` | — |
 | `cmd_azure_iac_governance_conform` | — |
 | `cmd_gcp_iac_governance_conform` | — |
+| `cmd_destination_iac_validate` | — |
 | `cmd_azure_iac_validate` | — |
 | `cmd_azure_pr` | — |
 | `cmd_gcp_source_fetch` | — |

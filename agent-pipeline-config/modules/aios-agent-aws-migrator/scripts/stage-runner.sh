@@ -4,7 +4,7 @@
 # Usage: DBSPLIT_EMBEDDED=1 bash -s <command> [args...] << 'DBSPLIT_STAGE_RUNNER' ... DBSPLIT_STAGE_RUNNER
 set -euo pipefail
 
-SCRIPT_PACK_VERSION="20260911.23"
+SCRIPT_PACK_VERSION="20260911.24"
 DBSPLIT_DEFAULT_STRATEGY="${DBSPLIT_DEFAULT_STRATEGY:-tfstate_monolith_decomposer}"
 DBSPLIT_DEFAULT_CAP="${DBSPLIT_DEFAULT_CAP:-0}"
 REQUIRED_ALLOCATE_MARKER="def merge_small_by_seed"
@@ -3011,6 +3011,24 @@ prune_iac_sync_runtime_artifacts() {
   \) -delete 2>/dev/null || true
 }
 
+
+# True when a per-group validate result is complete enough to skip on resume.
+destination_validate_group_result_complete() {
+  local f="${1:?}"
+  [ -f "$f" ] || return 1
+  command -v jq >/dev/null 2>&1 || return 1
+  jq -e '
+    (.group_id | type == "string" and length > 0)
+    and (.fmt | type == "string")
+    and (.validate | type == "string")
+    and (.test | type == "string")
+    and (.lint | type == "string")
+    and (.plan_status | type == "string")
+    and has("plan_counts")
+    and has("validation_ok")
+  ' "$f" >/dev/null 2>&1
+}
+
 # In-progress validation JSON lives under .work/, never under */artifacts/.
 # Interrupted validates used to leave validation-report.XXXXXX in artifacts and
 # azure-pr / gcp-pr committed those leftovers via cp -a of the whole tree.
@@ -5421,285 +5439,413 @@ emit_governance_residual_md() {
   fi
 }
 
-cmd_azure_iac_validate() {
+cmd_destination_iac_validate() {
   local work_root="${1:?WORK_ROOT}"
+  local cloud="${2:?CLOUD}" # azure|gcp
   require_embedded_invocation || return 1
 
-  if [ ! -d "${work_root}/azure/groups" ]; then
-    cmd_azure_iac_generate "$work_root"
+  if [ "$cloud" != "azure" ] && [ "$cloud" != "gcp" ]; then
+    echo "destination_validate_error=unsupported_cloud cloud=${cloud}" >&2
+    return 1
+  fi
+
+  # Materialize ADC for the google provider when vault only supplies JSON.
+  if [ "$cloud" = "gcp" ]; then
+    if [ -n "${GOOGLE_APPLICATION_CREDENTIALS_JSON:-}" ] && [ -z "${GOOGLE_APPLICATION_CREDENTIALS:-}" ]; then
+      mkdir -p "${work_root}/.work"
+      printf '%s' "$GOOGLE_APPLICATION_CREDENTIALS_JSON" >"${work_root}/.work/gcp-sa.json"
+      export GOOGLE_APPLICATION_CREDENTIALS="${work_root}/.work/gcp-sa.json"
+    fi
+    if [ -n "${GCP_PROJECT_ID:-}" ]; then
+      export GOOGLE_CLOUD_PROJECT="$GCP_PROJECT_ID"
+      export CLOUDSDK_CORE_PROJECT="$GCP_PROJECT_ID"
+    fi
+  fi
+
+  if [ ! -d "${work_root}/${cloud}/groups" ]; then
+    if [ "$cloud" = "azure" ]; then
+      cmd_azure_iac_generate "$work_root"
+    else
+      cmd_gcp_iac_generate "$work_root"
+    fi
   fi
 
   local tofu_bin
   if ! tofu_bin="$(resolve_tofu_bin)"; then
     mirror_note "$work_root" "blocked:remote_runner_tofu_missing" "true"
-    mirror_note "$work_root" "azure_iac_validation_ok" "false"
+    mirror_note "$work_root" "${cloud}_iac_validation_ok" "false"
     echo 'blocked:remote_runner_tofu_missing: "true"'
-    echo 'azure_iac_validation_ok: "false"'
+    echo "${cloud}_iac_validation_ok: \"false\""
     return 1
   fi
 
-  local report="${work_root}/azure/artifacts/validation-report.json"
-  local tmp_report
-  tmp_report="$(mktemp_destination_validation_report "$work_root")"
-  printf '{"groups":[]}\n' >"$tmp_report"
+  local groups_dir="${work_root}/${cloud}/groups"
+  local artifacts_dir="${work_root}/${cloud}/artifacts"
+  local report="${artifacts_dir}/validation-report.json"
+  local groups_out="${artifacts_dir}/validate-groups"
+  local parallel="${DEST_VALIDATE_PARALLELISM:-4}"
+  local run_tflint="${DEST_VALIDATE_RUN_TFLINT:-0}"
+  local plan_tfplan="${cloud}.tfplan"
+  local resume_skipped=0
+
+  mkdir -p "$artifacts_dir" "$groups_out"
+  echo "dest_validate_parallelism=${parallel}"
 
   local plan_mode plan_status_overall require_live_plan
-  require_live_plan="${REQUIRE_AZURE_LIVE_PLAN:-0}"
-  if azure_credentials_configured; then
-    plan_mode="enabled"
-    plan_status_overall="success"
+  if [ "$cloud" = "azure" ]; then
+    require_live_plan="${REQUIRE_AZURE_LIVE_PLAN:-0}"
+    if azure_credentials_configured; then
+      plan_mode="enabled"
+      plan_status_overall="success"
+    else
+      plan_mode="skipped"
+      plan_status_overall="skipped:missing_credentials"
+      if [ "$require_live_plan" = "1" ] || [ "$require_live_plan" = "true" ]; then
+        mirror_note "$work_root" "azure_iac_validation_ok" "false"
+        mirror_note "$work_root" "azure_plan_status" "skipped:missing_credentials"
+        mirror_note "$work_root" "stage_summary:azure-iac-validate" "blocked:missing_azure_credentials"
+        echo 'azure_plan_status=skipped:missing_credentials'
+        echo 'azure_iac_validation_ok: "false"'
+        echo 'stage_summary:azure-iac-validate=blocked:missing_azure_credentials'
+        echo 'blocked:missing_azure_credentials: "true"'
+        return 1
+      fi
+    fi
   else
-    plan_mode="skipped"
-    plan_status_overall="skipped:missing_credentials"
-    if [ "$require_live_plan" = "1" ] || [ "$require_live_plan" = "true" ]; then
-      mirror_note "$work_root" "azure_iac_validation_ok" "false"
-      mirror_note "$work_root" "azure_plan_status" "skipped:missing_credentials"
-      mirror_note "$work_root" "stage_summary:azure-iac-validate" "blocked:missing_azure_credentials"
-      echo 'azure_plan_status=skipped:missing_credentials'
-      echo 'azure_iac_validation_ok: "false"'
-      echo 'stage_summary:azure-iac-validate=blocked:missing_azure_credentials'
-      echo 'blocked:missing_azure_credentials: "true"'
-      rm -f "$tmp_report"
-      return 1
+    require_live_plan="${REQUIRE_GCP_LIVE_PLAN:-0}"
+    if gcp_credentials_configured; then
+      plan_mode="enabled"
+      plan_status_overall="success"
+    else
+      plan_mode="skipped"
+      plan_status_overall="skipped:missing_credentials"
+      if [ "$require_live_plan" = "1" ] || [ "$require_live_plan" = "true" ]; then
+        mirror_note "$work_root" "gcp_iac_validation_ok" "false"
+        mirror_note "$work_root" "gcp_plan_status" "skipped:missing_credentials"
+        mirror_note "$work_root" "stage_summary:gcp-iac-validate" "blocked:missing_gcp_credentials"
+        echo 'gcp_plan_status=skipped:missing_credentials'
+        echo 'gcp_iac_validation_ok: "false"'
+        echo 'stage_summary:gcp-iac-validate=blocked:missing_gcp_credentials'
+        echo 'blocked:missing_gcp_credentials: "true"'
+        return 1
+      fi
     fi
   fi
 
-  # Hundreds of groups each init the same azurerm provider. Without a shared
-  # cache every group downloads and stores its own copy, which is both slow and
-  # large enough to exhaust the runner's disk.
+  # Hundreds of groups each init the same provider. Without a shared cache every
+  # group downloads and stores its own copy, which is both slow and large enough
+  # to exhaust the runner's disk.
   local runtime_base
   if runtime_base="$(terraform_runtime_base "$work_root")"; then
     export TF_PLUGIN_CACHE_DIR="${runtime_base}/plugin-cache"
     mkdir -p "$TF_PLUGIN_CACHE_DIR"
   fi
 
-  local total=0 static_fail=0 plan_fail=0 planned=0
-  local live_plan_limit="${AZURE_LIVE_PLAN_MAX_GROUPS:-0}"
-  local validate_group_limit="${AZURE_VALIDATE_MAX_GROUPS:-0}"
+  local live_plan_limit validate_group_limit live_plan_all_flag
+  if [ "$cloud" = "azure" ]; then
+    live_plan_limit="${AZURE_LIVE_PLAN_MAX_GROUPS:-0}"
+    validate_group_limit="${AZURE_VALIDATE_MAX_GROUPS:-0}"
+    live_plan_all_flag="${AZURE_LIVE_PLAN_ALL:-0}"
+  else
+    live_plan_limit="${GCP_LIVE_PLAN_MAX_GROUPS:-0}"
+    validate_group_limit="${GCP_VALIDATE_MAX_GROUPS:-0}"
+    live_plan_all_flag="${GCP_LIVE_PLAN_ALL:-0}"
+  fi
   # Default: when live plan is required, cap plans so Guild tool timeouts stay realistic.
-  # Static fmt/validate still covers every group unless AZURE_VALIDATE_MAX_GROUPS is set.
-  # Set AZURE_LIVE_PLAN_ALL=1 (or a huge limit) to plan every group.
-  if [ "$plan_mode" = "enabled" ] && [ "${AZURE_LIVE_PLAN_ALL:-0}" != "1" ] && [ "${AZURE_LIVE_PLAN_ALL:-0}" != "true" ]; then
-    if [ -z "${AZURE_LIVE_PLAN_MAX_GROUPS:-}" ]; then
+  # Static fmt/validate still covers every group unless *_VALIDATE_MAX_GROUPS is set.
+  # Set *_LIVE_PLAN_ALL=1 (or a huge limit) to plan every group.
+  if [ "$plan_mode" = "enabled" ] && [ "$live_plan_all_flag" != "1" ] && [ "$live_plan_all_flag" != "true" ]; then
+    if [ "$cloud" = "azure" ] && [ -z "${AZURE_LIVE_PLAN_MAX_GROUPS:-}" ]; then
+      live_plan_limit=8
+    elif [ "$cloud" = "gcp" ] && [ -z "${GCP_LIVE_PLAN_MAX_GROUPS:-}" ]; then
       live_plan_limit=8
     fi
   fi
   # Static fmt/validate covers every group by default. Only live plan is sampled
-  # (AZURE_LIVE_PLAN_MAX_GROUPS) so Guild tool windows stay realistic.
-  # Set AZURE_VALIDATE_MAX_GROUPS only when deliberately sampling static checks.
+  # so Guild tool windows stay realistic.
+
   local live_plan_ids_file=""
   if [ "$plan_mode" = "enabled" ] && [ "$live_plan_limit" != "0" ]; then
-    live_plan_ids_file="$(mktemp "${work_root}/azure/artifacts/live-plan-ids.XXXXXX")"
-    select_diversified_live_plan_group_ids "$work_root" "azure" "$live_plan_limit" >"$live_plan_ids_file"
-    echo "azure_iac_validate_live_plan_sample=$(tr '\n' ',' <"$live_plan_ids_file" | sed 's/,$//')"
+    live_plan_ids_file="$(mktemp "${artifacts_dir}/live-plan-ids.XXXXXX")"
+    select_diversified_live_plan_group_ids "$work_root" "$cloud" "$live_plan_limit" >"$live_plan_ids_file"
+    echo "${cloud}_iac_validate_live_plan_sample=$(tr '
+' ',' <"$live_plan_ids_file" | sed 's/,$//')"
   fi
 
-  local group_dir group_id fmt_status validate_status test_status lint_status plan_status plan_counts validation_ok has_tests should_plan validate_error
+  local group_list
+  group_list="$(mktemp "${artifacts_dir}/validate-group-list.XXXXXX")"
+  find "$groups_dir" -mindepth 1 -maxdepth 1 -type d | sort >"$group_list"
+  if [ "$validate_group_limit" != "0" ]; then
+    local truncated
+    truncated="$(mktemp "${artifacts_dir}/validate-group-list-trunc.XXXXXX")"
+    head -n "$validate_group_limit" "$group_list" >"$truncated"
+    mv "$truncated" "$group_list"
+    echo "${cloud}_iac_validate_progress truncated_at=$(wc -l <"$group_list" | tr -d ' ') validate_group_limit=${validate_group_limit}"
+  fi
+
+  # Bounded parallel workers (same pattern as destination harden). Resume skips
+  # groups that already have a complete validate-groups/<id>.json from a prior
+  # attempt killed by Guild context deadline.
+  local running=0 group_dir group_id out_json
   while IFS= read -r group_dir; do
     [ -n "$group_dir" ] || continue
-    if [ "$validate_group_limit" != "0" ] && [ "$total" -ge "$validate_group_limit" ]; then
-      echo "azure_iac_validate_progress truncated_at=${total} validate_group_limit=${validate_group_limit}"
-      break
-    fi
     group_id="$(basename "$group_dir")"
-    total=$((total + 1))
-    fmt_status="false"
-    validate_status="false"
-    test_status="skipped:no_tests"
-    lint_status="skipped:tflint_missing"
-    # Never inherit overall plan success — unplanned groups must not look green.
-    if [ "$plan_mode" = "enabled" ]; then
-      plan_status="skipped:not_planned"
-    else
-      plan_status="skipped:missing_credentials"
+    out_json="${groups_out}/${group_id}.json"
+    if destination_validate_group_result_complete "$out_json"; then
+      resume_skipped=$((resume_skipped + 1))
+      continue
     fi
-    plan_counts='{"create":0,"update":0,"delete":0,"replace":0}'
-    validation_ok="true"
-    should_plan="false"
-    validate_error=""
-
-    cd "$group_dir"
-    # Empty review stubs are expected; skip without failing the stage.
-    if ! assert_destination_group_resources "$work_root" "$group_dir" >"resources.out" 2>&1; then
-      validate_status="skipped:empty_scaffold"
-      fmt_status="skipped:empty_scaffold"
-      plan_status="skipped:empty_scaffold"
+    (
+      # Do not let one group failure abort the stage (parent has set -e).
+      set +e
+      fmt_status="false"
+      validate_status="false"
+      test_status="skipped:no_tests"
+      if [ "$run_tflint" = "1" ] || [ "$run_tflint" = "true" ]; then
+        lint_status="skipped:tflint_missing"
+      else
+        lint_status="skipped:deferred_to_harden"
+      fi
+      if [ "$plan_mode" = "enabled" ]; then
+        plan_status="skipped:not_planned"
+      else
+        plan_status="skipped:missing_credentials"
+      fi
+      plan_counts='{"create":0,"update":0,"delete":0,"replace":0}'
       validation_ok="true"
-    elif ! tofu_init_with_plugin_cache_lock "$tofu_bin" "init.out"; then
-      validate_status="init_failed"
-      validation_ok="false"
-      validate_error="$(validation_error_snippet init.out)"
-      plan_status="skipped:static_validation_failed"
-    else
-      "$tofu_bin" fmt -recursive -no-color >/dev/null 2>&1 || true
-      if "$tofu_bin" fmt -recursive -check -no-color >"fmt.out" 2>&1; then
-        fmt_status="true"
-      else
+      did_plan="false"
+      validate_error=""
+
+      cd "$group_dir" || exit 0
+      # Empty review stubs are expected; skip without failing the stage.
+      if ! assert_destination_group_resources "$work_root" "$group_dir" >"resources.out" 2>&1; then
+        validate_status="skipped:empty_scaffold"
+        fmt_status="skipped:empty_scaffold"
+        plan_status="skipped:empty_scaffold"
+        validation_ok="true"
+      elif ! tofu_init_with_plugin_cache_lock "$tofu_bin" "init.out"; then
+        validate_status="init_failed"
         validation_ok="false"
-        validate_error="$(validation_error_snippet fmt.out)"
-      fi
-      if tofu_validate_with_retry "$tofu_bin" "validate.out"; then
-        validate_status="true"
+        validate_error="$(validation_error_snippet init.out)"
+        plan_status="skipped:static_validation_failed"
       else
-        validation_ok="false"
-        validate_error="$(validation_error_snippet validate.out)"
-      fi
-      has_tests="$(find . -type f \( -name '*.tftest.hcl' -o -name '*.tftest.json' \) -print -quit 2>/dev/null || true)"
-      if [ -n "$has_tests" ]; then
-        if "$tofu_bin" test -no-color >"test.out" 2>&1; then
-          test_status="true"
+        "$tofu_bin" fmt -recursive -no-color >/dev/null 2>&1 || true
+        if "$tofu_bin" fmt -recursive -check -no-color >"fmt.out" 2>&1; then
+          fmt_status="true"
         else
-          test_status="false"
           validation_ok="false"
+          validate_error="$(validation_error_snippet fmt.out)"
         fi
-      fi
-      if command -v tflint >/dev/null 2>&1; then
-        if tflint --init >/dev/null 2>&1; then
-          if tflint --format compact >"tflint.out" 2>&1; then
-            lint_status="true"
+        if tofu_validate_with_retry "$tofu_bin" "validate.out"; then
+          validate_status="true"
+        else
+          validation_ok="false"
+          validate_error="$(validation_error_snippet validate.out)"
+        fi
+        has_tests="$(find . -type f \( -name '*.tftest.hcl' -o -name '*.tftest.json' \) -print -quit 2>/dev/null || true)"
+        if [ -n "$has_tests" ]; then
+          if "$tofu_bin" test -no-color >"test.out" 2>&1; then
+            test_status="true"
           else
-            lint_status="false"
+            test_status="false"
             validation_ok="false"
           fi
-        else
-          lint_status="skipped:tflint_init_failed"
         fi
-      fi
-      local should_plan_inner="false"
-      if [ "$validation_ok" = "true" ] && [ "$plan_mode" = "enabled" ]; then
-        if [ "$live_plan_limit" = "0" ]; then
-          should_plan_inner="true"
-        elif [ -n "$live_plan_ids_file" ] && grep -qxF -- "$group_id" "$live_plan_ids_file"; then
-          should_plan_inner="true"
-        else
-          plan_status="skipped:live_plan_sample_limit"
-        fi
-      elif [ "$validation_ok" != "true" ] && [ "$plan_mode" = "enabled" ]; then
-        plan_status="skipped:static_validation_failed"
-      fi
-      if [ "$should_plan_inner" = "true" ]; then
-        should_plan="true"
-        planned=$((planned + 1))
-        if "$tofu_bin" plan -refresh=false -input=false -lock=false -no-color -out=azure.tfplan >"plan.out" 2>&1; then
-          plan_counts="$(plan_change_counts_detailed_json "$tofu_bin" "azure.tfplan" 2>/dev/null || echo '{"create":0,"update":0,"delete":0,"replace":0}')"
-          local creates deletes replaces
-          creates="$(printf '%s' "$plan_counts" | jq -r '.create // 0')"
-          deletes="$(printf '%s' "$plan_counts" | jq -r '.delete // 0')"
-          replaces="$(printf '%s' "$plan_counts" | jq -r '.replace // 0')"
-          if [ "$deletes" -eq 0 ] && [ "$replaces" -eq 0 ] && [ "$creates" -gt 0 ]; then
-            plan_status="success:expected_creates"
-          elif [ "$deletes" -gt 0 ] || [ "$replaces" -gt 0 ]; then
-            plan_status="failed:unexpected_delete_or_replace"
-            plan_fail=$((plan_fail + 1))
-          else
-            plan_status="failed:no_expected_creates"
-            plan_fail=$((plan_fail + 1))
+        if [ "$run_tflint" = "1" ] || [ "$run_tflint" = "true" ]; then
+          if command -v tflint >/dev/null 2>&1; then
+            if tflint --init >/dev/null 2>&1; then
+              if tflint --format compact >"tflint.out" 2>&1; then
+                lint_status="true"
+              else
+                lint_status="false"
+                validation_ok="false"
+              fi
+            else
+              lint_status="skipped:tflint_init_failed"
+            fi
           fi
-        else
-          plan_status="failed:plan_error"
-          plan_fail=$((plan_fail + 1))
+        fi
+        should_plan_inner="false"
+        if [ "$validation_ok" = "true" ] && [ "$plan_mode" = "enabled" ]; then
+          if [ "$live_plan_limit" = "0" ]; then
+            should_plan_inner="true"
+          elif [ -n "$live_plan_ids_file" ] && grep -qxF -- "$group_id" "$live_plan_ids_file"; then
+            should_plan_inner="true"
+          else
+            plan_status="skipped:live_plan_sample_limit"
+          fi
+        elif [ "$validation_ok" != "true" ] && [ "$plan_mode" = "enabled" ]; then
+          plan_status="skipped:static_validation_failed"
+        fi
+        if [ "$should_plan_inner" = "true" ]; then
+          did_plan="true"
+          if "$tofu_bin" plan -refresh=false -input=false -lock=false -no-color -out="$plan_tfplan" >"plan.out" 2>&1; then
+            plan_counts="$(plan_change_counts_detailed_json "$tofu_bin" "$plan_tfplan" 2>/dev/null || echo '{"create":0,"update":0,"delete":0,"replace":0}')"
+            creates="$(printf '%s' "$plan_counts" | jq -r '.create // 0')"
+            deletes="$(printf '%s' "$plan_counts" | jq -r '.delete // 0')"
+            replaces="$(printf '%s' "$plan_counts" | jq -r '.replace // 0')"
+            if [ "$deletes" -eq 0 ] && [ "$replaces" -eq 0 ] && [ "$creates" -gt 0 ]; then
+              plan_status="success:expected_creates"
+            elif [ "$deletes" -gt 0 ] || [ "$replaces" -gt 0 ]; then
+              plan_status="failed:unexpected_delete_or_replace"
+            else
+              plan_status="failed:no_expected_creates"
+            fi
+          else
+            plan_status="failed:plan_error"
+          fi
         fi
       fi
+
+      jq -n \
+        --arg gid "$group_id" \
+        --arg fmt "$fmt_status" \
+        --arg validate "$validate_status" \
+        --arg test "$test_status" \
+        --arg lint "$lint_status" \
+        --arg plan "$plan_status" \
+        --arg verr "$validate_error" \
+        --arg vok "$validation_ok" \
+        --arg dplan "$did_plan" \
+        --argjson counts "$plan_counts" \
+        '{
+          group_id: $gid,
+          fmt: $fmt,
+          validate: $validate,
+          test: $test,
+          lint: $lint,
+          plan_status: $plan,
+          plan_counts: $counts,
+          validate_error: $verr,
+          validation_ok: $vok,
+          did_plan: $dplan
+        }' >"${out_json}.tmp" && mv "${out_json}.tmp" "$out_json"
+
+      # Release the initialized provider tree now that this group is reported.
+      rm -rf "${group_dir}/.terraform" "${group_dir}/${plan_tfplan}" 2>/dev/null || true
+
+      done_n=0
+      planned_n=0
+      static_fail_n=0
+      plan_fail_n=0
+      if ls "${groups_out}"/*.json >/dev/null 2>&1; then
+        done_n="$(find "$groups_out" -maxdepth 1 -name '*.json' | wc -l | tr -d ' ')"
+        planned_n="$(jq -s '[.[] | select(.did_plan == "true")] | length' "${groups_out}"/*.json 2>/dev/null || echo 0)"
+        static_fail_n="$(jq -s '[.[] | select(.validation_ok != "true")] | length' "${groups_out}"/*.json 2>/dev/null || echo 0)"
+        plan_fail_n="$(jq -s '[.[] | select((.plan_status // "") | startswith("failed:"))] | length' "${groups_out}"/*.json 2>/dev/null || echo 0)"
+      fi
+      # Heartbeat so long runs do not look idle to Guild/runner watchdogs.
+      if [ $((done_n % 10)) -eq 0 ] || [ "$did_plan" = "true" ]; then
+        echo "${cloud}_iac_validate_progress group=${group_id} done=${done_n} planned=${planned_n} static_fail=${static_fail_n} plan_fail=${plan_fail_n} plan_status=${plan_status}"
+      fi
+      exit 0
+    ) &
+    running=$((running + 1))
+    if [ "$running" -ge "$parallel" ]; then
+      wait -n 2>/dev/null || wait
+      running=$((running - 1))
     fi
-
-    if [ "$validation_ok" != "true" ]; then
-      static_fail=$((static_fail + 1))
-    fi
-
-    # Heartbeat so long live-plan runs do not look idle to Guild/runner watchdogs
-    # (silent validate previously abandoned the stage after ~2m while tofu kept running).
-    if [ $((total % 10)) -eq 0 ] || [ "$should_plan" = "true" ]; then
-      echo "azure_iac_validate_progress group=${group_id} done=${total} planned=${planned} static_fail=${static_fail} plan_fail=${plan_fail} plan_status=${plan_status}"
-    fi
-
-    jq --arg gid "$group_id" \
-      --arg fmt "$fmt_status" \
-      --arg validate "$validate_status" \
-      --arg test "$test_status" \
-      --arg lint "$lint_status" \
-      --arg plan "$plan_status" \
-      --arg verr "$validate_error" \
-      --argjson counts "$plan_counts" \
-      '.groups += [{
-        group_id: $gid,
-        fmt: $fmt,
-        validate: $validate,
-        test: $test,
-        lint: $lint,
-        plan_status: $plan,
-        plan_counts: $counts,
-        validate_error: $verr
-      }]' "$tmp_report" >"${tmp_report}.next" && mv "${tmp_report}.next" "$tmp_report"
-
-    # Release the initialized provider tree now that this group is reported;
-    # keeping one per group is what fills the runner's disk.
-    rm -rf "${group_dir}/.terraform" "${group_dir}/azure.tfplan" 2>/dev/null || true
-  done < <(find "${work_root}/azure/groups" -mindepth 1 -maxdepth 1 -type d | sort)
+  done <"$group_list"
+  wait
+  rm -f "$group_list"
   rm -f "$live_plan_ids_file" 2>/dev/null || true
+  echo "validate_resume_skipped=${resume_skipped}"
 
-  local overall_ok="false" azure_plan_status
-  azure_plan_status="$plan_status_overall"
+  local total=0 static_fail=0 plan_fail=0 planned=0
+  local tmp_report
+  tmp_report="$(mktemp_destination_validation_report "$work_root")"
+  if ls "${groups_out}"/*.json >/dev/null 2>&1; then
+    jq -s '{
+      groups: [
+        .[] | {
+          group_id: .group_id,
+          fmt: .fmt,
+          validate: .validate,
+          test: .test,
+          lint: .lint,
+          plan_status: .plan_status,
+          plan_counts: .plan_counts,
+          validate_error: (.validate_error // "")
+        }
+      ] | sort_by(.group_id)
+    }' "${groups_out}"/*.json >"$tmp_report"
+    total="$(jq -s 'length' "${groups_out}"/*.json 2>/dev/null || echo 0)"
+    static_fail="$(jq -s '[.[] | select(.validation_ok != "true")] | length' "${groups_out}"/*.json 2>/dev/null || echo 0)"
+    planned="$(jq -s '[.[] | select(.did_plan == "true")] | length' "${groups_out}"/*.json 2>/dev/null || echo 0)"
+    plan_fail="$(jq -s '[.[] | select((.plan_status // "") | startswith("failed:"))] | length' "${groups_out}"/*.json 2>/dev/null || echo 0)"
+  else
+    printf '{"groups":[]}
+' >"$tmp_report"
+  fi
+
+  local overall_ok="false" cloud_plan_status
+  cloud_plan_status="$plan_status_overall"
   if [ "$plan_mode" = "enabled" ]; then
     if [ "$planned" -eq 0 ]; then
-      azure_plan_status="failed:no_groups_planned"
+      cloud_plan_status="failed:no_groups_planned"
       plan_fail=$((plan_fail + 1))
     elif [ "$plan_fail" -eq 0 ]; then
       if [ "$live_plan_limit" != "0" ] && [ "$planned" -lt "$total" ]; then
-        azure_plan_status="success:sample:${planned}/${total}"
+        cloud_plan_status="success:sample:${planned}/${total}"
       else
-        azure_plan_status="success"
+        cloud_plan_status="success"
       fi
     else
-      azure_plan_status="failed"
+      cloud_plan_status="failed"
     fi
   fi
   if [ "$total" -gt 0 ] && [ "$static_fail" -eq 0 ] && [ "$plan_fail" -eq 0 ]; then
     overall_ok="true"
   fi
 
+  local plan_key="${cloud}_plan_status"
   jq --arg ok "$overall_ok" \
-    --arg plan "$azure_plan_status" \
+    --arg plan "$cloud_plan_status" \
+    --arg plan_key "$plan_key" \
     --argjson total "$total" \
     --argjson static_fail "$static_fail" \
     --argjson plan_fail "$plan_fail" \
     '. + {
       validation_ok: ($ok == "true"),
-      azure_plan_status: $plan,
       group_count: $total,
       static_fail_count: $static_fail,
       plan_fail_count: $plan_fail
-    }' "$tmp_report" >"$report"
+    } + {($plan_key): $plan}' "$tmp_report" >"$report"
   rm -f "$tmp_report"
 
-  mirror_note "$work_root" "azure_iac_validation_report" "$report"
-  mirror_note "$work_root" "azure_iac_validation_ok" "$overall_ok"
-  mirror_note "$work_root" "azure_plan_status" "$azure_plan_status"
-  mirror_note "$work_root" "azure_plan_groups_planned" "$planned"
-  mirror_note "$work_root" "azure_plan_sample_limit" "$live_plan_limit"
+  mirror_note "$work_root" "${cloud}_iac_validation_report" "$report"
+  mirror_note "$work_root" "${cloud}_iac_validation_ok" "$overall_ok"
+  mirror_note "$work_root" "${cloud}_plan_status" "$cloud_plan_status"
+  mirror_note "$work_root" "${cloud}_plan_groups_planned" "$planned"
+  mirror_note "$work_root" "${cloud}_plan_sample_limit" "$live_plan_limit"
   local create_total update_total delete_total replace_total
   create_total="$(jq '[.groups[]?.plan_counts.create // 0] | add // 0' "$report" 2>/dev/null || echo 0)"
   update_total="$(jq '[.groups[]?.plan_counts.update // 0] | add // 0' "$report" 2>/dev/null || echo 0)"
   delete_total="$(jq '[.groups[]?.plan_counts.delete // 0] | add // 0' "$report" 2>/dev/null || echo 0)"
   replace_total="$(jq '[.groups[]?.plan_counts.replace // 0] | add // 0' "$report" 2>/dev/null || echo 0)"
-  mirror_note "$work_root" "azure_plan_create_count" "$create_total"
-  mirror_note "$work_root" "azure_plan_update_count" "$update_total"
-  mirror_note "$work_root" "azure_plan_delete_count" "$delete_total"
-  mirror_note "$work_root" "azure_plan_replace_count" "$replace_total"
+  mirror_note "$work_root" "${cloud}_plan_create_count" "$create_total"
+  mirror_note "$work_root" "${cloud}_plan_update_count" "$update_total"
+  mirror_note "$work_root" "${cloud}_plan_delete_count" "$delete_total"
+  mirror_note "$work_root" "${cloud}_plan_replace_count" "$replace_total"
   if [ "$overall_ok" = "true" ]; then
-    mirror_note "$work_root" "stage_summary:azure-iac-validate" "ok"
-    echo 'stage_summary:azure-iac-validate=ok'
+    mirror_note "$work_root" "stage_summary:${cloud}-iac-validate" "ok"
+    echo "stage_summary:${cloud}-iac-validate=ok"
   else
-    mirror_note "$work_root" "stage_summary:azure-iac-validate" "blocked:validation_failed"
-    echo 'stage_summary:azure-iac-validate=blocked:validation_failed'
+    mirror_note "$work_root" "stage_summary:${cloud}-iac-validate" "blocked:validation_failed"
+    echo "stage_summary:${cloud}-iac-validate=blocked:validation_failed"
   fi
-  echo "azure_iac_validation_report=${report}"
-  echo "azure_plan_status=${azure_plan_status}"
-  echo "azure_plan_groups_planned=${planned}"
-  echo "azure_plan_create_count=${create_total}"
-  echo "azure_plan_update_count=${update_total}"
-  echo "azure_plan_delete_count=${delete_total}"
-  echo "azure_plan_replace_count=${replace_total}"
-  echo "azure_iac_validation_ok: \"${overall_ok}\""
+  echo "${cloud}_iac_validation_report=${report}"
+  echo "${cloud}_plan_status=${cloud_plan_status}"
+  echo "${cloud}_plan_groups_planned=${planned}"
+  echo "${cloud}_plan_create_count=${create_total}"
+  echo "${cloud}_plan_update_count=${update_total}"
+  echo "${cloud}_plan_delete_count=${delete_total}"
+  echo "${cloud}_plan_replace_count=${replace_total}"
+  echo "${cloud}_iac_validation_ok: \"${overall_ok}\""
+}
+
+cmd_azure_iac_validate() {
+  cmd_destination_iac_validate "$1" azure
 }
 
 build_azure_pr_title() {
@@ -6651,296 +6797,7 @@ cmd_gcp_iac_generate() {
 }
 
 cmd_gcp_iac_validate() {
-  local work_root="${1:?WORK_ROOT}"
-  require_embedded_invocation || return 1
-
-  if [ ! -d "${work_root}/gcp/groups" ]; then
-    cmd_gcp_iac_generate "$work_root"
-  fi
-
-  # Materialize ADC for the google provider when vault only supplies JSON.
-  if [ -n "${GOOGLE_APPLICATION_CREDENTIALS_JSON:-}" ] && [ -z "${GOOGLE_APPLICATION_CREDENTIALS:-}" ]; then
-    mkdir -p "${work_root}/.work"
-    printf '%s' "$GOOGLE_APPLICATION_CREDENTIALS_JSON" >"${work_root}/.work/gcp-sa.json"
-    export GOOGLE_APPLICATION_CREDENTIALS="${work_root}/.work/gcp-sa.json"
-  fi
-  if [ -n "${GCP_PROJECT_ID:-}" ]; then
-    export GOOGLE_CLOUD_PROJECT="$GCP_PROJECT_ID"
-    export CLOUDSDK_CORE_PROJECT="$GCP_PROJECT_ID"
-  fi
-
-  local tofu_bin
-  if ! tofu_bin="$(resolve_tofu_bin)"; then
-    mirror_note "$work_root" "blocked:remote_runner_tofu_missing" "true"
-    mirror_note "$work_root" "gcp_iac_validation_ok" "false"
-    echo 'blocked:remote_runner_tofu_missing: "true"'
-    echo 'gcp_iac_validation_ok: "false"'
-    return 1
-  fi
-
-  local report="${work_root}/gcp/artifacts/validation-report.json"
-  local tmp_report
-  tmp_report="$(mktemp_destination_validation_report "$work_root")"
-  printf '{"groups":[]}\n' >"$tmp_report"
-
-  local plan_mode plan_status_overall require_live_plan
-  require_live_plan="${REQUIRE_GCP_LIVE_PLAN:-0}"
-  if gcp_credentials_configured; then
-    plan_mode="enabled"
-    plan_status_overall="success"
-  else
-    plan_mode="skipped"
-    plan_status_overall="skipped:missing_credentials"
-    if [ "$require_live_plan" = "1" ] || [ "$require_live_plan" = "true" ]; then
-      mirror_note "$work_root" "gcp_iac_validation_ok" "false"
-      mirror_note "$work_root" "gcp_plan_status" "skipped:missing_credentials"
-      mirror_note "$work_root" "stage_summary:gcp-iac-validate" "blocked:missing_gcp_credentials"
-      echo 'gcp_plan_status=skipped:missing_credentials'
-      echo 'gcp_iac_validation_ok: "false"'
-      echo 'stage_summary:gcp-iac-validate=blocked:missing_gcp_credentials'
-      echo 'blocked:missing_gcp_credentials: "true"'
-      rm -f "$tmp_report"
-      return 1
-    fi
-  fi
-
-  # Hundreds of groups each init the same gcprm provider. Without a shared
-  # cache every group downloads and stores its own copy, which is both slow and
-  # large enough to exhaust the runner's disk.
-  local runtime_base
-  if runtime_base="$(terraform_runtime_base "$work_root")"; then
-    export TF_PLUGIN_CACHE_DIR="${runtime_base}/plugin-cache"
-    mkdir -p "$TF_PLUGIN_CACHE_DIR"
-  fi
-
-  local total=0 static_fail=0 plan_fail=0 planned=0
-  local live_plan_limit="${GCP_LIVE_PLAN_MAX_GROUPS:-0}"
-  local validate_group_limit="${GCP_VALIDATE_MAX_GROUPS:-0}"
-  # Default: when live plan is required, cap plans so Guild tool timeouts stay realistic.
-  # Static fmt/validate still covers every group unless GCP_VALIDATE_MAX_GROUPS is set.
-  # Set GCP_LIVE_PLAN_ALL=1 (or a huge limit) to plan every group.
-  if [ "$plan_mode" = "enabled" ] && [ "${GCP_LIVE_PLAN_ALL:-0}" != "1" ] && [ "${GCP_LIVE_PLAN_ALL:-0}" != "true" ]; then
-    if [ -z "${GCP_LIVE_PLAN_MAX_GROUPS:-}" ]; then
-      live_plan_limit=8
-    fi
-  fi
-  # Static fmt/validate covers every group by default. Only live plan is sampled
-  # (GCP_LIVE_PLAN_MAX_GROUPS) so Guild tool windows stay realistic.
-  # Set GCP_VALIDATE_MAX_GROUPS only when deliberately sampling static checks.
-  local live_plan_ids_file=""
-  if [ "$plan_mode" = "enabled" ] && [ "$live_plan_limit" != "0" ]; then
-    live_plan_ids_file="$(mktemp "${work_root}/gcp/artifacts/live-plan-ids.XXXXXX")"
-    select_diversified_live_plan_group_ids "$work_root" "gcp" "$live_plan_limit" >"$live_plan_ids_file"
-    echo "gcp_iac_validate_live_plan_sample=$(tr '\n' ',' <"$live_plan_ids_file" | sed 's/,$//')"
-  fi
-
-  local group_dir group_id fmt_status validate_status test_status lint_status plan_status plan_counts validation_ok has_tests should_plan validate_error
-  while IFS= read -r group_dir; do
-    [ -n "$group_dir" ] || continue
-    if [ "$validate_group_limit" != "0" ] && [ "$total" -ge "$validate_group_limit" ]; then
-      echo "gcp_iac_validate_progress truncated_at=${total} validate_group_limit=${validate_group_limit}"
-      break
-    fi
-    group_id="$(basename "$group_dir")"
-    total=$((total + 1))
-    fmt_status="false"
-    validate_status="false"
-    test_status="skipped:no_tests"
-    lint_status="skipped:tflint_missing"
-    # Never inherit overall plan success — unplanned groups must not look green.
-    if [ "$plan_mode" = "enabled" ]; then
-      plan_status="skipped:not_planned"
-    else
-      plan_status="skipped:missing_credentials"
-    fi
-    plan_counts='{"create":0,"update":0,"delete":0,"replace":0}'
-    validation_ok="true"
-    should_plan="false"
-    validate_error=""
-
-    cd "$group_dir"
-    # Empty review stubs (unmappable / attachment-only shards) are expected on
-    # large source PRs; do not fail the stage or sample them for live plan.
-    if ! assert_destination_group_resources "$work_root" "$group_dir" >"resources.out" 2>&1; then
-      validate_status="skipped:empty_scaffold"
-      fmt_status="skipped:empty_scaffold"
-      plan_status="skipped:empty_scaffold"
-      validation_ok="true"
-    elif ! tofu_init_with_plugin_cache_lock "$tofu_bin" "init.out"; then
-      validate_status="init_failed"
-      validation_ok="false"
-      validate_error="$(validation_error_snippet init.out)"
-      plan_status="skipped:static_validation_failed"
-    else
-      "$tofu_bin" fmt -recursive -no-color >/dev/null 2>&1 || true
-      if "$tofu_bin" fmt -recursive -check -no-color >"fmt.out" 2>&1; then
-        fmt_status="true"
-      else
-        validation_ok="false"
-        validate_error="$(validation_error_snippet fmt.out)"
-      fi
-      if tofu_validate_with_retry "$tofu_bin" "validate.out"; then
-        validate_status="true"
-      else
-        validation_ok="false"
-        validate_error="$(validation_error_snippet validate.out)"
-      fi
-      has_tests="$(find . -type f \( -name '*.tftest.hcl' -o -name '*.tftest.json' \) -print -quit 2>/dev/null || true)"
-      if [ -n "$has_tests" ]; then
-        if "$tofu_bin" test -no-color >"test.out" 2>&1; then
-          test_status="true"
-        else
-          test_status="false"
-          validation_ok="false"
-        fi
-      fi
-      if command -v tflint >/dev/null 2>&1; then
-        if tflint --init >/dev/null 2>&1; then
-          if tflint --format compact >"tflint.out" 2>&1; then
-            lint_status="true"
-          else
-            lint_status="false"
-            validation_ok="false"
-          fi
-        else
-          lint_status="skipped:tflint_init_failed"
-        fi
-      fi
-      local should_plan_inner="false"
-      if [ "$validation_ok" = "true" ] && [ "$plan_mode" = "enabled" ]; then
-        if [ "$live_plan_limit" = "0" ]; then
-          should_plan_inner="true"
-        elif [ -n "$live_plan_ids_file" ] && grep -qxF -- "$group_id" "$live_plan_ids_file"; then
-          should_plan_inner="true"
-        else
-          plan_status="skipped:live_plan_sample_limit"
-        fi
-      elif [ "$validation_ok" != "true" ] && [ "$plan_mode" = "enabled" ]; then
-        plan_status="skipped:static_validation_failed"
-      fi
-      if [ "$should_plan_inner" = "true" ]; then
-        should_plan="true"
-        planned=$((planned + 1))
-        if "$tofu_bin" plan -refresh=false -input=false -lock=false -no-color -out=gcp.tfplan >"plan.out" 2>&1; then
-          plan_counts="$(plan_change_counts_detailed_json "$tofu_bin" "gcp.tfplan" 2>/dev/null || echo '{"create":0,"update":0,"delete":0,"replace":0}')"
-          local creates deletes replaces
-          creates="$(printf '%s' "$plan_counts" | jq -r '.create // 0')"
-          deletes="$(printf '%s' "$plan_counts" | jq -r '.delete // 0')"
-          replaces="$(printf '%s' "$plan_counts" | jq -r '.replace // 0')"
-          if [ "$deletes" -eq 0 ] && [ "$replaces" -eq 0 ] && [ "$creates" -gt 0 ]; then
-            plan_status="success:expected_creates"
-          elif [ "$deletes" -gt 0 ] || [ "$replaces" -gt 0 ]; then
-            plan_status="failed:unexpected_delete_or_replace"
-            plan_fail=$((plan_fail + 1))
-          else
-            plan_status="failed:no_expected_creates"
-            plan_fail=$((plan_fail + 1))
-          fi
-        else
-          plan_status="failed:plan_error"
-          plan_fail=$((plan_fail + 1))
-        fi
-      fi
-    fi
-
-    if [ "$validation_ok" != "true" ]; then
-      static_fail=$((static_fail + 1))
-    fi
-
-    # Heartbeat so long live-plan runs do not look idle to Guild/runner watchdogs
-    # (silent validate previously abandoned the stage after ~2m while tofu kept running).
-    if [ $((total % 10)) -eq 0 ] || [ "$should_plan" = "true" ]; then
-      echo "gcp_iac_validate_progress group=${group_id} done=${total} planned=${planned} static_fail=${static_fail} plan_fail=${plan_fail} plan_status=${plan_status}"
-    fi
-
-    jq --arg gid "$group_id" \
-      --arg fmt "$fmt_status" \
-      --arg validate "$validate_status" \
-      --arg test "$test_status" \
-      --arg lint "$lint_status" \
-      --arg plan "$plan_status" \
-      --arg verr "$validate_error" \
-      --argjson counts "$plan_counts" \
-      '.groups += [{
-        group_id: $gid,
-        fmt: $fmt,
-        validate: $validate,
-        test: $test,
-        lint: $lint,
-        plan_status: $plan,
-        plan_counts: $counts,
-        validate_error: $verr
-      }]' "$tmp_report" >"${tmp_report}.next" && mv "${tmp_report}.next" "$tmp_report"
-
-    # Release the initialized provider tree now that this group is reported;
-    # keeping one per group is what fills the runner's disk.
-    rm -rf "${group_dir}/.terraform" "${group_dir}/gcp.tfplan" 2>/dev/null || true
-  done < <(find "${work_root}/gcp/groups" -mindepth 1 -maxdepth 1 -type d | sort)
-  rm -f "$live_plan_ids_file" 2>/dev/null || true
-
-  local overall_ok="false" gcp_plan_status
-  gcp_plan_status="$plan_status_overall"
-  if [ "$plan_mode" = "enabled" ]; then
-    if [ "$planned" -eq 0 ]; then
-      gcp_plan_status="failed:no_groups_planned"
-      plan_fail=$((plan_fail + 1))
-    elif [ "$plan_fail" -eq 0 ]; then
-      if [ "$live_plan_limit" != "0" ] && [ "$planned" -lt "$total" ]; then
-        gcp_plan_status="success:sample:${planned}/${total}"
-      else
-        gcp_plan_status="success"
-      fi
-    else
-      gcp_plan_status="failed"
-    fi
-  fi
-  if [ "$total" -gt 0 ] && [ "$static_fail" -eq 0 ] && [ "$plan_fail" -eq 0 ]; then
-    overall_ok="true"
-  fi
-
-  jq --arg ok "$overall_ok" \
-    --arg plan "$gcp_plan_status" \
-    --argjson total "$total" \
-    --argjson static_fail "$static_fail" \
-    --argjson plan_fail "$plan_fail" \
-    '. + {
-      validation_ok: ($ok == "true"),
-      gcp_plan_status: $plan,
-      group_count: $total,
-      static_fail_count: $static_fail,
-      plan_fail_count: $plan_fail
-    }' "$tmp_report" >"$report"
-  rm -f "$tmp_report"
-
-  mirror_note "$work_root" "gcp_iac_validation_report" "$report"
-  mirror_note "$work_root" "gcp_iac_validation_ok" "$overall_ok"
-  mirror_note "$work_root" "gcp_plan_status" "$gcp_plan_status"
-  mirror_note "$work_root" "gcp_plan_groups_planned" "$planned"
-  mirror_note "$work_root" "gcp_plan_sample_limit" "$live_plan_limit"
-  local create_total update_total delete_total replace_total
-  create_total="$(jq '[.groups[]?.plan_counts.create // 0] | add // 0' "$report" 2>/dev/null || echo 0)"
-  update_total="$(jq '[.groups[]?.plan_counts.update // 0] | add // 0' "$report" 2>/dev/null || echo 0)"
-  delete_total="$(jq '[.groups[]?.plan_counts.delete // 0] | add // 0' "$report" 2>/dev/null || echo 0)"
-  replace_total="$(jq '[.groups[]?.plan_counts.replace // 0] | add // 0' "$report" 2>/dev/null || echo 0)"
-  mirror_note "$work_root" "gcp_plan_create_count" "$create_total"
-  mirror_note "$work_root" "gcp_plan_update_count" "$update_total"
-  mirror_note "$work_root" "gcp_plan_delete_count" "$delete_total"
-  mirror_note "$work_root" "gcp_plan_replace_count" "$replace_total"
-  if [ "$overall_ok" = "true" ]; then
-    mirror_note "$work_root" "stage_summary:gcp-iac-validate" "ok"
-    echo 'stage_summary:gcp-iac-validate=ok'
-  else
-    mirror_note "$work_root" "stage_summary:gcp-iac-validate" "blocked:validation_failed"
-    echo 'stage_summary:gcp-iac-validate=blocked:validation_failed'
-  fi
-  echo "gcp_iac_validation_report=${report}"
-  echo "gcp_plan_status=${gcp_plan_status}"
-  echo "gcp_plan_groups_planned=${planned}"
-  echo "gcp_plan_create_count=${create_total}"
-  echo "gcp_plan_update_count=${update_total}"
-  echo "gcp_plan_delete_count=${delete_total}"
-  echo "gcp_plan_replace_count=${replace_total}"
-  echo "gcp_iac_validation_ok: \"${overall_ok}\""
+  cmd_destination_iac_validate "$1" gcp
 }
 
 build_gcp_pr_title() {

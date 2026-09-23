@@ -112,7 +112,7 @@ def main() -> None:
         (MODULE / "scripts" / "stage-runner.sh").read_text(),
     ).group(1)
     assert versions == {stage_ver}, (versions, stage_ver)
-    assert stage_ver == "20260911.23", stage_ver
+    assert stage_ver == "20260911.24", stage_ver
 
     dest = (MODULE / "scripts" / "run-destination-stage.sh").read_text()
     assert 'NILE_RULES_REF="${NILE_RULES_REF:-main}"' in dest, (

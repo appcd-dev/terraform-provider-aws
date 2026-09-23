@@ -1,1 +1,1 @@
-export WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 REQUIRE_AZURE_LIVE_PLAN='${require_azure_live_plan}' AZURE_LIVE_PLAN_MAX_GROUPS='8' ${runner_pack_entry_invoke} destination azure-iac-validate '{{workflow_run_id}}'
+export WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 REQUIRE_AZURE_LIVE_PLAN='${require_azure_live_plan}' AZURE_LIVE_PLAN_MAX_GROUPS='8' DEST_VALIDATE_PARALLELISM='${dest_validate_parallelism}' ${runner_pack_entry_invoke} destination azure-iac-validate '{{workflow_run_id}}'
