@@ -14,6 +14,7 @@ usage() {
   echo "       pack-entry.sh ingest <workflow_run_id>" >&2
   echo "       pack-entry.sh iac-pr <workflow_run_id>" >&2
   echo "       pack-entry.sh converge <workflow_run_id>" >&2
+  echo "       pack-entry.sh destination <stage> <workflow_run_id>" >&2
   exit 2
 }
 
@@ -49,7 +50,8 @@ ensure_pack() {
     && [ -f "${PRELOAD_DIR}/cloud2code-aws-scan.sh" ] \
     && [ -f "${PRELOAD_DIR}/ingest-bootstrap.sh" ] \
     && [ -f "${PRELOAD_DIR}/iac-pr-bootstrap.sh" ] \
-    && [ -f "${PRELOAD_DIR}/converge-bootstrap.sh" ]; then
+    && [ -f "${PRELOAD_DIR}/converge-bootstrap.sh" ] \
+    && [ -f "${PRELOAD_DIR}/run-destination-stage.sh" ]; then
     echo "script_pack_already_present path=${PRELOAD_DIR} version=${PACK_VER}"
     return 0
   fi
@@ -73,7 +75,8 @@ ensure_pack() {
     || [ ! -f "${PRELOAD_DIR}/cloud2code-aws-scan.sh" ] \
     || [ ! -f "${PRELOAD_DIR}/ingest-bootstrap.sh" ] \
     || [ ! -f "${PRELOAD_DIR}/iac-pr-bootstrap.sh" ] \
-    || [ ! -f "${PRELOAD_DIR}/converge-bootstrap.sh" ]; then
+    || [ ! -f "${PRELOAD_DIR}/converge-bootstrap.sh" ] \
+    || [ ! -f "${PRELOAD_DIR}/run-destination-stage.sh" ]; then
     echo "script_pack_error=fetch_incomplete path=${PRELOAD_DIR} version=${PACK_VER}" >&2
     ls -la "${PRELOAD_DIR}" >&2 || true
     exit 1
@@ -114,6 +117,19 @@ case "$cmd" in
     export WORKFLOW_RUN_ID="${1:-${WORKFLOW_RUN_ID:-}}"
     export DBSPLIT_EMBEDDED=1
     exec bash "${PRELOAD_DIR}/converge-bootstrap.sh"
+    ;;
+  destination)
+    # Azure/GCP destination stages. Env (SOURCE_PR, SOURCE_IAC_BRANCH, …) is set by
+    # the execute_series one-liner before pack-entry runs. Self-heals when the ACA
+    # image still has an older /opt pack (session 55e77bfd: only 20260911.8 present).
+    stage="${1:-}"
+    wf="${2:-${WORKFLOW_RUN_ID:-}}"
+    if [ -z "$stage" ] || [ -z "$wf" ]; then
+      usage
+    fi
+    export WORKFLOW_RUN_ID="$wf"
+    export DBSPLIT_EMBEDDED="${DBSPLIT_EMBEDDED:-1}"
+    exec bash "${PRELOAD_DIR}/run-destination-stage.sh" "$stage" "$wf"
     ;;
   *)
     usage

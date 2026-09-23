@@ -1,1 +1,1 @@
-${runner_git_env_prefix} WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 IAC_REPOSITORY_URL='${default_iac_repository_url}' DEFAULT_BRANCH='${default_branch}' bash ${script_pack_preload_dir}/run-destination-stage.sh azure-pr '{{workflow_run_id}}'
+WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 IAC_REPOSITORY_URL='${default_iac_repository_url}' DEFAULT_BRANCH='${default_branch}' ${runner_pack_entry_invoke} destination azure-pr '{{workflow_run_id}}'

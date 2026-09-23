@@ -1,1 +1,1 @@
-WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 bash ${script_pack_preload_dir}/run-destination-stage.sh gcp-migration-blueprint '{{workflow_run_id}}'
+WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 ${runner_pack_entry_invoke} destination gcp-migration-blueprint '{{workflow_run_id}}'

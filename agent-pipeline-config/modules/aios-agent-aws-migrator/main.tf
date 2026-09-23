@@ -164,7 +164,7 @@ locals {
   gcp_mapping_catalog_script   = file("${path.module}/scripts/gcp_mapping_catalog.py")
   gcp_mapping_catalog_json     = file("${path.module}/mappings/aws-to-gcp.json")
   ensure_cloud2code_script     = file("${path.module}/scripts/ensure_cloud2code.sh")
-  script_pack_version          = "20260911.20"
+  script_pack_version          = "20260911.21"
   script_pack_git_ref          = "main"
   # Baked into the runner image under /opt, not under HOME. The ACA Azure Files
   # share mounts over /home/runner, so a pack under HOME depends on the
@@ -289,6 +289,7 @@ locals {
     require_gcp_live_plan               = local.require_gcp_live_plan ? "1" : "0"
     dest_harden_parallelism             = "4"
     runner_git_env_prefix               = local.runner_git_env_prefix
+    runner_pack_entry_invoke            = local.runner_pack_entry_invoke
     evidence_primary_name               = local.evidence_primary_name
     # Acquisition hygiene: exclude workforce/human IAM + never-map noise, but KEEP
     # application IAM (roles, customer policies, inline role policies, attachments,
@@ -432,7 +433,13 @@ locals {
   # credential helper so IAC_PR and hand-rolled git clone both auth (session 8da4f049).
   # Write under $HOME/.aws-migrator/bin — $HOME/.local/bin is often not writable
   # on the ACA image (session 6dac05f9: Permission denied).
-  runner_git_env_prefix                           = "GIT_TOKEN=\"$${GIT_TOKEN:-$${GITHUB_TOKEN:-$${GH_TOKEN:-$${token:-}}}}\"; export GIT_TOKEN; export GH_TOKEN=\"$${GH_TOKEN:-$${GIT_TOKEN}}\" GITHUB_TOKEN=\"$${GITHUB_TOKEN:-$${GIT_TOKEN}}\" GIT_TERMINAL_PROMPT=0"
+  #
+  # Each export is its own statement ending in `;`. A trailing open `export A=1 B=2`
+  # glued to later `SOURCE_PR=… bash …/run-destination-stage.sh` makes dash treat
+  # the script path as an export name (`bad variable name`, session
+  # 55e77bfd / trace 6abefb952b12). Discovery pack-entry invokes already put a
+  # `;` after this prefix; destination one-liners append env + bash directly.
+  runner_git_env_prefix                           = "GIT_TOKEN=\"$${GIT_TOKEN:-$${GITHUB_TOKEN:-$${GH_TOKEN:-$${token:-}}}}\"; export GIT_TOKEN; export GH_TOKEN=\"$${GH_TOKEN:-$${GIT_TOKEN}}\"; export GITHUB_TOKEN=\"$${GITHUB_TOKEN:-$${GIT_TOKEN}}\"; export GIT_TERMINAL_PROMPT=0;"
   runner_git_credential_bootstrap                 = "mkdir -p \"$${HOME}/.aws-migrator/bin\"; echo IyEvYmluL3NoCmNhc2UgIiQxIiBpbgpnZXQpCiAgdG9rPSIke0dJVF9UT0tFTjotJHtHSVRIVUJfVE9LRU46LSR7R0hfVE9LRU46LSR7dG9rZW46LX19fX0iCiAgWyAtbiAiJHRvayIgXSB8fCBleGl0IDAKICBwcmludGYgInVzZXJuYW1lPXgtYWNjZXNzLXRva2VuXG5wYXNzd29yZD0lc1xuIiAiJHRvayIKICA7Owplc2FjCg== | base64 -d > \"$${HOME}/.aws-migrator/bin/git-credential-stackgen\"; chmod 0755 \"$${HOME}/.aws-migrator/bin/git-credential-stackgen\"; git config --global credential.helper \"$${HOME}/.aws-migrator/bin/git-credential-stackgen\""
   # Walmart ACA bakes packs into the image and disables vault sync. When /opt lags
   # the module version, fetch the GitHub release tarball before pack scripts run.

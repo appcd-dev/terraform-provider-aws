@@ -1,1 +1,1 @@
-WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 REQUIRE_AZURE_LIVE_PLAN='${require_azure_live_plan}' AZURE_LIVE_PLAN_MAX_GROUPS='8' bash ${script_pack_preload_dir}/run-destination-stage.sh azure-iac-validate '{{workflow_run_id}}'
+WORKFLOW_RUN_ID='{{workflow_run_id}}' DBSPLIT_EMBEDDED=1 REQUIRE_AZURE_LIVE_PLAN='${require_azure_live_plan}' AZURE_LIVE_PLAN_MAX_GROUPS='8' ${runner_pack_entry_invoke} destination azure-iac-validate '{{workflow_run_id}}'
