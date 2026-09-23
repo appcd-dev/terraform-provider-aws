@@ -59,11 +59,11 @@ Fix mechanical HCL under `azure/groups/` or `gcp/groups/` only (tags, labels, TL
 
 Do **not** invent IAM translations or network redesigns. Re-verify after each fix.
 
-Loop until every resource is Priority-1-conformant **and** OPA reports `opa_ok=true` (`*_iac_governance_ok=true`) or the stage hits max iterations / a terminal blocker. PR opens **only** when governance_ok is true. Pin the governance SHA in artifacts and the PR body.
+Loop until every resource is Priority-1-conformant **and** OPA reports `opa_ok=true` (`*_iac_governance_ok=true`), or until max iterations / a terminal blocker. Prefer clearing residuals before the destination PR stage. If residuals remain, the PR still opens with TODO instructions (OPA fix hints + exceptions) — do not abandon without a PR. Pin the governance SHA in artifacts and the PR body.
 
 ## Forbidden
 
 - Freezing policy text into Nile-Factory as the control catalog
 - Treating candidate GCP controls as active unless current docs say so
 - Claiming `governance-findings.json` satisfies human approval / Gate 11
-- Opening a destination PR with blocking residuals
+- Abandoning the run without opening a destination PR when only governance/OPA residuals remain (document them in TODO.md instead)

@@ -28,7 +28,7 @@ locals {
     {
       stage_id    = "azure-iac-governance-conform"
       description = "Refresh living Nile governance docs, derive a per-resource decision tree, author a validator, and re-verify Azure IaC"
-      note        = "LLM-led. DAG-parallel with validate/harden after generate. Runtime fetch of Governance-and-Policy (not the optional submodule pin). PR gated on azure_iac_governance_ok=true."
+      note        = "LLM-led. DAG-parallel with validate/harden after generate. Runtime fetch of Governance-and-Policy (not the optional submodule pin). Remediates OPA denies until azure_iac_governance_ok=true; residuals still documented in the PR TODO."
       required    = true
     },
     {
@@ -40,13 +40,13 @@ locals {
     {
       stage_id    = "azure-iac-governance-loop"
       description = "Retry Azure governance conform until every resource is Priority-1-conformant or a terminal blocker is emitted"
-      note        = "loop_stage only. Re-enters azure-iac-governance-conform until azure_iac_governance_ok true|false or blocked:governance_docs_unavailable / generation_missing."
+      note        = "loop_stage only. Re-enters azure-iac-governance-conform until azure_iac_governance_ok=true or blocked:governance_docs_unavailable / opa_unavailable / generation_missing (max iterations still advances to azure-pr)."
       required    = false
     },
     {
       stage_id    = "azure-pr"
       description = "Push azure/ artifacts to the target IaC repo and open an Azure migration PR"
-      note        = "Script-first. Fresh branch starting with azure/<workflow_run_id>; waits for validate-loop, harden, AND governance-loop. Opens only when azure_iac_governance_ok=true."
+      note        = "Script-first. Fresh branch starting with azure/<workflow_run_id>; waits for validate-loop, harden, AND governance-loop. Always opens when prior stages conclude; documents governance/OPA residuals in TODO.md when ok=false."
       required    = true
     },
   ]

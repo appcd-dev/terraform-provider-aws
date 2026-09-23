@@ -9,7 +9,7 @@ resource "sg_workflow" "aws_migrator_gcp_only" {
     GCP migration PR workflow. Resolves a discovery handoff via `source_pr` (GitHub PR number) or
     `source_iac_branch` (head ref; default `${local.gcp_only_source_branch}`), clones that tip from
     `${trimspace(var.default_iac_repository_url)}`, materializes `aws/groups` + `aws/artifacts`, then runs
-    GCP blueprint → HCL generate → serial harden → validate → governance-conform → sibling multi-commit GCP PR (`gcp/<run_id>`) gated on living Nile Priority-1 conformance.
+    GCP blueprint → HCL generate → serial harden → validate → governance-conform → sibling multi-commit GCP PR (`gcp/<run_id>`) with living Nile Priority-1 + OPA evidence (residuals documented in TODO when not yet clear).
     Skips cloud2code, tfstate split, AWS reverse-HCL hydration, and orphan handling.
   EOT
   approve     = true
@@ -219,7 +219,7 @@ resource "sg_workflow" "aws_migrator_gcp_only" {
         **Upstream guard:** Prefer notes showing `gcp_iac_generated=true` / `stage_summary:gcp-iac-generate=ok`. Guild `read_notes` may mask those keys after busy generate stages — do **not** invent `skipped:generation_missing` from an incomplete note snapshot. If generate already ran this workflow (or workdir `gcp/groups/` exists), you MUST run OPA governance via execute_series; the runner emits `blocked:generation_missing` only when artifacts are truly absent.
         **Serial after validate:** prior DAG fan-out completed harden/validate/governance in ~1–2s with zero tools (trace e861d081). You MUST call execute_series; never return without OPA runner evidence.
         **Living docs + OPA:** first tool call is ONE `${local.shell_tool_prefix}_execute_series` pasting the **exact** one-line body between `---BEGIN GCP_GOVERNANCE_CONFORM_EXECUTE_SERIES---` and `---END---` (`pack-entry.sh` … `destination gcp-iac-governance-conform`, `timeout_seconds=3600`). **FORBIDDEN:** label-as-command or `$`/`$${` expansion. Harness refreshes Governance-and-Policy, inventories resources, seeds/runs the validator, and runs Nile-Factory `rules/` OPA against `tofu plan` JSON (or HCL-synthesized plan JSON when GCP ADC is missing). Then **continue** (not paste-only): load `${local.sop_governance_conform_name}`, rebuild `gcp/artifacts/governance-decision-tree.json` from **this-run** docs, `${local.shell_tool_prefix}_create_files` the validator (drop `NILE_GOVERNANCE_VALIDATOR_SCAFFOLD`), read `gcp/artifacts/governance-opa-fix-hints.md` when OPA denies, fix mechanical HCL under `gcp/groups/` (tags, labels, security flags named in deny messages), re-run the series until `gcp_iac_governance_ok=true`. Do not invent controls absent from refreshed docs. Validation evidence is not human approval.
-        **Hard evidence gate:** require notes `gcp_iac_governance_ok` (`true` or `false`) plus `gcp_governance_commit_sha` / `gcp/artifacts/governance-source.json`. Docs-unavailable → `blocked:governance_docs_unavailable`. OPA/rules unavailable → `blocked:governance_opa_unavailable`. Nonconformant-but-conclusive visits still note `stage_summary:gcp-iac-governance-conform=ok` so the loop can exit; PR remains gated on `gcp_iac_governance_ok=true`.
+        **Hard evidence gate:** require notes `gcp_iac_governance_ok` (`true` or `false`) plus `gcp_governance_commit_sha` / `gcp/artifacts/governance-source.json`. Docs-unavailable → `blocked:governance_docs_unavailable`. OPA/rules unavailable → `blocked:governance_opa_unavailable`. Nonconformant visits must remediate OPA/validator residuals and re-run until `gcp_iac_governance_ok=true` (loop exits on true or terminal blockers / max iterations). If residuals remain, `gcp-pr` still opens and documents them in `TODO.md` + PR body.
         **Discrete session notes (mandatory):** `note()` keys `gcp_iac_governance_ok`, `gcp_iac_governance_report`, `gcp_iac_opa_report` (when present), `gcp_governance_commit_sha`, `stage_summary:gcp-iac-governance-conform`.
         **Outputs:** discrete notes above plus `gcp_iac_opa_fix_hints` when OPA denies.
 
@@ -258,9 +258,10 @@ resource "sg_workflow" "aws_migrator_gcp_only" {
         loop_to        = "gcp-iac-governance-conform"
         max_iterations = var.max_governance_iterations
         exit_condition = "output_matches_regex"
-        # Exit on conclusive ok true|false or terminal fetch/generation blockers so PR is
-        # reached; gcp-pr still refuses to open unless gcp_iac_governance_ok=true.
-        exit_match = "gcp_iac_governance_ok[^\\n]{0,40}\"true\"|gcp_iac_governance_ok[^\\n]{0,40}\"false\"|stage_summary:gcp-iac-governance-conform=ok|stage_summary:gcp-iac-governance-conform=blocked:|blocked:governance_docs_unavailable|blocked:governance_opa_unavailable|blocked:generation_missing"
+        # Keep remediating while ok=false (agent patches OPA denies then re-runs).
+        # Exit only on ok=true or terminal docs/OPA/generation blockers. Max iterations
+        # still advances to gcp-pr, which opens with TODOs if residuals remain.
+        exit_match = "gcp_iac_governance_ok[^\\n]{0,40}\"true\"|stage_summary:gcp-iac-governance-conform=blocked:|blocked:governance_docs_unavailable|blocked:governance_opa_unavailable|blocked:generation_missing"
       }
     },
     {
@@ -277,7 +278,7 @@ resource "sg_workflow" "aws_migrator_gcp_only" {
         try(var.workflow_skill_refs["gcp-migration-pr::gcp-pr"], [])
       )
       note = <<-EOT
-        **Fan-in:** waits for `gcp-iac-loop` (validate path), `gcp-iac-harden`, and `gcp-iac-governance-loop` so lint/security autofixes and Nile-conformant HCL are included in the same PR tree. The runner refuses to open a PR unless `gcp_iac_governance_ok=true`.
+        **Fan-in:** waits for `gcp-iac-loop` (validate path), `gcp-iac-harden`, and `gcp-iac-governance-loop` so lint/security autofixes and Nile-conformant HCL are included in the same PR tree. Prefer `gcp_iac_governance_ok=true`. If residuals remain after the governance loop, the runner still opens the PR and documents OPA/validator TODOs in `gcp/artifacts/TODO.md` + the PR body.
         **Incremental bring-up execution (mandatory):** `create_agent` is allowed (reactree). Put the exact BEGIN/END one-liner in CREATE_AGENT_EXPECTATION (`tool_names` only execute_series), or paste it yourself. ONE `${local.shell_tool_prefix}_execute_series` whose single command is the ONE-LINE body between BEGIN/END GCP_PR_EXECUTE_SERIES (`pack-entry.sh` … `destination gcp-pr`). Never pass the marker name as the command.
         **Repo contract:** sync `$WORK_ROOT/gcp/` to `${trimspace(var.default_iac_repository_url)}` under `gcp/`, create a fresh branch starting with `gcp/<workflow_run_id>`, and open a new PR against `${trimspace(var.default_branch)}`. If that branch already exists locally/remotely or has any PR history, append a timestamp/PID suffix; never reuse or update an existing PR for a new execution.
         **Hard evidence gate:** read `--- stage_evidence ---` from the execute_series stdout (emitted before the noisy transcript tail). If it contains `gcp_pr_url=https://` or `stage_summary:gcp-pr=ok`, you MUST `note()` those values and complete successfully — never emit `missing_runner_evidence` when those lines are present. Only emit `stage_summary:gcp-pr=blocked:missing_runner_evidence` when neither `gcp_pr_url=` / `pr_url=` nor `pr_blocker=` appears in stage_evidence. An explicit `pr_blocker=` is also a conclusive result (note it and return blocked with that reason).

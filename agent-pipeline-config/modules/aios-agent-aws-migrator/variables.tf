@@ -408,7 +408,7 @@ variable "max_convergence_iterations" {
 }
 
 variable "max_governance_iterations" {
-  description = "Cap for azure/gcp iac-governance-conform loops. Each iteration refreshes living Nile docs, rebuilds the decision tree, and re-verifies generated IaC. PR still requires *_iac_governance_ok=true."
+  description = "Cap for azure/gcp iac-governance-conform loops. Each iteration refreshes living Nile docs, rebuilds the decision tree, and re-verifies generated IaC. Prefer *_iac_governance_ok=true; destination PR still opens with TODOs if residuals remain after this cap."
   type        = number
   default     = 5
 

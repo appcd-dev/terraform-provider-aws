@@ -9,7 +9,7 @@ resource "sg_workflow" "aws_migrator_azure_only" {
     Azure migration PR workflow. Resolves a discovery handoff via `source_pr` (GitHub PR number) or
     `source_iac_branch` (head ref; default `${local.azure_only_source_branch}`), clones that tip from
     `${trimspace(var.default_iac_repository_url)}`, materializes `aws/groups` + `aws/artifacts`, then runs
-    Azure blueprint → HCL generate → parallel validate/harden/governance-conform → sibling multi-commit Azure PR (`azure/<run_id>`) gated on living Nile Priority-1 conformance.
+    Azure blueprint → HCL generate → parallel validate/harden/governance-conform → sibling multi-commit Azure PR (`azure/<run_id>`) with living Nile Priority-1 + OPA evidence (residuals documented in TODO when not yet clear).
     Skips cloud2code, tfstate split, AWS reverse-HCL hydration, and orphan handling.
   EOT
   approve     = true
@@ -217,7 +217,7 @@ resource "sg_workflow" "aws_migrator_azure_only" {
         **Upstream guard:** if `azure_iac_generated` is not `"true"`, record `stage_summary:azure-iac-governance-conform=skipped:generation_missing` and return.
         **Parallel with validate/harden:** this stage shares `stage_depends_on=azure-iac-generate` (Guild DAG fan-out). Do not wait for plan or harden.
         **Living docs + OPA:** first tool call is ONE `${local.shell_tool_prefix}_execute_series` whose single command is ONLY the shell script between ---BEGIN AZURE_GOVERNANCE_CONFORM_EXECUTE_SERIES--- and ---END AZURE_GOVERNANCE_CONFORM_EXECUTE_SERIES--- below (`timeout_seconds=3600`) — harness refreshes Governance-and-Policy, inventories resources, seeds/runs the validator, and runs Nile-Factory `rules/` OPA against plan JSON. Then **continue** (not paste-only): load `${local.sop_governance_conform_name}`, rebuild `azure/artifacts/governance-decision-tree.json` from **this-run** docs, `${local.shell_tool_prefix}_create_files` the validator (drop `NILE_GOVERNANCE_VALIDATOR_SCAFFOLD`), read `azure/artifacts/governance-opa-fix-hints.md` when OPA denies, fix mechanical HCL under `azure/groups/`, re-run the series until `azure_iac_governance_ok=true`. Do not invent controls absent from refreshed docs. Validation evidence is not human approval.
-        **Hard evidence gate:** require notes `azure_iac_governance_ok` (`true` or `false`) plus `azure_governance_commit_sha` / `azure/artifacts/governance-source.json`. Docs-unavailable → `blocked:governance_docs_unavailable`. OPA/rules unavailable → `blocked:governance_opa_unavailable`. Nonconformant-but-conclusive visits still note `stage_summary:azure-iac-governance-conform=ok` so the loop can exit; PR remains gated on `azure_iac_governance_ok=true`.
+        **Hard evidence gate:** require notes `azure_iac_governance_ok` (`true` or `false`) plus `azure_governance_commit_sha` / `azure/artifacts/governance-source.json`. Docs-unavailable → `blocked:governance_docs_unavailable`. OPA/rules unavailable → `blocked:governance_opa_unavailable`. Nonconformant visits must remediate OPA/validator residuals and re-run until `azure_iac_governance_ok=true` (loop exits on true or terminal blockers / max iterations). If residuals remain, `azure-pr` still opens and documents them in `TODO.md` + PR body.
         **Outputs:** note `azure_iac_governance_ok`, `azure_iac_governance_report`, `azure_iac_opa_report`, `azure_iac_opa_fix_hints`, `azure_governance_commit_sha`, and `stage_summary:azure-iac-governance-conform`.
 
         ${local.dbsplit_spawn_context_azure_governance_conform}
@@ -255,9 +255,10 @@ resource "sg_workflow" "aws_migrator_azure_only" {
         loop_to        = "azure-iac-governance-conform"
         max_iterations = var.max_governance_iterations
         exit_condition = "output_matches_regex"
-        # Exit on conclusive ok true|false or terminal fetch/generation blockers so PR is
-        # reached; azure-pr still refuses to open unless azure_iac_governance_ok=true.
-        exit_match = "azure_iac_governance_ok[^\\n]{0,40}\"true\"|azure_iac_governance_ok[^\\n]{0,40}\"false\"|stage_summary:azure-iac-governance-conform=ok|stage_summary:azure-iac-governance-conform=blocked:|blocked:governance_docs_unavailable|blocked:governance_opa_unavailable|blocked:generation_missing"
+        # Keep remediating while ok=false (agent patches OPA denies then re-runs).
+        # Exit only on ok=true or terminal docs/OPA/generation blockers. Max iterations
+        # still advances to azure-pr, which opens with TODOs if residuals remain.
+        exit_match = "azure_iac_governance_ok[^\\n]{0,40}\"true\"|stage_summary:azure-iac-governance-conform=blocked:|blocked:governance_docs_unavailable|blocked:governance_opa_unavailable|blocked:generation_missing"
       }
     },
     {
@@ -274,7 +275,7 @@ resource "sg_workflow" "aws_migrator_azure_only" {
         try(var.workflow_skill_refs["azure-migration-pr::azure-pr"], [])
       )
       note = <<-EOT
-        **Fan-in:** waits for `azure-iac-loop` (validate path), `azure-iac-harden`, and `azure-iac-governance-loop` so lint/security autofixes and Nile-conformant HCL are included in the same PR tree. The runner refuses to open a PR unless `azure_iac_governance_ok=true`.
+        **Fan-in:** waits for `azure-iac-loop` (validate path), `azure-iac-harden`, and `azure-iac-governance-loop` so lint/security autofixes and Nile-conformant HCL are included in the same PR tree. Prefer `azure_iac_governance_ok=true`. If residuals remain after the governance loop, the runner still opens the PR and documents OPA/validator TODOs in `azure/artifacts/TODO.md` + the PR body.
         **Incremental bring-up execution (mandatory):** `create_agent` is allowed (reactree). Put the exact BEGIN/END one-liner in CREATE_AGENT_EXPECTATION (`tool_names` only execute_series), or paste it yourself. ONE `${local.shell_tool_prefix}_execute_series` whose single command is ONLY the shell script between ---BEGIN AZURE_PR_EXECUTE_SERIES--- and ---END AZURE_PR_EXECUTE_SERIES--- below (never use the marker label as the command).
         **Repo contract:** sync `$WORK_ROOT/azure/` to `${trimspace(var.default_iac_repository_url)}` under `azure/`, create a fresh branch starting with `azure/<workflow_run_id>`, and open a new PR against `${trimspace(var.default_branch)}`. If that branch already exists locally/remotely or has any PR history, append a timestamp/PID suffix; never reuse or update an existing PR for a new execution.
         **Hard evidence gate:** read `--- stage_evidence ---` from the execute_series stdout (emitted before the noisy transcript tail). If it contains `azure_pr_url=https://` or `stage_summary:azure-pr=ok`, you MUST `note()` those values and complete successfully — never emit `missing_runner_evidence` when those lines are present. Only emit `stage_summary:azure-pr=blocked:missing_runner_evidence` when neither `azure_pr_url=` / `pr_url=` nor `pr_blocker=` appears in stage_evidence. An explicit `pr_blocker=` is also a conclusive result (note it and return blocked with that reason).

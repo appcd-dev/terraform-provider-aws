@@ -81,7 +81,7 @@ Azure destination PR workflow: `azure-migration-pr`
 
 GCP destination PR workflow: `gcp-migration-pr`
 
-Destination PR workflows skip cloud2code, tfstate split, AWS HCL hydration, and orphan handling. They resolve `source_pr` (preferred) or `source_iac_branch` (fallback default `azure_only_source_branch` / `gcp_only_source_branch`) from `default_iac_repository_url`, restore `aws/groups` plus `aws/artifacts`, then run destination blueprint, generation, validation, living Nile governance conform, and a sibling PR gated on `*_iac_governance_ok`.
+Destination PR workflows skip cloud2code, tfstate split, AWS HCL hydration, and orphan handling. They resolve `source_pr` (preferred) or `source_iac_branch` (fallback default `azure_only_source_branch` / `gcp_only_source_branch`) from `default_iac_repository_url`, restore `aws/groups` plus `aws/artifacts`, then run destination blueprint, generation, validation, living Nile governance conform, and a sibling PR. Agents remediate OPA/validator residuals in the governance loop; if residuals remain after max iterations the PR still opens with TODOs in `*/artifacts/TODO.md`.
 
 Required workflow input:
 

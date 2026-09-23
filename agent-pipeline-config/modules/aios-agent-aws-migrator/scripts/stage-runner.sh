@@ -4,7 +4,7 @@
 # Usage: DBSPLIT_EMBEDDED=1 bash -s <command> [args...] << 'DBSPLIT_STAGE_RUNNER' ... DBSPLIT_STAGE_RUNNER
 set -euo pipefail
 
-SCRIPT_PACK_VERSION="20260911.22"
+SCRIPT_PACK_VERSION="20260911.23"
 DBSPLIT_DEFAULT_STRATEGY="${DBSPLIT_DEFAULT_STRATEGY:-tfstate_monolith_decomposer}"
 DBSPLIT_DEFAULT_CAP="${DBSPLIT_DEFAULT_CAP:-0}"
 REQUIRED_ALLOCATE_MARKER="def merge_small_by_seed"
@@ -2138,7 +2138,13 @@ write_destination_todo_md() {
   fail_ids="$(jq -r '[.groups[]? | select(.validate == false or .validate == "false")] | map(.group_id) | .[0:12] | join(", ")' "$validation_src" 2>/dev/null || true)"
   empty_skip_count="$(jq -r '[.groups[]? | select((.validate // "") | tostring | test("empty_scaffold"))] | length' "$validation_src" 2>/dev/null || echo 0)"
 
-  if [ "$static_fail" != "0" ] && [ "$static_fail" != "unknown" ]; then
+  local gov_note_ok
+  gov_note_ok="$(read_note "$work_root" "${cloud}_iac_governance_ok" 2>/dev/null || true)"
+  if [ "$gov_note_ok" != "true" ] \
+    && { [ -f "${work_root}/${cloud}/artifacts/governance-opa-findings.json" ] \
+      || [ -f "${work_root}/${cloud}/artifacts/governance-conformance-report.json" ]; }; then
+    start_blocker="Governance/OPA residuals remain — clear them from governance-opa-fix-hints.md / governance-exceptions.md before merge (see Nile governance section)."
+  elif [ "$static_fail" != "0" ] && [ "$static_fail" != "unknown" ]; then
     start_blocker="Fix static validate failures first (${static_fail} group(s))."
   elif printf '%s' "$plan_status" | grep -Eq 'missing_credentials|skipped:missing'; then
     start_blocker="Static HCL may look fine, but there is no live plan sample — attach ${cloud_title} credentials and re-run validate before trusting apply-shape."
@@ -2164,7 +2170,7 @@ write_destination_todo_md() {
     echo "4. [How to review (shape vs permissions vs defer)](#how-to-review-shape-vs-permissions-vs-defer)"
     echo "5. [Review-needed index](#review-needed-index)"
     echo "6. [Lint / security harden](#lint--security-harden)"
-    echo "7. [Nile governance](#nile-governance)"
+    echo "7. [Nile governance / OPA residuals](#nile-governance--opa-residuals)"
     echo "8. [Validation detail](#validation-detail)"
     echo "9. [Artifact map](#artifact-map)"
     echo "10. [Sign-off checklist](#sign-off-checklist)"
@@ -2174,7 +2180,7 @@ write_destination_todo_md() {
     echo "Work top-down. Stop if a higher item fails."
     echo
     echo "1. **Read this file + the PR body** — confirm this PR is for the intended AWS source branch/PR."
-    echo "2. **Clear blockers** in [Blockers and attention](#blockers-and-attention) (static fails, missing live plan)."
+    echo "2. **Clear blockers** in [Blockers and attention](#blockers-and-attention) and [Nile governance / OPA](#nile-governance--opa-residuals) (static fails, missing live plan, OPA denies)."
     echo "3. **Ambiguous first** — LB L4/L7, engine choice, EKS/ECS/VM/Lambda, etc. (mandatory HITL)."
     echo "4. **Permissions next** (\`${emission_iam}\` IAM scaffolds) — translate AWS actions → cloud RBAC; comments are not permissions."
     echo "5. **Shape spot-check** (\`${emission_full}\` full_scaffold) — CIDR/SKU/naming/wiring; catalog bumps cleared many of these from mandatory review."
@@ -2342,29 +2348,9 @@ write_destination_todo_md() {
       echo "- Harden stage has not run yet (or report missing). After \`${cloud}-iac-harden\`, autofixes + scanner findings appear here."
       echo
     fi
-    echo "## Nile governance"
+    echo "Agents refresh Governance-and-Policy each run and author a validator from **this-run** docs (not a frozen catalog). They must remediate mechanical OPA denies (labels/tags/flags named in deny messages) before finishing the governance loop."
     echo
-    echo "Agents refresh Governance-and-Policy each run and author a validator from **this-run** docs (not a frozen catalog)."
-    echo
-    local gov_report="${work_root}/${cloud}/artifacts/governance-conformance-report.json"
-    if [ -f "$gov_report" ]; then
-      echo "- Report: [\`governance-conformance-report.json\`](./governance-conformance-report.json)"
-      echo "- Source: [\`governance-source.json\`](./governance-source.json)"
-      echo "- Exceptions: [\`governance-exceptions.md\`](./governance-exceptions.md)"
-      echo
-      echo "| Item | Value |"
-      echo "| --- | --- |"
-      echo "| Governance SHA | \`$(jq -r '.governance_commit_sha // empty' "$gov_report" 2>/dev/null || echo unknown)\` |"
-      echo "| conformance_ok | \`$(jq -r '.conformance_ok // false' "$gov_report" 2>/dev/null || echo false)\` |"
-      echo "| Blocking findings | \`$(jq -r '.blocking_count // 0' "$gov_report" 2>/dev/null || echo 0)\` |"
-      echo "| Iteration | \`$(jq -r '.iteration // 0' "$gov_report" 2>/dev/null || echo 0)\` |"
-      echo
-      echo "- Validation evidence is **not** human approval."
-      echo
-    else
-      echo "- Governance conform has not run yet. After \`${cloud}-iac-governance-conform\`, SHA + findings appear here."
-      echo
-    fi
+    emit_governance_residual_md "$work_root" "$cloud"
     echo "## Validation detail"
     echo
     echo "- Report file: [\`validation-report.json\`](./validation-report.json)"
@@ -2398,7 +2384,9 @@ write_destination_todo_md() {
     echo "| \`${cloud}/artifacts/governance-validator.py\` | Agent-authored validator from that tree |"
     echo "| \`${cloud}/artifacts/governance-findings.json\` | Per-resource control findings |"
     echo "| \`${cloud}/artifacts/governance-conformance-report.json\` | Rollup + iteration + gov SHA |"
-    echo "| \`${cloud}/artifacts/governance-exceptions.md\` | Blocking residuals only |"
+    echo "| \`${cloud}/artifacts/governance-exceptions.md\` | Validator blocking residuals |"
+    echo "| \`${cloud}/artifacts/governance-opa-findings.json\` | OPA deny rollup |"
+    echo "| \`${cloud}/artifacts/governance-opa-fix-hints.md\` | Mechanical HCL fix hints from OPA |"
     echo "| \`${cloud}/artifacts/validation-report.json\` | Static + live plan matrix |"
     echo "| \`${cloud}/artifacts/generation-summary.json\` | Emission + conversion counters |"
     echo "| \`${cloud}/artifacts/mapping-decisions.json\` | Full mapping table by group |"
@@ -2410,7 +2398,7 @@ write_destination_todo_md() {
     echo "- [ ] Confirmed AWS source PR/branch matches this destination PR"
     echo "- [ ] Static validate failures resolved or explicitly accepted"
     echo "- [ ] Harden residual high findings reviewed (or accepted)"
-    echo "- [ ] Nile Priority-1 governance residuals cleared (see \`governance-exceptions.md\`); SHA in \`governance-source.json\`"
+    echo "- [ ] Nile Priority-1 + OPA residuals cleared (see \`governance-exceptions.md\` / \`governance-opa-fix-hints.md\`); SHA in \`governance-source.json\`"
     echo "- [ ] Live plan sample reviewed (or credentials gap accepted with follow-up ticket)"
     echo "- [ ] Sampled plans show expected creates only (no deletes/replaces)"
     echo "- [ ] Ambiguous HITL groups resolved (or accepted with owner)"
@@ -5326,19 +5314,111 @@ cmd_gcp_iac_governance_conform() {
   cmd_destination_iac_governance_conform "${1:?WORK_ROOT}" "gcp"
 }
 
+# Soft gate: agents should remediate OPA/validator residuals in the governance
+# loop first. If residuals remain after max iterations, still open the PR and
+# document them in TODO.md + PR body (session d7f9f34c blocked with no PR).
 require_destination_governance_ok() {
   local work_root="${1:?WORK_ROOT}"
   local cloud="${2:?CLOUD}"
   local ok
   ok="$(read_note "$work_root" "${cloud}_iac_governance_ok" 2>/dev/null || true)"
   if [ "$ok" = "true" ]; then
+    mirror_note "$work_root" "governance_residual" "false"
     return 0
   fi
-  mirror_note "$work_root" "pr_blocker" "governance_nonconformant"
-  mirror_note "$work_root" "stage_summary:${cloud}-pr" "blocked:governance_nonconformant"
-  echo "pr_blocker=governance_nonconformant"
-  echo "stage_summary:${cloud}-pr=blocked:governance_nonconformant"
-  return 1
+  mirror_note "$work_root" "governance_residual" "true"
+  echo "governance_residual=true"
+  echo "warning:governance_nonconformant_opening_pr_with_todos"
+  return 0
+}
+
+# Emit Nile governance + OPA residual instructions (stdout). Used by TODO.md and
+# destination PR bodies so operators always get fix steps even when ok=false.
+emit_governance_residual_md() {
+  local work_root="${1:?WORK_ROOT}"
+  local cloud="${2:?CLOUD}"
+  local gov_report="${work_root}/${cloud}/artifacts/governance-conformance-report.json"
+  local opa_report="${work_root}/${cloud}/artifacts/governance-opa-report.json"
+  local opa_findings="${work_root}/${cloud}/artifacts/governance-opa-findings.json"
+  local opa_hints="${work_root}/${cloud}/artifacts/governance-opa-fix-hints.md"
+  local exceptions="${work_root}/${cloud}/artifacts/governance-exceptions.md"
+  local gov_ok opa_ok deny_count blocking_count
+
+  gov_ok="$(read_note "$work_root" "${cloud}_iac_governance_ok" 2>/dev/null || true)"
+  gov_ok="${gov_ok:-unknown}"
+  opa_ok="$(jq -r '.opa_ok // "unknown"' "$opa_report" 2>/dev/null || echo unknown)"
+  if [ "$opa_ok" = "unknown" ] && [ -f "$opa_findings" ]; then
+    deny_count="$(jq -r '.deny_count // 0' "$opa_findings" 2>/dev/null || echo 0)"
+    if [ "$deny_count" = "0" ]; then
+      opa_ok="true"
+    else
+      opa_ok="false"
+    fi
+  else
+    deny_count="$(jq -r '.deny_count // 0' "${opa_findings:-$opa_report}" 2>/dev/null || echo 0)"
+  fi
+  blocking_count="$(jq -r '.blocking_count // 0' "$gov_report" 2>/dev/null || echo 0)"
+
+  echo "## Nile governance / OPA residuals"
+  echo
+  echo "| Item | Value |"
+  echo "| --- | --- |"
+  echo "| \`${cloud}_iac_governance_ok\` | \`${gov_ok}\` |"
+  echo "| opa_ok | \`${opa_ok}\` |"
+  echo "| OPA deny_count | \`${deny_count}\` |"
+  echo "| Validator blocking_count | \`${blocking_count}\` |"
+  if [ -f "$gov_report" ]; then
+    echo "| Governance SHA | \`$(jq -r '.governance_commit_sha // empty' "$gov_report" 2>/dev/null || echo unknown)\` |"
+  fi
+  echo
+  if [ "$gov_ok" = "true" ]; then
+    echo "Governance gate cleared for this run. Spot-check artifacts below before apply."
+    echo
+  else
+    echo "> **Residual governance/OPA findings remain.** Agents should have patched mechanical HCL from OPA hints before opening this PR. Treat the items below as merge blockers until cleared or explicitly accepted."
+    echo
+    echo "### TODO — clear residuals"
+    echo
+    echo "1. Open [\`governance-opa-fix-hints.md\`](./governance-opa-fix-hints.md) (when present) and apply the named label/tag/flag fixes under \`${cloud}/groups/\`."
+    echo "2. Clear validator blockers in [\`governance-exceptions.md\`](./governance-exceptions.md)."
+    echo "3. Re-run \`${cloud}-iac-governance-conform\` (or the destination workflow) until \`${cloud}_iac_governance_ok=true\`."
+    echo "4. Do **not** apply cloud resources while \`opa_ok\` / \`conformance_ok\` are false unless an owner accepts each residual."
+    echo
+  fi
+  if [ -f "$opa_findings" ] && command -v jq >/dev/null 2>&1; then
+    echo "### Top OPA denies (sample)"
+    echo
+    echo '```'
+    jq -r '
+      (.findings // [])
+      | .[0:25][]
+      | if type == "string" then .
+        elif .msg then .msg
+        elif .message then .message
+        elif .reason then .reason
+        else tostring end
+    ' "$opa_findings" 2>/dev/null | head -40 || true
+    echo '```'
+    echo
+    echo "- Full rollup: [\`governance-opa-findings.json\`](./governance-opa-findings.json)"
+    echo
+  fi
+  if [ -f "$opa_hints" ]; then
+    echo "### OPA fix hints (excerpt)"
+    echo
+    sed -n '1,80p' "$opa_hints"
+    echo
+    echo "- Full hints: [\`governance-opa-fix-hints.md\`](./governance-opa-fix-hints.md)"
+    echo
+  fi
+  if [ -f "$exceptions" ]; then
+    echo "- Validator exceptions: [\`governance-exceptions.md\`](./governance-exceptions.md)"
+    echo
+  fi
+  if [ -f "$gov_report" ]; then
+    echo "- Conformance report: [\`governance-conformance-report.json\`](./governance-conformance-report.json)"
+    echo
+  fi
 }
 
 cmd_azure_iac_validate() {
@@ -5746,11 +5826,12 @@ write_azure_pr_body() {
     echo
     echo "- Static validation runs \`tofu fmt\`, \`tofu validate\`, optional \`tofu test\`, and optional \`tflint\` on validated groups."
     echo "- Parallel \`azure-iac-harden\` applies mechanical security/lint autofixes into the same PR; see \`azure/artifacts/harden-findings.md\`."
-    echo "- \`azure-iac-governance-conform\` refreshes living Nile docs, derives a per-resource tree, and re-verifies until Priority-1-conformant. PR is gated on \`azure_iac_governance_ok=true\`. Pin SHA from \`azure/artifacts/governance-source.json\`. Validation evidence is not human approval."
+    echo "- \`azure-iac-governance-conform\` refreshes living Nile docs, derives a per-resource tree, and re-verifies Priority-1 + OPA. Agents must remediate mechanical denies (see \`governance-opa-fix-hints.md\`) across governance-loop iterations. If residuals remain after max iterations, this PR still opens with TODOs — clear them before apply. Pin SHA from \`azure/artifacts/governance-source.json\`. Validation evidence is not human approval."
     echo "- Live Azure plan runs only when Azure credentials are present on the runner (sampled when \`AZURE_LIVE_PLAN_MAX_GROUPS\` is set)."
     echo "- Live plan status is recorded as \`azure_plan_status\`. When credentials are required, missing ARM_* fails validate; this PR never applies Azure resources."
     echo "- When a live plan runs, sampled success requires expected creates and no deletes or replacements."
     echo
+    emit_governance_residual_md "$work_root" "azure"
     echo "## Lint / security harden"
     echo
     if [ -n "$harden_excerpt" ]; then
@@ -6985,11 +7066,12 @@ write_gcp_pr_body() {
     echo
     echo "- Static validation runs \`tofu fmt\`, \`tofu validate\`, optional \`tofu test\`, and optional \`tflint\` on validated groups."
     echo "- Parallel \`gcp-iac-harden\` applies mechanical security/lint autofixes into the same PR; see \`gcp/artifacts/harden-findings.md\`."
-    echo "- \`gcp-iac-governance-conform\` refreshes living Nile docs, derives a per-resource tree, and re-verifies until Priority-1-conformant. PR is gated on \`gcp_iac_governance_ok=true\`. Pin SHA from \`gcp/artifacts/governance-source.json\`. Validation evidence is not human approval."
+    echo "- \`gcp-iac-governance-conform\` refreshes living Nile docs, derives a per-resource tree, and re-verifies Priority-1 + OPA. Agents must remediate mechanical denies (see \`governance-opa-fix-hints.md\`) across governance-loop iterations. If residuals remain after max iterations, this PR still opens with TODOs — clear them before apply. Pin SHA from \`gcp/artifacts/governance-source.json\`. Validation evidence is not human approval."
     echo "- Live GCP plan runs only when GCP credentials are present on the runner (sampled when \`GCP_LIVE_PLAN_MAX_GROUPS\` is set)."
     echo "- Live plan status is recorded as \`gcp_plan_status\`. When credentials are required, missing GOOGLE_*/GCP_* fails validate; this PR never applies GCP resources."
     echo "- When a live plan runs, sampled success requires expected creates and no deletes or replacements."
     echo
+    emit_governance_residual_md "$work_root" "gcp"
     echo "## Lint / security harden"
     echo
     if [ -n "$harden_excerpt" ]; then
