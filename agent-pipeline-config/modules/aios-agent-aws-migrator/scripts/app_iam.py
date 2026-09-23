@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from pathlib import Path
 from typing import Any
 
 # Trust principals that mean "this role runs an application/service", not a human.
@@ -287,91 +288,79 @@ def extract_workload_roles_from_state(state: dict) -> list[dict]:
     return out
 
 
-def build_gcp_app_iam_hcl(roles: list[dict], group_id: str, stable: str) -> list[str]:
-    """Emit review-candidate SA + custom role + project IAM member per workload role.
+def build_app_iam_inventory(
+    roles: list[dict], group_id: str, *, cloud: str
+) -> dict[str, Any]:
+    """Structured permission map for acquisition review (not apply-ready RBAC)."""
+    return {
+        "schema": "nile-app-iam-inventory/v1",
+        "group_id": group_id,
+        "cloud": cloud,
+        "workload_role_count": len(roles),
+        "workload_roles": [
+            {
+                "name": r.get("name"),
+                "id": r.get("id"),
+                "arn": r.get("arn"),
+                "aws_actions": list(r.get("aws_actions") or [])[:200],
+                "policy_names": list(r.get("policy_names") or [])[:40],
+            }
+            for r in roles
+        ],
+        "note": (
+            "Translate AWS actions to destination RBAC before apply. "
+            "Generated HCL only creates the identity principal (SA/UAI); "
+            "no placeholder custom roles or bindings."
+        ),
+    }
 
-    AWS actions are preserved as comments for the acquisition review pack; GCP
-    permissions stay placeholders until an IAM specialist translates them.
+
+def write_app_iam_inventory(path: Path, inventory: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(inventory, indent=2) + "\n", encoding="utf-8")
+
+
+def build_gcp_app_iam_hcl(roles: list[dict], group_id: str, stable: str) -> list[str]:
+    """Emit service accounts only; permission map lives in app-iam-inventory.json.
+
+    Deliberately does **not** emit placeholder custom roles / IAM members — those
+    were duct-tape that looked migrated but could not be applied.
     """
     lines: list[str] = [
-        "# Emission=managed_identity_rbac_scaffold: acquisition app-IAM capture.",
-        "# Each AWS workload role → google_service_account + google_project_iam_custom_role",
-        "# + google_project_iam_member. Translate AWS actions to GCP permissions before apply.",
+        "# Emission=managed_identity_rbac_scaffold: identity principal only.",
+        "# Permission map: app-iam-inventory.json (translate AWS actions before apply).",
+        "# No placeholder google_project_iam_custom_role / iam_member blocks.",
         "",
     ]
-    if not roles:
-        used: set[str] = set()
-        sa_id = _gcp_sa_account_id(stable, "workload", used, 0)
-        role_id = f"mig{stable.replace('-', '')[:16]}"
-        lines.extend(
-            [
-                "# No workload aws_iam_role instances in this group state — baseline SA + custom role scaffold.",
-                'resource "google_service_account" "workload" {',
-                f"  account_id   = {_hcl_string(sa_id)}",
-                f'  display_name = "migration-{group_id}"',
-                "}",
-                "",
-                'resource "google_project_iam_custom_role" "workload" {',
-                f"  role_id     = {_hcl_string(role_id)}",
-                f'  title       = "migration-{group_id}"',
-                '  description = "Review-candidate custom role; replace permissions with translated AWS IAM actions."',
-                "  permissions = [",
-                *[f'    "{p}",' for p in GCP_PLACEHOLDER_PERMISSIONS],
-                "  ]",
-                "}",
-                "",
-                'resource "google_project_iam_member" "workload" {',
-                "  project = var.project_id",
-                '  role    = "projects/${var.project_id}/roles/${google_project_iam_custom_role.workload.role_id}"',
-                '  member  = "serviceAccount:${google_service_account.workload.email}"',
-                "}",
-                "",
-            ]
-        )
-        return lines
-
     used_account_ids: set[str] = set()
-    for idx, role in enumerate(roles):
+    emit_roles = roles or [
+        {"name": "workload", "arn": "", "id": "workload", "aws_actions": [], "policy_names": []}
+    ]
+    baseline = not roles
+    if baseline:
+        lines.append(
+            "# No workload aws_iam_role in this group state — baseline SA for wiring only."
+        )
+    for idx, role in enumerate(emit_roles):
         suffix = _safe_tf_name(role.get("name") or f"role{idx}")
-        res = "workload" if idx == 0 and len(roles) == 1 else f"app_{suffix}"[:50]
-        sa_id = _gcp_sa_account_id(stable[:8], suffix, used_account_ids, idx)
-        role_id = re.sub(r"[^a-zA-Z0-9_.]", "", f"mig{stable[:6]}{suffix}")[:64] or f"mig{idx}"
-        actions = role.get("aws_actions") or []
-        pol_names = role.get("policy_names") or []
-        lines.append(f"# AWS role: {role.get('name')} ({role.get('arn') or role.get('id')})")
-        if pol_names:
-            lines.append(f"# Source policies: {', '.join(pol_names[:12])}")
-        if actions:
-            lines.append("# AWS actions to translate (sample):")
-            for act in actions[:40]:
-                lines.append(f"#   - {act}")
-        else:
-            lines.append(
-                "# No inline/customer policy statements found in this group state — "
-                "confirm managed-policy attachments in review-needed.md."
-            )
+        res = "workload" if baseline or (idx == 0 and len(emit_roles) == 1) else f"app_{suffix}"[:50]
+        sa_id = _gcp_sa_account_id(
+            stable if baseline else stable[:8],
+            "workload" if baseline else suffix,
+            used_account_ids,
+            idx,
+        )
         role_name = str(role.get("name") or res)
+        if not baseline:
+            lines.append(f"# AWS role: {role.get('name')} ({role.get('arn') or role.get('id')})")
+            actions = role.get("aws_actions") or []
+            if actions:
+                lines.append(f"# AWS actions sample ({len(actions)}): see app-iam-inventory.json")
         lines.extend(
             [
                 f'resource "google_service_account" "{res}" {{',
                 f"  account_id   = {_hcl_string(sa_id)}",
-                f"  display_name = {_hcl_string('aws:' + role_name)}",
-                f"  description  = {_hcl_string('Migrated from AWS IAM role ' + role_name)}",
-                "}",
-                "",
-                f'resource "google_project_iam_custom_role" "{res}" {{',
-                f"  role_id     = {_hcl_string(role_id)}",
-                f"  title       = {_hcl_string('aws-' + role_name[:60])}",
-                '  description = "Acquisition review-candidate; translate AWS IAM actions before apply."',
-                "  permissions = [",
-                *[f'    "{p}",' for p in GCP_PLACEHOLDER_PERMISSIONS],
-                "  ]",
-                "}",
-                "",
-                f'resource "google_project_iam_member" "{res}" {{',
-                "  project = var.project_id",
-                f'  role    = "projects/${{var.project_id}}/roles/${{google_project_iam_custom_role.{res}.role_id}}"',
-                f'  member  = "serviceAccount:${{google_service_account.{res}.email}}"',
+                f"  display_name = {_hcl_string(('migration-' + group_id) if baseline else ('aws:' + role_name))}",
                 "}",
                 "",
             ]
@@ -380,74 +369,34 @@ def build_gcp_app_iam_hcl(roles: list[dict], group_id: str, stable: str) -> list
 
 
 def build_azure_app_iam_hcl(roles: list[dict], group_id: str, stable: str) -> list[str]:
-    """Emit review-candidate UAI + custom role definition + assignment per workload role.
-
-    AWS actions are preserved as comments for the acquisition review pack; Azure
-    RBAC actions stay placeholders until an IAM specialist translates them.
-    """
+    """Emit user-assigned identities only; permission map in app-iam-inventory.json."""
     lines: list[str] = [
-        "# Emission=managed_identity_rbac_scaffold: acquisition app-IAM capture.",
-        "# Each AWS workload role → azurerm_user_assigned_identity + azurerm_role_definition",
-        "# + azurerm_role_assignment. Translate AWS actions to Azure RBAC before apply.",
+        "# Emission=managed_identity_rbac_scaffold: identity principal only.",
+        "# Permission map: app-iam-inventory.json (translate AWS actions before apply).",
+        "# No placeholder azurerm_role_definition / role_assignment blocks.",
         "",
     ]
-    if not roles:
-        lines.extend(
-            [
-                "# No workload aws_iam_role instances in this group state — baseline UAI + custom role scaffold.",
-                'resource "azurerm_user_assigned_identity" "workload" {',
-                f'  name                = "id-{group_id[:56]}"',
-                "  location            = azurerm_resource_group.this.location",
-                "  resource_group_name = azurerm_resource_group.this.name",
-                "  tags                = var.tags",
-                "}",
-                "",
-                'resource "azurerm_role_definition" "workload" {',
-                f'  name        = "role-{group_id[:50]}"',
-                "  scope       = azurerm_resource_group.this.id",
-                '  description = "Review-candidate custom role; replace permissions with translated AWS IAM actions."',
-                "",
-                "  permissions {",
-                "    actions     = [",
-                *[f'      "{a}",' for a in AZURE_PLACEHOLDER_ACTIONS],
-                "    ]",
-                "    not_actions = []",
-                "  }",
-                "",
-                "  assignable_scopes = [",
-                "    azurerm_resource_group.this.id,",
-                "  ]",
-                "}",
-                "",
-                'resource "azurerm_role_assignment" "workload" {',
-                "  scope              = azurerm_resource_group.this.id",
-                "  role_definition_id = azurerm_role_definition.workload.role_definition_resource_id",
-                "  principal_id       = azurerm_user_assigned_identity.workload.principal_id",
-                "}",
-                "",
-            ]
+    emit_roles = roles or [
+        {"name": "workload", "arn": "", "id": "workload", "aws_actions": [], "policy_names": []}
+    ]
+    baseline = not roles
+    if baseline:
+        lines.append(
+            "# No workload aws_iam_role in this group state — baseline UAI for wiring only."
         )
-        return lines
-
-    for idx, role in enumerate(roles):
+    for idx, role in enumerate(emit_roles):
         suffix = _safe_tf_name(role.get("name") or f"role{idx}")
-        res = "workload" if idx == 0 and len(roles) == 1 else f"app_{suffix}"[:50]
-        id_name = f"id-{stable[:8]}-{suffix}"[:64].rstrip("-_")
-        role_name_hcl = f"role-{stable[:6]}-{suffix}"[:64].rstrip("-_")
-        actions = role.get("aws_actions") or []
-        pol_names = role.get("policy_names") or []
-        lines.append(f"# AWS role: {role.get('name')} ({role.get('arn') or role.get('id')})")
-        if pol_names:
-            lines.append(f"# Source policies: {', '.join(pol_names[:12])}")
-        if actions:
-            lines.append("# AWS actions to translate (sample):")
-            for act in actions[:40]:
-                lines.append(f"#   - {act}")
-        else:
-            lines.append(
-                "# No inline/customer policy statements found in this group state — "
-                "confirm managed-policy attachments in review-needed.md."
-            )
+        res = "workload" if baseline or (idx == 0 and len(emit_roles) == 1) else f"app_{suffix}"[:50]
+        id_name = (
+            f"id-{group_id[:56]}"
+            if baseline
+            else f"id-{stable[:8]}-{suffix}"[:64].rstrip("-_")
+        )
+        if not baseline:
+            lines.append(f"# AWS role: {role.get('name')} ({role.get('arn') or role.get('id')})")
+            actions = role.get("aws_actions") or []
+            if actions:
+                lines.append(f"# AWS actions sample ({len(actions)}): see app-iam-inventory.json")
         lines.extend(
             [
                 f'resource "azurerm_user_assigned_identity" "{res}" {{',
@@ -455,29 +404,6 @@ def build_azure_app_iam_hcl(roles: list[dict], group_id: str, stable: str) -> li
                 "  location            = azurerm_resource_group.this.location",
                 "  resource_group_name = azurerm_resource_group.this.name",
                 "  tags                = var.tags",
-                "}",
-                "",
-                f'resource "azurerm_role_definition" "{res}" {{',
-                f"  name        = {_hcl_string(role_name_hcl)}",
-                "  scope       = azurerm_resource_group.this.id",
-                '  description = "Acquisition review-candidate; translate AWS IAM actions before apply."',
-                "",
-                "  permissions {",
-                "    actions     = [",
-                *[f'      "{a}",' for a in AZURE_PLACEHOLDER_ACTIONS],
-                "    ]",
-                "    not_actions = []",
-                "  }",
-                "",
-                "  assignable_scopes = [",
-                "    azurerm_resource_group.this.id,",
-                "  ]",
-                "}",
-                "",
-                f'resource "azurerm_role_assignment" "{res}" {{',
-                "  scope              = azurerm_resource_group.this.id",
-                f"  role_definition_id = azurerm_role_definition.{res}.role_definition_resource_id",
-                f"  principal_id       = azurerm_user_assigned_identity.{res}.principal_id",
                 "}",
                 "",
             ]

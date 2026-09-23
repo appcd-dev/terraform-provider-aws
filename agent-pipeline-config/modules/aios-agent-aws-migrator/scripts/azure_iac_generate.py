@@ -81,7 +81,7 @@ CATEGORY_AZURE_MARKERS = {
     "api": ("azurerm_api_management",),
     "observability": ("azurerm_log_analytics_", "azurerm_monitor_"),
     # Acquisition app-IAM: UAI alone is not enough — custom role definition must land too.
-    "identity": ("azurerm_role_definition",),
+    "identity": ("azurerm_user_assigned_identity",),
 }
 
 
@@ -451,7 +451,12 @@ def generate(work: Path) -> dict:
             )
 
         if needs_identity:
-            from app_iam import build_azure_app_iam_hcl, extract_workload_roles_from_state
+            from app_iam import (
+                build_app_iam_inventory,
+                build_azure_app_iam_hcl,
+                extract_workload_roles_from_state,
+                write_app_iam_inventory,
+            )
 
             aws_state_path = work / "groups" / raw_group_id / "terraform.tfstate"
             if not aws_state_path.is_file():
@@ -464,6 +469,10 @@ def generate(work: Path) -> dict:
                     )
                 except (OSError, json.JSONDecodeError):
                     workload_roles = []
+            write_app_iam_inventory(
+                root / "app-iam-inventory.json",
+                build_app_iam_inventory(workload_roles, group_id, cloud="azure"),
+            )
             main.extend(build_azure_app_iam_hcl(workload_roles, group_id, stable))
 
         if needs_storage:

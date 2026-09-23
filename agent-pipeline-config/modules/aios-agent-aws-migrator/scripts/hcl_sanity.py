@@ -622,11 +622,12 @@ def apply_surgical_fixes(group_dir: Path, targets: list[dict[str, Any]]) -> int:
     """Drop attributes called out by parse_tofu_errors when suggestion is drop_*.
 
     Returns the number of attribute lines removed. Structural repairs
-    (broken blocks, wrong types) stay for the agent.
+    (broken blocks, wrong types) stay for the agent. Touches every `*.tf`
+    in the group (destination roots use main.tf, not only generated.tf).
     """
     group_dir = group_dir.resolve()
-    gen_tf = group_dir / "generated.tf"
-    if not gen_tf.is_file() or not targets:
+    tf_files = sorted(group_dir.glob("*.tf"))
+    if not tf_files or not targets:
         return 0
 
     droppable = {
@@ -634,7 +635,6 @@ def apply_surgical_fixes(group_dir: Path, targets: list[dict[str, Any]]) -> int:
         "drop_conflicting_attribute",
         "drop_computed_attribute",
     }
-    # address -> set of attrs to drop (empty attr means skip)
     by_addr: dict[str, set[str]] = {}
     global_attrs: set[str] = set()
     for t in targets:
@@ -652,34 +652,74 @@ def apply_surgical_fixes(group_dir: Path, targets: list[dict[str, Any]]) -> int:
     if not by_addr and not global_attrs:
         return 0
 
-    text = gen_tf.read_text(encoding="utf-8")
-    parts = re.split(r'(?=resource\s+"[^"]+"\s+"[^"]+"\s*\{)', text)
     removed = 0
-    out: list[str] = []
-    for part in parts:
-        m = re.match(r'resource\s+"([^"]+)"\s+"([^"]+)"\s*\{', part)
-        if not m:
-            out.append(part)
-            continue
-        addr = f"{m.group(1)}.{m.group(2)}"
-        attrs = set(by_addr.get(addr, set())) | global_attrs
-        if not attrs:
-            out.append(part)
-            continue
-        new_part = part
-        for attr in attrs:
-            new_part, n = re.subn(
-                rf"^\s*{re.escape(attr)}\s*=.*\n",
-                "",
-                new_part,
-                flags=re.M,
-            )
-            removed += n
-        out.append(new_part)
-    if removed:
-        gen_tf.write_text("".join(out), encoding="utf-8")
+    for tf_path in tf_files:
+        text = tf_path.read_text(encoding="utf-8")
+        parts = re.split(r'(?=resource\s+"[^"]+"\s+"[^"]+"\s*\{)', text)
+        out: list[str] = []
+        file_removed = 0
+        for part in parts:
+            m = re.match(r'resource\s+"([^"]+)"\s+"([^"]+)"\s*\{', part)
+            if not m:
+                out.append(part)
+                continue
+            addr = f"{m.group(1)}.{m.group(2)}"
+            attrs = set(by_addr.get(addr, set())) | global_attrs
+            if not attrs:
+                out.append(part)
+                continue
+            new_part = part
+            for attr in attrs:
+                new_part, n = re.subn(
+                    rf"^\s*{re.escape(attr)}\s*=.*\n",
+                    "",
+                    new_part,
+                    flags=re.M,
+                )
+                file_removed += n
+            out.append(new_part)
+        if file_removed:
+            tf_path.write_text("".join(out), encoding="utf-8")
+            removed += file_removed
     print(f"surgical_fixes group={group_dir.name} removed_attrs={removed}")
     return removed
+
+
+# GCP instance template name_prefix max length (final name ≤63 with random suffix).
+GCP_NAME_PREFIX_MAX = 37
+
+
+def fix_provider_limits(group_dir: Path) -> int:
+    """Apply known provider attribute limits so tofu validate can pass.
+
+    Currently: truncate google_compute_instance_template name_prefix to ≤37.
+    Returns the number of values rewritten.
+    """
+    group_dir = group_dir.resolve()
+    counts = [0]
+    prefix_re = re.compile(
+        r'^(\s*name_prefix\s*=\s*")([^"]+)("\s*)$',
+        re.M,
+    )
+    for tf_path in sorted(group_dir.glob("*.tf")):
+        text = tf_path.read_text(encoding="utf-8")
+
+        def _truncate(m: re.Match[str]) -> str:
+            value = m.group(2)
+            if len(value) <= GCP_NAME_PREFIX_MAX:
+                return m.group(0)
+            truncated = value[: GCP_NAME_PREFIX_MAX - 1]
+            if not truncated.endswith("-"):
+                truncated = truncated[:-1] + "-"
+            counts[0] += 1
+            return f"{m.group(1)}{truncated}{m.group(3)}"
+
+        new_text = prefix_re.sub(_truncate, text)
+        if new_text != text:
+            tf_path.write_text(new_text, encoding="utf-8")
+    if counts[0]:
+        print(f"provider_limits_fixed group={group_dir.name} rewrites={counts[0]}")
+    return counts[0]
 
 
 def _parse_variable_blocks(text: str) -> list[dict[str, Any]]:
@@ -846,6 +886,12 @@ def main(argv: list[str] | None = None) -> int:
     fix.add_argument("group_dir", type=Path)
     fix.add_argument("targets_json", type=Path)
 
+    limits = sub.add_parser(
+        "fix-provider-limits",
+        help="Rewrite known-overlong provider attrs (e.g. GCP name_prefix ≤37)",
+    )
+    limits.add_argument("group_dir", type=Path)
+
     args = parser.parse_args(argv)
     if args.command == "source-parity":
         return check_source_parity(args.group_dir)
@@ -873,6 +919,10 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         removed = apply_surgical_fixes(args.group_dir, targets)
         return 0 if removed >= 0 else 1
+    if args.command == "fix-provider-limits":
+        n = fix_provider_limits(args.group_dir)
+        print(f"provider_limits_rewrites={n}")
+        return 0
     parser.error(f"unknown command {args.command}")
     return 2
 

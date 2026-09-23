@@ -4,7 +4,7 @@
 # Usage: DBSPLIT_EMBEDDED=1 bash -s <command> [args...] << 'DBSPLIT_STAGE_RUNNER' ... DBSPLIT_STAGE_RUNNER
 set -euo pipefail
 
-SCRIPT_PACK_VERSION="20260911.24"
+SCRIPT_PACK_VERSION="20260911.26"
 DBSPLIT_DEFAULT_STRATEGY="${DBSPLIT_DEFAULT_STRATEGY:-tfstate_monolith_decomposer}"
 DBSPLIT_DEFAULT_CAP="${DBSPLIT_DEFAULT_CAP:-0}"
 REQUIRED_ALLOCATE_MARKER="def merge_small_by_seed"
@@ -5629,6 +5629,10 @@ cmd_destination_iac_validate() {
         validate_error="$(validation_error_snippet init.out)"
         plan_status="skipped:static_validation_failed"
       else
+        # Heal known provider limits (e.g. GCP name_prefix ≤37) before validate.
+        if sanity_py="$(resolve_hcl_sanity_py "$work_root" 2>/dev/null)"; then
+          python3 "$sanity_py" fix-provider-limits "$group_dir" >"provider-limits.out" 2>&1 || true
+        fi
         "$tofu_bin" fmt -recursive -no-color >/dev/null 2>&1 || true
         if "$tofu_bin" fmt -recursive -check -no-color >"fmt.out" 2>&1; then
           fmt_status="true"
@@ -5639,8 +5643,26 @@ cmd_destination_iac_validate() {
         if tofu_validate_with_retry "$tofu_bin" "validate.out"; then
           validate_status="true"
         else
-          validation_ok="false"
-          validate_error="$(validation_error_snippet validate.out)"
+          # Pack autofix: provider limits + surgical attr drops on this group's *.tf, then re-validate.
+          if sanity_py="$(resolve_hcl_sanity_py "$work_root" 2>/dev/null)"; then
+            python3 "$sanity_py" fix-provider-limits "$group_dir" >>"provider-limits.out" 2>&1 || true
+            python3 "$sanity_py" parse-tofu-errors "validate.out" \
+              --group-id "$group_id" --out "hcl_fix_targets.json" \
+              >"hcl_fix_targets.raw.json" 2>/dev/null || true
+            if [ -f "hcl_fix_targets.json" ]; then
+              python3 "$sanity_py" apply-surgical-fixes "$group_dir" "hcl_fix_targets.json" \
+                >>"surgical-fixes.out" 2>&1 || true
+            fi
+          fi
+          "$tofu_bin" fmt -recursive -no-color >/dev/null 2>&1 || true
+          if tofu_validate_with_retry "$tofu_bin" "validate-retry.out"; then
+            validate_status="true"
+            validation_ok="true"
+            echo "group_validate_recovered=${group_id}"
+          else
+            validation_ok="false"
+            validate_error="$(validation_error_snippet validate-retry.out)"
+          fi
         fi
         has_tests="$(find . -type f \( -name '*.tftest.hcl' -o -name '*.tftest.json' \) -print -quit 2>/dev/null || true)"
         if [ -n "$has_tests" ]; then

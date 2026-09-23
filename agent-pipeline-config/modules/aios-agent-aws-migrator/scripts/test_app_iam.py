@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Offline checks for acquisition app-IAM classification and GCP HCL emission."""
+"""Offline checks for acquisition app-IAM classification and inventory-first emit."""
 
 from __future__ import annotations
 
 import json
 import re
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -112,11 +113,19 @@ def main() -> int:
     check("custom actions captured", "s3:GetObject" in roles[0]["aws_actions"])
     check("dynamodb action captured", "dynamodb:Query" in roles[0]["aws_actions"])
 
+    inv = aim.build_app_iam_inventory(roles, "app-group", cloud="gcp")
+    check("inventory schema", inv["schema"] == "nile-app-iam-inventory/v1")
+    check("inventory has actions", "s3:GetObject" in inv["workload_roles"][0]["aws_actions"])
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "app-iam-inventory.json"
+        aim.write_app_iam_inventory(path, inv)
+        check("inventory written", path.is_file())
+
     hcl = "\n".join(aim.build_gcp_app_iam_hcl(roles, "app-group", "abc12345"))
     check("emits service account", 'resource "google_service_account"' in hcl)
-    check("emits custom role", 'resource "google_project_iam_custom_role"' in hcl)
-    check("emits iam member", 'resource "google_project_iam_member"' in hcl)
-    check("preserves aws action comment", "s3:GetObject" in hcl)
+    check("no placeholder custom role", 'resource "google_project_iam_custom_role"' not in hcl)
+    check("no placeholder iam member", 'resource "google_project_iam_member"' not in hcl)
+    check("points at inventory", "app-iam-inventory.json" in hcl)
     ids = re.findall(r'account_id\s*=\s*"([^"]+)"', hcl)
     check("emits account_id", bool(ids))
     for aid in ids:
@@ -125,9 +134,14 @@ def main() -> int:
             bool(re.fullmatch(r"^[a-z](?:[-a-z0-9]{4,28}[a-z0-9])$", aid)),
         )
 
-    # Collision / underscore regression: many similar role names must stay unique + valid.
     used_roles = [
-        {"name": f"terraform_2025111206320932800000000{i}", "arn": f"arn:aws:iam::1:role/r{i}", "id": f"r{i}", "aws_actions": [], "policy_names": []}
+        {
+            "name": f"terraform_2025111206320932800000000{i}",
+            "arn": f"arn:aws:iam::1:role/r{i}",
+            "id": f"r{i}",
+            "aws_actions": [],
+            "policy_names": [],
+        }
         for i in range(5)
     ]
     dense = "\n".join(aim.build_gcp_app_iam_hcl(used_roles, "iam-dense", "f6c3b0ae"))
@@ -140,15 +154,16 @@ def main() -> int:
         )
 
     empty = "\n".join(aim.build_gcp_app_iam_hcl([], "empty", "zzz"))
-    check("empty fallback still scaffolds", 'google_project_iam_custom_role" "workload"' in empty)
+    check("empty fallback still scaffolds SA", 'google_service_account" "workload"' in empty)
+    check("empty has no custom role", 'resource "google_project_iam_custom_role"' not in empty)
 
     az = "\n".join(aim.build_azure_app_iam_hcl(roles, "app-group", "abc12345"))
     check("azure emits uai", 'resource "azurerm_user_assigned_identity"' in az)
-    check("azure emits role definition", 'resource "azurerm_role_definition"' in az)
-    check("azure emits role assignment", 'resource "azurerm_role_assignment"' in az)
-    check("azure preserves aws action comment", "s3:GetObject" in az)
+    check("azure no role definition", 'resource "azurerm_role_definition"' not in az)
+    check("azure no role assignment", 'resource "azurerm_role_assignment"' not in az)
+    check("azure points at inventory", "app-iam-inventory.json" in az)
     az_empty = "\n".join(aim.build_azure_app_iam_hcl([], "empty", "zzz"))
-    check("azure empty fallback still scaffolds", 'azurerm_role_definition" "workload"' in az_empty)
+    check("azure empty fallback UAI", 'azurerm_user_assigned_identity" "workload"' in az_empty)
 
     print("OK: app_iam acquisition helpers")
     return 0

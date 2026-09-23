@@ -6,7 +6,11 @@ from __future__ import annotations
 import textwrap
 import unittest
 
-from gcp_iac_generate import REQUIRED_GCP_LABELS, hcl_string_map
+from gcp_iac_generate import (
+    REQUIRED_GCP_LABELS,
+    gcp_instance_template_name_prefix,
+    hcl_string_map,
+)
 
 # Nile tagging-labeling-standard §7 / TAG-002 (session c6cb3339 deny root cause).
 NILE_REQUIRED_LABEL_KEYS = (
@@ -37,6 +41,20 @@ class RequiredGcpLabelsTests(unittest.TestCase):
         for key, value in REQUIRED_GCP_LABELS.items():
             self.assertTrue(str(value).strip(), key)
             self.assertNotIn(str(value).lower(), banned, key)
+
+
+class MigNamePrefixTests(unittest.TestCase):
+    def test_long_group_id_stays_within_gcp_limit(self):
+        prefix = gcp_instance_template_name_prefix(
+            "aws-staging-l3-untagged-autoscaling-group"
+        )
+        self.assertLessEqual(len(prefix), 37)
+        self.assertTrue(prefix.startswith("mig-"))
+        self.assertTrue(prefix.endswith("-"))
+
+    def test_short_group_id_keeps_full_stem(self):
+        prefix = gcp_instance_template_name_prefix("app")
+        self.assertEqual(prefix, "mig-app-")
 
 
 class HclStringMapTests(unittest.TestCase):

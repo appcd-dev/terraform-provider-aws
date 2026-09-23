@@ -115,7 +115,7 @@ CATEGORY_GOOGLE_MARKERS = {
     "key_management": ("google_kms_",),
     "analytics": ("google_bigquery_",),
     # Acquisition app-IAM: SA alone is not enough — custom role must land too.
-    "identity": ("google_project_iam_custom_role",),
+    "identity": ("google_service_account",),
 }
 
 
@@ -126,6 +126,11 @@ def safe_name(value, max_len=48):
 
 def hcl_string(value):
     return json.dumps(str(value))
+
+
+def gcp_instance_template_name_prefix(group_id: str) -> str:
+    """google_compute_instance_template.name_prefix must be ≤37 (final name ≤63)."""
+    return f"mig-{group_id}"[:36] + "-"
 
 
 def hcl_string_map(mapping: dict) -> str:
@@ -385,6 +390,8 @@ def generate(work: Path) -> dict:
       provider "google" {
         project = var.project_id
         region  = var.region
+        # Applied to every resource that supports labels (network/firewall/SA do not).
+        default_labels = var.labels
       }
     """,
         )
@@ -457,6 +464,8 @@ def generate(work: Path) -> dict:
                     "  private_ip_google_access = true",
                     "}",
                     "",
+                    # VPC firewall/network/subnet have no labels attr in google provider
+                    # (PRIO-001 residuals soft-gated; see governance-exceptions).
                     'resource "google_compute_firewall" "deny_ingress" {',
                     f'  name    = "fw-deny-ingress-{stable}"',
                     "  network = google_compute_network.this.name",
@@ -474,7 +483,12 @@ def generate(work: Path) -> dict:
             )
 
         if needs_identity:
-            from app_iam import build_gcp_app_iam_hcl, extract_workload_roles_from_state
+            from app_iam import (
+                build_app_iam_inventory,
+                build_gcp_app_iam_hcl,
+                extract_workload_roles_from_state,
+                write_app_iam_inventory,
+            )
 
             aws_state_path = work / "groups" / raw_group_id / "terraform.tfstate"
             if not aws_state_path.is_file():
@@ -487,6 +501,10 @@ def generate(work: Path) -> dict:
                     )
                 except (OSError, json.JSONDecodeError):
                     workload_roles = []
+            write_app_iam_inventory(
+                root / "app-iam-inventory.json",
+                build_app_iam_inventory(workload_roles, group_id, cloud="gcp"),
+            )
             main.extend(build_gcp_app_iam_hcl(workload_roles, group_id, stable))
 
         if needs_storage:
@@ -610,7 +628,8 @@ def generate(work: Path) -> dict:
                 [
                     "# Emission=profile_scaffold: global forwarding rule placeholder — deep CDN/LB follow-up required.",
                     'resource "google_compute_global_address" "cdn" {',
-                    f'  name = "glb-{stable}"',
+                    f'  name   = "glb-{stable}"',
+                    "  labels = var.labels",
                     "}",
                     "",
                 ]
@@ -648,6 +667,7 @@ def generate(work: Path) -> dict:
                     "",
                     "  node_config {",
                     f'    machine_type = {hcl_string(sku.get("gke_node_size") or "e2-medium")}',
+                    "    labels       = var.labels",
                     "    oauth_scopes = [",
                     '      "https://www.googleapis.com/auth/cloud-platform",',
                     "    ]",
@@ -658,10 +678,12 @@ def generate(work: Path) -> dict:
             )
 
         if "vmss" in categories:
+            # google_compute_instance_template.name_prefix max 37 (final name ≤63).
+            mig_name_prefix = gcp_instance_template_name_prefix(group_id)
             main.extend(
                 [
                     'resource "google_compute_instance_template" "this" {',
-                    f'  name_prefix  = "mig-{group_id[:40]}-"',
+                    f"  name_prefix  = {hcl_string(mig_name_prefix)}",
                     f'  machine_type = {hcl_string(sku.get("mig_machine_type") or "e2-medium")}',
                     "",
                     "  disk {",
@@ -776,6 +798,7 @@ def generate(work: Path) -> dict:
                     "",
                     "  settings {",
                     f'    tier = {hcl_string(sku.get("cloudsql_tier") or "db-f1-micro")}',
+                    "    user_labels = var.labels",
                     "    ip_configuration {",
                     "      ipv4_enabled    = false",
                     "      private_network = google_compute_network.this.id",
@@ -831,6 +854,7 @@ def generate(work: Path) -> dict:
                     'resource "google_compute_address" "lb" {',
                     f'  name   = "pip-lb-{stable}"',
                     "  region = var.region",
+                    "  labels = var.labels",
                     "}",
                     "",
                     'resource "google_compute_region_health_check" "this" {',
@@ -858,6 +882,7 @@ def generate(work: Path) -> dict:
                     "  port_range            = \"80\"",
                     "  ip_address            = google_compute_address.lb.id",
                     "  backend_service       = google_compute_region_backend_service.this.id",
+                    "  labels                = var.labels",
                     "}",
                     "",
                 ]
@@ -869,6 +894,7 @@ def generate(work: Path) -> dict:
                     'resource "google_compute_address" "this" {',
                     f'  name   = "pip-{stable}"',
                     "  region = var.region",
+                    "  labels = var.labels",
                     "}",
                     "",
                 ]
