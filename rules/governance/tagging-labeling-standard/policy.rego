@@ -79,6 +79,39 @@ gcp_resource(rc) if {
 	startswith(rc.type, "google_")
 }
 
+# Provider types with no labels attribute (generate skips them; TAG-002 must not fire).
+gcp_label_incapable_types := {
+	"google_compute_network",
+	"google_compute_subnetwork",
+	"google_compute_firewall",
+	"google_compute_route",
+	"google_compute_router",
+	"google_compute_router_nat",
+	"google_compute_global_address",
+	"google_compute_address",
+	"google_compute_forwarding_rule",
+	"google_compute_global_forwarding_rule",
+	"google_compute_target_http_proxy",
+	"google_compute_target_https_proxy",
+	"google_compute_url_map",
+	"google_compute_backend_service",
+	"google_compute_health_check",
+	"google_compute_firewall_policy",
+	"google_compute_firewall_policy_rule",
+	"google_service_account",
+	"google_service_account_iam_member",
+	"google_service_account_iam_binding",
+	"google_project_iam_member",
+	"google_project_iam_binding",
+	"google_project_iam_custom_role",
+	"google_project_service",
+}
+
+gcp_labelable_resource(rc) if {
+	gcp_resource(rc)
+	not gcp_label_incapable_types[rc.type]
+}
+
 nonempty_string(val) if {
 	is_string(val)
 	trim(val, " \t\n\r") != ""
@@ -105,7 +138,7 @@ deny contains msg if {
 
 deny contains msg if {
 	some rc in input.resource_changes
-	gcp_resource(rc)
+	gcp_labelable_resource(rc)
 	labels := object.get(rc.change.after, "labels", {})
 	some key in required_gcp_labels
 	not nonempty_string(object.get(labels, key, ""))
@@ -125,7 +158,7 @@ deny contains msg if {
 
 deny contains msg if {
 	some rc in input.resource_changes
-	gcp_resource(rc)
+	gcp_labelable_resource(rc)
 	labels := object.get(rc.change.after, "labels", {})
 	some key in required_gcp_labels
 	val := object.get(labels, key, "")
@@ -147,7 +180,7 @@ deny contains msg if {
 
 deny contains msg if {
 	some rc in input.resource_changes
-	gcp_resource(rc)
+	gcp_labelable_resource(rc)
 	labels := object.get(rc.change.after, "labels", {})
 	env := object.get(labels, "environment", "")
 	nonempty_string(env)

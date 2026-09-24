@@ -215,7 +215,7 @@ module "aws_migrator" {
   default_branch             = var.default_branch
   enable_github_webhook      = false
 
-  nile_rules_ref = "fix/walmart-runner-git-secret-sync"
+  nile_rules_ref = "main"
 
   model_names             = local.resolved_model_names
   non_trivial_model_names = var.non_trivial_model_names

@@ -165,6 +165,7 @@ resource "sg_workflow" "aws_migrator_azure_only" {
         **Validation contract:** when `REQUIRE_AZURE_LIVE_PLAN=1`, `azure_plan_status` must start with `success` (exact `success` or `success:sample:N/M`); missing credentials is a hard fail. Never run `tofu apply` on migrated Azure resources.
         **Validation contract:** run `tofu fmt`, `tofu validate`, optional `tofu test`, optional `tflint`, and live `tofu plan` (never apply). When `REQUIRE_AZURE_LIVE_PLAN=1`, missing credentials fail the stage.
         **Hard evidence gate:** completion requires a successful runner result carrying `azure_iac_validation_ok` and a non-empty `azure_iac_validation_report`. Absent those, record `stage_summary:azure-iac-validate=blocked:missing_runner_evidence` and return blocked.
+        **On static fails (remediate until useful):** if `azure_iac_validation_ok=false` with static fails, read validation-report / hcl_fix_targets, patch HCL under `azure/groups/`, stub vars, document assumptions in `azure/artifacts/governance-assumptions.md` when inventing values, and re-paste validate. Do not accept false until the validate loop exits.
         **Outputs:** note `azure_iac_validation_ok`, `azure_plan_status`, `azure_iac_validation_report`, and `stage_summary:azure-iac-validate`.
 
         ${local.dbsplit_spawn_context_azure_validate}
@@ -232,16 +233,13 @@ resource "sg_workflow" "aws_migrator_azure_only" {
       # Clear residuals left when harden/governance were inserted ahead of this slot.
       runbook_refs = []
       skill_refs   = []
-      note         = "Deterministic validate→generate loop gate. No agent."
+      note         = "Deterministic validate remediates loop. No agent."
       action_config = {
-        loop_to        = "azure-iac-generate"
-        max_iterations = var.max_convergence_iterations
+        loop_to        = "azure-iac-validate"
+        max_iterations = var.max_validate_iterations
         exit_condition = "output_matches_regex"
-        # Destination generate is deterministic — re-entering generate will not heal tofu
-        # init/static failures or missing credentials. Exit the loop on ANY conclusive
-        # validate result (quoted true OR false) or an explicit blocked stage_summary so
-        # we proceed to azure-pr instead of aborting on Guild's stage visit cap.
-        exit_match = "azure_iac_validation_ok[^\\n]{0,40}\"true\"|azure_iac_validation_ok[^\\n]{0,40}\"false\"|stage_summary:azure-iac-validate=ok|stage_summary:azure-iac-validate=blocked:|blocked:remote_runner_tofu_missing|blocked:remote_runner_shell_unavailable"
+        # Remediates until useful: exit on validation_ok=true or terminal blockers only.
+        exit_match = "azure_iac_validation_ok[^\\n]{0,40}\"true\"|stage_summary:azure-iac-validate=ok|stage_summary:azure-iac-validate=blocked:|blocked:missing_azure_credentials|blocked:remote_runner_tofu_missing|blocked:remote_runner_shell_unavailable"
       }
     },
     {

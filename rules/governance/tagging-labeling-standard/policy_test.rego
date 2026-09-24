@@ -122,3 +122,38 @@ test_pass_no_deny if {
 test_fail_has_deny if {
 	count(deny) > 0 with input as fail_plan
 }
+
+# Network/firewall types have no labels attr — TAG-002 must not fire.
+label_incapable_plan := {
+	"resource_changes": [
+		{
+			"address": "google_compute_network.this",
+			"mode": "managed",
+			"type": "google_compute_network",
+			"name": "this",
+			"change": {
+				"actions": ["create"],
+				"after": {
+					"name": "vpc-migration",
+				},
+			},
+		},
+		{
+			"address": "google_compute_firewall.deny_ingress",
+			"mode": "managed",
+			"type": "google_compute_firewall",
+			"name": "deny_ingress",
+			"change": {
+				"actions": ["create"],
+				"after": {
+					"name": "fw-deny",
+					"network": "vpc-migration",
+				},
+			},
+		},
+	],
+}
+
+test_label_incapable_no_tag002 if {
+	count(deny) == 0 with input as label_incapable_plan
+}

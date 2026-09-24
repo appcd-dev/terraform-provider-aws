@@ -1,6 +1,6 @@
 # Nile governance — learn on the fly, then conform
 
-This SOP is a **method**, not a control catalog. Nile markdown in Governance-and-Policy keeps changing. Each `azure-iac-governance-conform` / `gcp-iac-governance-conform` visit must **refresh** the current docs, **rebuild** a per-resource decision tree from that text, **author** a validator from the tree, **execute** it against generated IaC, **fix** mechanical gaps, and **re-verify**. Do **not** reuse a prior run's tree or a frozen Priority-1 list in Python.
+This SOP is a **method**, not a control catalog. Nile markdown in Governance-and-Policy keeps changing. Each `azure-iac-governance-conform` / `gcp-iac-governance-conform` visit must **refresh** the current docs, **rebuild** a per-resource decision tree from that text, **author** a validator from the tree, **execute** it against generated IaC, **fix** gaps (pack + agent), and **re-verify**. Do **not** reuse a prior run's tree or a frozen Priority-1 list in Python.
 
 Validation evidence is **not** human approval (Evidence Schema / PRR Gate 11).
 
@@ -32,7 +32,7 @@ Do **not** reuse last run's tree when:
 
 For each inventoried resource R with type T:
 
-1. Map T → category from **current** matrix/catalog text (compute, storage, networking, identity, data, kubernetes, other). Inventory `suggested_category` is a hint only.
+1. Map T → category from **current** matrix/catalog text (compute, storage, networking, identity, data, serverless, other). Inventory `suggested_category` is a hint only.
 2. Walk applicable **Priority-1** leaves from current `priority-controls.md` + catalog (metadata/tags, identity, network, data protection). Logging / backup / privileged access that cannot be decided from HCL → `evidence_gap` (does not invent topology).
 3. Candidate / deferred controls are **not** active unless current docs say so.
 4. Do **not** invent controls absent from this-run docs.
@@ -51,19 +51,31 @@ python3 $WORK_ROOT/scripts/governance_conform.py --work-root $WORK_ROOT --cloud 
 
 Or re-run the stage harness (`run-destination-stage.sh azure-iac-governance-conform` or `gcp-iac-governance-conform`).
 
-The harness also runs **OPA Rego** from Nile-Factory `rules/` against `tofu plan` JSON for each group. Read `azure|gcp/artifacts/governance-opa-fix-hints.md` and `governance-opa-findings.json` when `*_iac_governance_ok` is false after OPA denies.
+The harness also runs **OPA Rego** from Nile-Factory `rules/` against `tofu plan` JSON for each group, emits `governance-opa-remediations.json`, and applies **mechanical** label/tag/TLS fixes. Read residuals in:
 
-## Remediate and iterate
+- `azure|gcp/artifacts/governance-opa-remediations.json`
+- `azure|gcp/artifacts/governance-opa-fix-hints.md`
+- `azure|gcp/artifacts/governance-opa-findings.json`
 
-Fix mechanical HCL under `azure/groups/` or `gcp/groups/` only (tags, labels, TLS, encryption flags already present in generated shape). **OPA denies are first-class:** each `TLS-*` / `GCP-*` message names the resource and missing label or flag — patch the matching `.tf` block, then re-run the execute series.
+when `*_iac_governance_ok` is false after the pack pass.
 
-Do **not** invent IAM translations or network redesigns. Re-verify after each fix.
+## Remediate and iterate (agent owns residuals)
 
-Loop until every resource is Priority-1-conformant **and** OPA reports `opa_ok=true` (`*_iac_governance_ok=true`), or until max iterations / a terminal blocker. Prefer clearing residuals before the destination PR stage. If residuals remain, the PR still opens with TODO instructions (OPA fix hints + exceptions) — do not abandon without a PR. Pin the governance SHA in artifacts and the PR body.
+For each residual remediation / deny:
+
+1. Prefer values from AWS inventory / source tags / blueprint metadata.
+2. If the source has no value, **make a migration assumption**: pick a Nile-safe placeholder (not TAG-003 banned tokens like `tbd`/`test`/`unknown`), write the HCL or `variables.tf` / `*.auto.tfvars` change, and append a row to `azure|gcp/artifacts/governance-assumptions.md` (what, why, how to replace for prod).
+3. Allowed edits: labels, tags, var defaults, provider required args, `name_prefix`, private-by-default / TLS flags named by denies.
+4. Re-run the execute series after edits.
+
+Do **not** invent IAM action translations or network redesigns.
+
+Loop until every resource is Priority-1-conformant **and** OPA reports `opa_ok=true` (`*_iac_governance_ok=true`), or until max iterations / a terminal blocker. Prefer clearing residuals before the destination PR stage. If residuals remain, the PR still opens with TODO + assumptions — do not abandon without a PR. Pin the governance SHA in artifacts and the PR body.
 
 ## Forbidden
 
 - Freezing policy text into Nile-Factory as the control catalog
 - Treating candidate GCP controls as active unless current docs say so
 - Claiming `governance-findings.json` satisfies human approval / Gate 11
-- Abandoning the run without opening a destination PR when only governance/OPA residuals remain (document them in TODO.md instead)
+- Leaving the run with empty `pr_blocker` and no destination PR when only governance/OPA/validate residuals remain (document them in TODO.md + assumptions instead)
+- Accepting “silly” incomplete failures without attempting a concrete HCL/var substitution
