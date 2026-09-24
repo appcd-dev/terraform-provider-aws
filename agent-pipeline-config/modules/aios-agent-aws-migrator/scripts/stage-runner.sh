@@ -4,7 +4,7 @@
 # Usage: DBSPLIT_EMBEDDED=1 bash -s <command> [args...] << 'DBSPLIT_STAGE_RUNNER' ... DBSPLIT_STAGE_RUNNER
 set -euo pipefail
 
-SCRIPT_PACK_VERSION="20260911.27"
+SCRIPT_PACK_VERSION="20260911.28"
 DBSPLIT_DEFAULT_STRATEGY="${DBSPLIT_DEFAULT_STRATEGY:-tfstate_monolith_decomposer}"
 DBSPLIT_DEFAULT_CAP="${DBSPLIT_DEFAULT_CAP:-0}"
 REQUIRED_ALLOCATE_MARKER="def merge_small_by_seed"
@@ -3064,11 +3064,15 @@ destination_validation_report_is_ready() {
   return 0
 }
 
-# Ensure azure/gcp PR stages ship a real validation matrix (not a stub / empty file).
+# Ensure azure/gcp PR stages ship a validation matrix. Prefer a real report from
+# validate; if still missing/stub after a refresh attempt, write an explicit
+# incomplete report and continue so review-candidate PRs still open with remarks
+# (session 5822818: pr_blocker=validation_report_incomplete blocked sibling PRs).
 ensure_destination_validation_report() {
   local work_root="${1:?WORK_ROOT}"
   local cloud="${2:?CLOUD}" # azure|gcp
   local report="${work_root}/${cloud}/artifacts/validation-report.json"
+  local plan_status validation_ok
 
   if destination_validation_report_is_ready "$report"; then
     return 0
@@ -3084,10 +3088,57 @@ ensure_destination_validation_report() {
   if destination_validation_report_is_ready "$report"; then
     return 0
   fi
-  mirror_note "$work_root" "pr_blocker" "validation_report_incomplete"
-  mirror_note "$work_root" "stage_summary:${cloud}-pr" "blocked:validation_report_incomplete"
-  echo "pr_blocker=validation_report_incomplete"
-  return 1
+
+  plan_status="$(read_note "$work_root" "${cloud}_plan_status" 2>/dev/null || true)"
+  validation_ok="$(read_note "$work_root" "${cloud}_iac_validation_ok" 2>/dev/null || true)"
+  mkdir -p "$(dirname "$report")"
+  if command -v jq >/dev/null 2>&1; then
+    jq -n \
+      --arg note "incomplete validation report — opening review-candidate PR with remarks" \
+      --arg plan "${plan_status:-unknown}" \
+      --arg vok "${validation_ok:-unknown}" \
+      --arg cloud "$cloud" \
+      '{
+        summary: {
+          note: $note,
+          validation_ok: $vok,
+          plan_status: $plan,
+          pr_policy: "soft_gate_open_with_remarks"
+        },
+        groups: [{
+          group_id: "_incomplete",
+          fmt: "unknown",
+          validate: "unknown",
+          plan: $plan,
+          note: ("Validate did not produce a complete matrix. Inspect " + $cloud + "/artifacts/ and TODO.md. Do not treat this PR as apply-ready.")
+        }]
+      }' >"$report"
+  else
+    cat >"$report" <<EOF
+{
+  "summary": {
+    "note": "incomplete validation report — opening review-candidate PR with remarks",
+    "validation_ok": "${validation_ok:-unknown}",
+    "plan_status": "${plan_status:-unknown}",
+    "pr_policy": "soft_gate_open_with_remarks"
+  },
+  "groups": [
+    {
+      "group_id": "_incomplete",
+      "fmt": "unknown",
+      "validate": "unknown",
+      "plan": "${plan_status:-unknown}",
+      "note": "Validate did not produce a complete matrix. Inspect ${cloud}/artifacts/ and TODO.md. Do not treat this PR as apply-ready."
+    }
+  ]
+}
+EOF
+  fi
+  mirror_note "$work_root" "validation_report_incomplete" "true"
+  mirror_note "$work_root" "stage_summary:${cloud}-pr" "ok:validation_report_incomplete_opening_pr"
+  echo "warning:validation_report_incomplete_opening_pr"
+  echo "validation_report_path=${report}"
+  return 0
 }
 
 cmd_sync_hydrated_iac_pr() {
@@ -6906,12 +6957,24 @@ write_gcp_pr_body() {
     harden_excerpt="$(sed -n '1,80p' "${work_root}/gcp/artifacts/harden-findings.md")"
   fi
 
+  local validation_incomplete=""
+  validation_incomplete="$(read_note "$work_root" "validation_report_incomplete" 2>/dev/null || true)"
+  if [ -z "$validation_incomplete" ] && [ -f "$validation_report" ]; then
+    if jq -e '(.summary.pr_policy // "") == "soft_gate_open_with_remarks" or (.groups[0].group_id // "") == "_incomplete"' "$validation_report" >/dev/null 2>&1; then
+      validation_incomplete="true"
+    fi
+  fi
+
   mkdir -p "$(dirname "$out_file")"
   {
     echo "## Summary"
     echo
     echo "Adds **review-candidate** GCP Terraform under \`gcp/\` (GCP naming and private-by-default defaults, honest emission labels) for AWS reverse-IaC groups."
     echo "Ambiguous mappings do not block the PR; operators must treat non-\`full_scaffold\` emissions as incomplete. Details: \`gcp/artifacts/review-needed.md\`."
+    if [ "$validation_incomplete" = "true" ] || [ "$validation_ok" != "true" ]; then
+      echo
+      echo "> **Not apply-ready.** Validation matrix is incomplete or failed (\`validation_ok=${validation_ok}\`, \`plan_status=${plan_status}\`). Opened so reviewers can inspect scaffolds, governance residuals, and TODO.md. Fix validate/plan before merge/apply."
+    fi
     echo
     echo "## Run status"
     echo
@@ -6925,6 +6988,7 @@ write_gcp_pr_body() {
     echo "| Live plan sample | \`${planned_groups}\` of \`${static_groups}\` (limit \`${sample_limit}\`) |"
     echo "| GCP validation | \`${validation_ok}\` |"
     echo "| GCP plan status | \`${plan_status}\` |"
+    echo "| Validation report complete | \`$([ "$validation_incomplete" = "true" ] && echo false || echo true)\` |"
     echo "| Harden autofixes | \`${harden_autofix}\` |"
     echo "| Harden residual findings | \`${harden_findings}\` |"
     echo "| Harden fmt / tflint fails | \`${harden_fmt}\` / \`${harden_lint}\` |"
