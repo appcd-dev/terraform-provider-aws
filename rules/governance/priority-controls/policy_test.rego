@@ -123,3 +123,13 @@ test_pass_no_deny if {
 test_fail_has_deny if {
 	count(deny) > 0 with input as fail_plan
 }
+
+test_network_without_labels_exempt if {
+	count(deny) == 0 with input as {"resource_changes": [{
+		"address": "google_compute_network.bare",
+		"mode": "managed",
+		"type": "google_compute_network",
+		"name": "bare",
+		"change": {"actions": ["create"], "after": {"name": "vpc"}},
+	}]}
+}

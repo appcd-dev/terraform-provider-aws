@@ -24,8 +24,38 @@ import rego.v1
 default allow := true
 
 required_azure_tags := {"owner", "created-by", "cost-center", "environment", "function", "service", "repo", "applicationname", "name", "notificationdistlist", "ssp", "trproductid", "apmid"}
-required_gcp_labels := {"owner", "created-by", "cost-center", "environment", "function", "service", "repo", "applicationname", "name", "notificationdistlist", "ssp", "trproductid", "apmid"}
+
+# Underscores match GCP label grammar (same as TAG-002 / PRG-002).
+required_gcp_labels := {"owner", "created_by", "cost_center", "environment", "function", "service", "repo", "application_name", "name", "notification_distlist", "ssp", "tr_product_id", "apm_id"}
 approved_gcp_regions := {"us-central1", "us-east1", "us-east4", "us-west1", "us-west2", "us-west3", "us-west4"}
+
+# Provider types with no labels attribute (same set as tagging-labeling-standard TAG-002).
+gcp_label_incapable_types := {
+	"google_compute_network",
+	"google_compute_subnetwork",
+	"google_compute_firewall",
+	"google_compute_route",
+	"google_compute_router",
+	"google_compute_router_nat",
+	"google_compute_global_address",
+	"google_compute_address",
+	"google_compute_forwarding_rule",
+	"google_compute_global_forwarding_rule",
+	"google_compute_target_http_proxy",
+	"google_compute_target_https_proxy",
+	"google_compute_url_map",
+	"google_compute_backend_service",
+	"google_compute_health_check",
+	"google_compute_firewall_policy",
+	"google_compute_firewall_policy_rule",
+	"google_service_account",
+	"google_service_account_iam_member",
+	"google_service_account_iam_binding",
+	"google_project_iam_member",
+	"google_project_iam_binding",
+	"google_project_iam_custom_role",
+	"google_project_service",
+}
 
 azure_https_types := {
 	"azurerm_app_service",
@@ -98,6 +128,7 @@ deny contains msg if {
 	some rc in input.resource_changes
 	is_managed_change(rc)
 	startswith(rc.type, "google_")
+	not gcp_label_incapable_types[rc.type]
 	after := object.get(rc.change, "after", {})
 	labels := object.get(after, "labels", null)
 	labels != null

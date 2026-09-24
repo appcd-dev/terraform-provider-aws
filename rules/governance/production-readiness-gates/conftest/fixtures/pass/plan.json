@@ -32,15 +32,15 @@
       }
     },
     {
-      "address": "google_compute_network.example",
+      "address": "google_storage_bucket.example",
       "mode": "managed",
-      "type": "google_compute_network",
+      "type": "google_storage_bucket",
       "name": "example",
       "provider_name": "registry.terraform.io/hashicorp/google",
       "change": {
         "actions": ["create"],
         "after": {
-          "name": "vpc-example",
+          "name": "bucket-example",
           "labels": {
             "owner": "platform-team",
             "created_by": "pipeline",
@@ -50,7 +50,7 @@
             "service": "nile",
             "repo": "Walmart-StackGen/Nile-Factory",
             "application_name": "nile-core",
-            "name": "vpc-example",
+            "name": "bucket-example",
             "notification_distlist": "ops@example.com",
             "ssp": "ssp-001",
             "tr_product_id": "tr-001",

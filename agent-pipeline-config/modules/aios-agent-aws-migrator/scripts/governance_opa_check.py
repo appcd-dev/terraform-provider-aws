@@ -563,8 +563,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--max-groups",
         type=int,
-        default=int(os.environ.get("GOVERNANCE_OPA_MAX_GROUPS", "12")),
-        help="Max groups to plan (0 = all). Default 12 for runner time budgets.",
+        default=int(os.environ.get("GOVERNANCE_OPA_MAX_GROUPS", "0")),
+        help="Max groups to plan+OPA (0 = all). Set GOVERNANCE_OPA_MAX_GROUPS to sample under time pressure.",
     )
     return parser.parse_args(argv)
 
@@ -606,7 +606,9 @@ def run(argv: list[str] | None = None) -> int:
 
     rules_root = Path(source["rules_root"])
     packs = list_policy_packs(rules_root)
-    group_dirs = sorted(p for p in groups_root.iterdir() if p.is_dir())
+    all_group_dirs = sorted(p for p in groups_root.iterdir() if p.is_dir())
+    groups_discovered = len(all_group_dirs)
+    group_dirs = all_group_dirs
     if args.max_groups > 0:
         group_dirs = group_dirs[: args.max_groups]
 
@@ -673,7 +675,9 @@ def run(argv: list[str] | None = None) -> int:
         "rules_ref": source.get("ref"),
         "rules_commit_sha": source.get("commit_sha"),
         "pack_count": len(packs),
+        "groups_discovered": groups_discovered,
         "groups_checked": len(group_results),
+        "max_groups_limit": args.max_groups,
         "plan_failures": plan_failures,
         "deny_count": len(findings),
         "opa_ok": opa_ok,
