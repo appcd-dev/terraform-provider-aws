@@ -65,19 +65,24 @@ output "governance_codify_agent_name" {
 }
 
 output "runner_gcp_env_secret_id" {
-  description = "Vault secret UUID bound to nile-runner typed gcp slot (empty when GCP live plan is not configured)."
+  description = "Vault secret UUID bound to nile-runner typed gcp slot (empty when no GCP secret is wired)."
   value       = var.enable_agent_stack ? local.runner_gcp_env_secret_id : ""
 }
 
+output "runner_gcp_attached" {
+  description = "True when nile-runner typed gcp slot has a vault secret (integration OAuth or SA-key ADC)."
+  value       = var.enable_agent_stack ? local.runner_gcp_attached : false
+}
+
 output "require_gcp_live_plan" {
-  description = "Whether gcp-migration-pr requires live tofu plan (true once runner GCP ADC is bound)."
+  description = "Whether gcp-migration-pr requires live tofu plan (true only when a Provider/generic SA-key ADC secret was created)."
   value       = var.enable_agent_stack ? local.enable_gcp_live_plan : false
 }
 
 output "next_steps" {
   description = "Human-readable checklist for what to do after this apply."
   value = var.enable_agent_stack ? trimspace(<<-EOT
-    Phase 2 applied. Confirm the remote runner is online in StackGen UI and typed secrets sync (github/aws${local.enable_gcp_live_plan ? "/gcp" : ""}). Script pack version must match script_pack_version output. ${local.enable_gcp_live_plan ? "GCP live plan is required. Re-run gcp-migration-pr after secret sync." : "To enable GCP live plan, set TF_VAR_gcp_credentials_json + gcp_project_id (or runner_gcp_env_secret_id) and re-apply."} Then start aws-migrator-discovery or gcp-migration-pr.
+    Phase 2 applied. Confirm the remote runner is online in StackGen UI and typed secrets sync (github/aws${local.runner_gcp_attached ? "/gcp" : ""}). Script pack version must match script_pack_version output. ${local.enable_gcp_live_plan ? "GCP live plan is required (SA-key ADC bound). Re-run gcp-migration-pr after secret sync." : (local.runner_gcp_attached ? "GCP typed slot is attached; live tofu plan stays soft until TF_VAR_gcp_credentials_json is a service_account key." : "To attach GCP to the runner, set runner_gcp_env_secret_id or TF_VAR_gcp_credentials_json + gcp_project_id and re-apply.")} Then start aws-migrator-discovery or gcp-migration-pr.
   EOT
     ) : (var.enable_governance_codify ? trimspace(<<-EOT
     Governance codify applied. In StackGen UI start workflow governance-rules-codify (passive intent: governance-rules-codify) to test markdown → Rego PR generation.

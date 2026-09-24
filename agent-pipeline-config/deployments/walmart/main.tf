@@ -32,8 +32,11 @@ locals {
     && nonsensitive(trimspace(var.gcp_credentials_json) != "")
     && trimspace(var.gcp_project_id) != ""
   )
-  # Plan-time known (do not inspect sg_secret.*.id here).
-  enable_gcp_live_plan = local.create_runner_gcp_env || (
+  # Live tofu plan only when we minted a Provider/generic ADC secret from SA JSON.
+  enable_gcp_live_plan = local.create_runner_gcp_env
+  # Typed gcp slot attached when SA path or an existing vault UUID is bound
+  # (e.g. vibe-gcp-deployment secret_ref — attach for sync even if not ADC).
+  runner_gcp_attached = local.create_runner_gcp_env || (
     var.enable_agent_stack && trimspace(var.runner_gcp_env_secret_id) != ""
   )
   runner_gcp_env_secret_id = local.create_runner_gcp_env ? sg_secret.runner_gcp_env[0].id : trimspace(var.runner_gcp_env_secret_id)
@@ -177,10 +180,9 @@ module "aws_migrator" {
   extra_agent_integration_names = []
 
   require_azure_live_plan = false
-  # Live GCP plan needs a service_account key JSON in Provider/generic vault metadata.
-  # gcloud authorized_user ADC is rejected by Provider/gcp vaults and does not sync
-  # reliably into GOOGLE_APPLICATION_CREDENTIALS_JSON on this runner. Keep live plan
-  # off until TF_VAR_gcp_credentials_json is a real SA key; static validate still runs.
+  # Typed gcp slot is bound (vibe-gcp-deployment vault or SA-key generic secret).
+  # Keep live plan soft until TF_VAR_gcp_credentials_json is a service_account key —
+  # CloudProvider/gcp OAuth tokens are not usable as tofu ADC. Static validate still runs.
   require_gcp_live_plan = false
 
   create_remote_runner          = false
