@@ -147,6 +147,36 @@ resource "google_compute_instance" "this" {
             self.assertEqual(after["labels"], {"owner": "platform"})
             self.assertEqual(after["network_interface"][0]["network"], "default")
 
+    def test_synthesize_plan_parses_quoted_single_line_label_defaults(self) -> None:
+        """GCP generator emits default = { \"apm_id\" = \"…\", … } on one line."""
+        with tempfile.TemporaryDirectory() as tmp:
+            group = Path(tmp) / "api-gw"
+            group.mkdir()
+            (group / "variables.tf").write_text(
+                'variable "labels" {\n'
+                "  type = map(string)\n"
+                '  default = { "apm_id" = "apm-migration", "owner" = "platformengineering", '
+                '"cost_center" = "cc-migration" }\n'
+                "}\n",
+                encoding="utf-8",
+            )
+            (group / "main.tf").write_text(
+                'resource "google_storage_bucket" "this" {\n'
+                '  name     = "bkt"\n'
+                '  location = "US"\n'
+                "  labels   = var.labels\n"
+                "}\n",
+                encoding="utf-8",
+            )
+            defaults = goc._variable_defaults(group)
+            self.assertEqual(defaults["labels"]["apm_id"], "apm-migration")
+            self.assertEqual(defaults["labels"]["owner"], "platformengineering")
+            plan = goc.synthesize_plan_from_hcl(group)
+            assert plan is not None
+            after = plan["resource_changes"][0]["change"]["after"]
+            self.assertEqual(after["labels"]["apm_id"], "apm-migration")
+            self.assertEqual(after["labels"]["cost_center"], "cc-migration")
+
     def test_is_credential_plan_error(self) -> None:
         self.assertTrue(goc.is_credential_plan_error("Error: Could not find default credentials"))
         self.assertFalse(goc.is_credential_plan_error("Error: Unsupported argument"))

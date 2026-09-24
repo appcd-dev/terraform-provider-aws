@@ -175,38 +175,96 @@ def resolve_label_value(
     return value, True
 
 
+def _matching_brace_span(text: str, open_idx: int) -> tuple[int, int] | None:
+    """Return (open, close) indices for `{...}` starting at open_idx."""
+    if open_idx < 0 or open_idx >= len(text) or text[open_idx] != "{":
+        return None
+    depth = 0
+    in_str = False
+    str_ch = ""
+    i = open_idx
+    while i < len(text):
+        ch = text[i]
+        if in_str:
+            if ch == "\\" and i + 1 < len(text):
+                i += 2
+                continue
+            if ch == str_ch:
+                in_str = False
+            i += 1
+            continue
+        if ch in ('"', "'"):
+            in_str = True
+            str_ch = ch
+            i += 1
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return open_idx, i
+        i += 1
+    return None
+
+
 def patch_labels_default_map(text: str, updates: dict[str, str]) -> tuple[str, int]:
-    """Merge keys into variable \"labels\" / \"tags\" default = { ... } blocks."""
+    """Merge keys into variable \"labels\" / \"tags\" default = { ... } blocks.
+
+    Handles both multiline and single-line map defaults. Uses brace matching so
+    keys are never appended after a same-line closing `}`.
+    """
     if not updates:
         return text, 0
-    changed = 0
-
-    def replacer(match: re.Match[str]) -> str:
-        nonlocal changed
-        body = match.group(2)
-        for key, val in updates.items():
-            if re.search(rf'(?m)^\s*{re.escape(key)}\s*=', body):
-                new_body, n = re.subn(
-                    rf'(?m)^(\s*{re.escape(key)}\s*=\s*")[^"]*(")',
-                    rf"\g<1>{val}\2",
-                    body,
-                    count=1,
-                )
-                if n:
-                    body = new_body
-                    changed += n
-            else:
-                body = body.rstrip() + f'\n    {key} = "{val}"\n  '
-                changed += 1
-        return match.group(1) + body + match.group(3)
-
-    pattern = re.compile(
-        r'(variable\s+"(?:labels|tags)"\s*\{[^}]*?default\s*=\s*\{)(.*?)(\n\s*\})',
-        re.S,
-    )
-    new_text, n = pattern.subn(replacer, text, count=1)
-    if n == 0:
+    var_re = re.compile(r'variable\s+"(?:labels|tags)"\s*\{', re.M)
+    match = var_re.search(text)
+    if not match:
         return text, 0
+    var_span = _matching_brace_span(text, match.end() - 1)
+    if var_span is None:
+        return text, 0
+    var_body = text[var_span[0] + 1 : var_span[1]]
+    default_m = re.search(r"default\s*=\s*\{", var_body)
+    if not default_m:
+        return text, 0
+    map_open_in_body = default_m.end() - 1
+    map_span = _matching_brace_span(var_body, map_open_in_body)
+    if map_span is None:
+        return text, 0
+    map_body = var_body[map_span[0] + 1 : map_span[1]]
+    changed = 0
+    new_map_body = map_body
+    for key, val in updates.items():
+        # Quoted or bare key already present?
+        if re.search(
+            rf'(?m)^\s*(?:"{re.escape(key)}"|{re.escape(key)})\s*=',
+            new_map_body,
+        ) or re.search(
+            rf'(?:^|[,{{])\s*(?:"{re.escape(key)}"|{re.escape(key)})\s*=',
+            new_map_body,
+        ):
+            new_map_body, n = re.subn(
+                rf'((?:"{re.escape(key)}"|{re.escape(key)})\s*=\s*")[^"]*(")',
+                rf"\g<1>{val}\2",
+                new_map_body,
+                count=1,
+            )
+            if n:
+                changed += n
+            continue
+        # Prefer multiline insert when the map already has newlines.
+        if "\n" in new_map_body:
+            new_map_body = new_map_body.rstrip() + f'\n    {key} = "{val}"\n  '
+        else:
+            stripped = new_map_body.strip()
+            sep = ", " if stripped else ""
+            new_map_body = f'{stripped}{sep}{key} = "{val}"'
+        changed += 1
+    if changed == 0:
+        return text, 0
+    abs_map_open = var_span[0] + 1 + map_span[0]
+    abs_map_close = var_span[0] + 1 + map_span[1]
+    new_text = text[: abs_map_open + 1] + new_map_body + text[abs_map_close:]
     return new_text, changed
 
 

@@ -144,6 +144,23 @@ class ApplyFixesTests(unittest.TestCase):
             self.assertTrue(assumptions.is_file())
             self.assertIn("apm_id", assumptions.read_text(encoding="utf-8"))
 
+    def test_patches_single_line_quoted_default_without_corruption(self) -> None:
+        from apply_opa_mechanical_fixes import patch_labels_default_map
+
+        src = (
+            'variable "labels" {\n'
+            "  type        = map(string)\n"
+            '  default     = { "owner" = "platformengineering", "environment" = "dev" }\n'
+            "}\n"
+        )
+        out, n = patch_labels_default_map(src, {"apm_id": "apm-migration"})
+        self.assertGreater(n, 0)
+        self.assertIn('apm_id = "apm-migration"', out)
+        # Keys must stay inside the map braces, not after a same-line `}`.
+        self.assertNotRegex(out, r'\}\s*\n\s*apm_id\s*=')
+        # Map still closes before the variable block closes.
+        self.assertIn("}", out.split("apm_id")[-1])
+
 
 if __name__ == "__main__":
     unittest.main()

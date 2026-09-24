@@ -228,11 +228,13 @@ def _parse_hcl_body(body: str) -> dict[str, Any]:
             end = body.find("*/", i + 2)
             i = n if end < 0 else end + 2
             continue
-        key_match = re.match(r"([A-Za-z_][\w-]*)\s*", body[i:])
+        # Accept bare identifiers and quoted keys ("apm_id" = "…") used in
+        # single-line map defaults from the GCP generator.
+        key_match = re.match(r'(?:"([^"]+)"|([A-Za-z_][\w-]*))\s*', body[i:])
         if not key_match:
             i += 1
             continue
-        key = key_match.group(1)
+        key = key_match.group(1) or key_match.group(2)
         i += key_match.end()
         while i < n and body[i].isspace():
             i += 1
@@ -248,7 +250,8 @@ def _parse_hcl_body(body: str) -> dict[str, Any]:
                 result[key] = nested
                 i = span[1] + 1
                 continue
-            # read until newline / comment at depth 0 (not inside []/"" )
+            # Read until newline / comma / comment at depth 0 (not inside []/"").
+            # Commas matter for single-line maps: { "a" = "1", "b" = "2" }.
             start = i
             depth_br = 0
             in_str = False
@@ -272,12 +275,14 @@ def _parse_hcl_body(body: str) -> dict[str, Any]:
                     depth_br += 1
                 elif ch == "]":
                     depth_br -= 1
-                elif ch in ("\n", "#") and depth_br == 0:
+                elif ch in ("\n", "#", ",") and depth_br == 0:
                     break
                 elif body.startswith("//", i) and depth_br == 0:
                     break
                 i += 1
             result[key] = _parse_hcl_primitive(body[start:i])
+            if i < n and body[i] == ",":
+                i += 1
             continue
         if i < n and body[i] == "{":
             # nested block → list of objects (terraform plan shape)
