@@ -180,10 +180,10 @@ module "aws_migrator" {
   extra_agent_integration_names = []
 
   require_azure_live_plan = false
-  # Typed gcp slot is bound (vibe-gcp-deployment vault or SA-key generic secret).
-  # Keep live plan soft until TF_VAR_gcp_credentials_json is a service_account key —
-  # CloudProvider/gcp OAuth tokens are not usable as tofu ADC. Static validate still runs.
-  require_gcp_live_plan = false
+  # Live tofu plan when Provider/generic ADC secret is minted from
+  # TF_VAR_gcp_credentials_json + gcp_project_id. OAuth-only vibe-gcp bind keeps
+  # this false (access_token ≠ ADC). Missing ADC then fails gcp-iac-validate.
+  require_gcp_live_plan = local.enable_gcp_live_plan
 
   create_remote_runner          = false
   remote_runner_name            = data.sg_remote_runner.customer[0].name
