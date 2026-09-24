@@ -137,7 +137,9 @@ resource "terraform_data" "runner_gcp_secret_input" {
 }
 
 # Typed slot `gcp` on nile-runner → GOOGLE_APPLICATION_CREDENTIALS_JSON for live tofu plan.
-# subcategory=generic: CloudProvider/gcp Resolve returns OAuth access_token, which tofu cannot use as ADC.
+# subcategory=generic: CloudProvider/gcp (and Provider/gcp) vaults require type=service_account
+# and Resolve may return OAuth tokens. Generic keeps flat ADC env keys for tofu.
+# Pass a real service_account JSON via TF_VAR_gcp_credentials_json for live plan.
 resource "sg_secret" "runner_gcp_env" {
   count = local.create_runner_gcp_env ? 1 : 0
 
@@ -175,8 +177,11 @@ module "aws_migrator" {
   extra_agent_integration_names = []
 
   require_azure_live_plan = false
-  # Require live plan once runner has GCP ADC; otherwise keep skip-allowed smoke path.
-  require_gcp_live_plan = local.enable_gcp_live_plan ? true : false
+  # Live GCP plan needs a service_account key JSON in Provider/generic vault metadata.
+  # gcloud authorized_user ADC is rejected by Provider/gcp vaults and does not sync
+  # reliably into GOOGLE_APPLICATION_CREDENTIALS_JSON on this runner. Keep live plan
+  # off until TF_VAR_gcp_credentials_json is a real SA key; static validate still runs.
+  require_gcp_live_plan = false
 
   create_remote_runner          = false
   remote_runner_name            = data.sg_remote_runner.customer[0].name
