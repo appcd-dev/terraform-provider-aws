@@ -48,7 +48,7 @@ output "github_integration_name" {
   value = nonsensitive(
     local.provision_github ? (
       trimspace(var.github_integration_name) != "" ? trimspace(var.github_integration_name) : "cloud-github"
-    ) : (
+      ) : (
       local.use_existing_github ? data.sg_guild_integration.github[0].name : ""
     )
   )
@@ -64,15 +64,25 @@ output "governance_codify_agent_name" {
   value       = try(module.governance_codify[0].agent_name, null)
 }
 
+output "runner_gcp_env_secret_id" {
+  description = "Vault secret UUID bound to nile-runner typed gcp slot (empty when GCP live plan is not configured)."
+  value       = var.enable_agent_stack ? local.runner_gcp_env_secret_id : ""
+}
+
+output "require_gcp_live_plan" {
+  description = "Whether gcp-migration-pr requires live tofu plan (true once runner GCP ADC is bound)."
+  value       = var.enable_agent_stack ? local.enable_gcp_live_plan : false
+}
+
 output "next_steps" {
   description = "Human-readable checklist for what to do after this apply."
   value = var.enable_agent_stack ? trimspace(<<-EOT
-    Phase 2 applied. Confirm the remote runner is online in StackGen UI, script pack version matches script_pack_version output, then start aws-migrator-discovery.
+    Phase 2 applied. Confirm the remote runner is online in StackGen UI and typed secrets sync (github/aws${local.enable_gcp_live_plan ? "/gcp" : ""}). Script pack version must match script_pack_version output. ${local.enable_gcp_live_plan ? "GCP live plan is required. Re-run gcp-migration-pr after secret sync." : "To enable GCP live plan, set TF_VAR_gcp_credentials_json + gcp_project_id (or runner_gcp_env_secret_id) and re-apply."} Then start aws-migrator-discovery or gcp-migration-pr.
   EOT
-  ) : (var.enable_governance_codify ? trimspace(<<-EOT
+    ) : (var.enable_governance_codify ? trimspace(<<-EOT
     Governance codify applied. In StackGen UI start workflow governance-rules-codify (passive intent: governance-rules-codify) to test markdown → Rego PR generation.
   EOT
-  ) : trimspace(<<-EOT
+      ) : trimspace(<<-EOT
     Phase 1 complete. Customer must create GitHub + AWS integrations and register a remote runner in StackGen UI, then set github_integration_name, aws_integration_name, remote_runner_name in tfvars and enable_agent_stack = true before re-applying.
   EOT
   ))

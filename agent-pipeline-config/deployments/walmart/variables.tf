@@ -96,6 +96,31 @@ variable "gcp_integration_name" {
   default     = ""
 }
 
+variable "gcp_credentials_json" {
+  description = "GCP service account key JSON for nile-runner live tofu plan. When set with gcp_project_id, Terraform creates a generic vault secret and binds typed slot gcp on the remote runner. Pass via TF_VAR_gcp_credentials_json; do not commit."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "gcp_project_id" {
+  description = "GCP project ID written into the runner GCP vault secret (required with gcp_credentials_json)."
+  type        = string
+  default     = ""
+}
+
+variable "gcp_region" {
+  description = "Default GCP region embedded in the runner GCP vault secret."
+  type        = string
+  default     = "us-central1"
+}
+
+variable "runner_gcp_env_secret_id" {
+  description = "Existing vault secret UUID bound to nile-runner typed gcp slot when gcp_credentials_json is empty. Secret metadata must include GOOGLE_APPLICATION_CREDENTIALS_JSON (generic subcategory)."
+  type        = string
+  default     = ""
+}
+
 variable "iac_repository_url" {
   description = "Repository that receives generated source/destination cloud IaC artifacts."
   type        = string
