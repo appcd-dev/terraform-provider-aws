@@ -36,6 +36,48 @@ class RemediationMappingTests(unittest.TestCase):
         self.assertEqual(rem["key"], "apm_id")
         self.assertTrue(rem["assumption"])
 
+    def test_prio001_maps_to_set_label(self) -> None:
+        finding = {
+            "control_id": "PRIO-001",
+            "group_id": "g1",
+            "resource_address": "google_storage_bucket.this",
+            "message": (
+                'PRIO-001: governance/priority-controls.md § Section 5: '
+                'google_storage_bucket.this missing required GCP label "owner"'
+            ),
+        }
+        rem = finding_to_remediation(finding, cloud="gcp")
+        self.assertEqual(rem["action"], "set_label")
+        self.assertEqual(rem["key"], "owner")
+
+    def test_firewall_label_deny_is_exempt(self) -> None:
+        finding = {
+            "control_id": "PRIO-001",
+            "group_id": "g1",
+            "resource_address": "google_compute_firewall.deny_ingress",
+            "message": (
+                'PRIO-001: google_compute_firewall.deny_ingress missing required '
+                'GCP label "apm_id"'
+            ),
+        }
+        rem = finding_to_remediation(finding, cloud="gcp")
+        self.assertEqual(rem["action"], "exempt_resource")
+
+    def test_prg002_without_colon_parses_control(self) -> None:
+        finding = {
+            "control_id": "OPA_DENY",
+            "group_id": "g1",
+            "resource_address": "google_storage_bucket.this",
+            "message": (
+                'PRG-002 governance/production-readiness-gates.md ## 9: '
+                'google_storage_bucket.this missing required GCP label "cost_center"'
+            ),
+        }
+        rem = finding_to_remediation(finding, cloud="gcp")
+        self.assertEqual(rem["control_id"], "PRG-002")
+        self.assertEqual(rem["action"], "set_label")
+        self.assertEqual(rem["key"], "cost_center")
+
     def test_fallback_from_findings(self) -> None:
         items = remediations_from_findings(
             [

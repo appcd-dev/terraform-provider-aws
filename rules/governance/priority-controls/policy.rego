@@ -39,10 +39,44 @@ required_gcp_labels := {
 	"apm_id",
 }
 
+# Provider types with no labels attribute (same set as tagging-labeling-standard TAG-002).
+gcp_label_incapable_types := {
+	"google_compute_network",
+	"google_compute_subnetwork",
+	"google_compute_firewall",
+	"google_compute_route",
+	"google_compute_router",
+	"google_compute_router_nat",
+	"google_compute_global_address",
+	"google_compute_address",
+	"google_compute_forwarding_rule",
+	"google_compute_global_forwarding_rule",
+	"google_compute_target_http_proxy",
+	"google_compute_target_https_proxy",
+	"google_compute_url_map",
+	"google_compute_backend_service",
+	"google_compute_health_check",
+	"google_compute_firewall_policy",
+	"google_compute_firewall_policy_rule",
+	"google_service_account",
+	"google_service_account_iam_member",
+	"google_service_account_iam_binding",
+	"google_project_iam_member",
+	"google_project_iam_binding",
+	"google_project_iam_custom_role",
+	"google_project_service",
+}
+
 managed_change(rc) if {
 	rc.mode == "managed"
 	some action in rc.change.actions
 	action in {"create", "update"}
+}
+
+gcp_labelable_resource(rc) if {
+	managed_change(rc)
+	startswith(rc.type, "google_")
+	not gcp_label_incapable_types[rc.type]
 }
 
 nonempty(s) if {
@@ -62,8 +96,7 @@ deny contains msg if {
 
 deny contains msg if {
 	some rc in input.resource_changes
-	managed_change(rc)
-	startswith(rc.type, "google_")
+	gcp_labelable_resource(rc)
 	labels := object.get(rc.change.after, "labels", {})
 	some required in required_gcp_labels
 	not nonempty(object.get(labels, required, ""))

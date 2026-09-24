@@ -31,9 +31,9 @@ pass_plan := {
 			},
 		},
 		{
-			"address": "google_compute_network.good",
+			"address": "google_storage_bucket.good",
 			"mode": "managed",
-			"type": "google_compute_network",
+			"type": "google_storage_bucket",
 			"name": "good",
 			"change": {
 				"actions": ["create"],
@@ -47,13 +47,24 @@ pass_plan := {
 						"service": "nile",
 						"repo": "Walmart-StackGen/Nile-Factory",
 						"application_name": "nile-core",
-						"name": "vpc-nile-prod",
+						"name": "bucket-nile-prod",
 						"notification_distlist": "ops@example.com",
 						"ssp": "ssp-001",
 						"tr_product_id": "tr-001",
 						"apm_id": "apm-001",
 					},
 				},
+			},
+		},
+		# Label-incapable VPC types must not trip PRG-002.
+		{
+			"address": "google_compute_network.vpc",
+			"mode": "managed",
+			"type": "google_compute_network",
+			"name": "vpc",
+			"change": {
+				"actions": ["create"],
+				"after": {"name": "vpc-nile"},
 			},
 		},
 	],
@@ -77,9 +88,9 @@ fail_plan := {
 			},
 		},
 		{
-			"address": "google_compute_network.bad",
+			"address": "google_storage_bucket.bad",
 			"mode": "managed",
-			"type": "google_compute_network",
+			"type": "google_storage_bucket",
 			"name": "bad",
 			"change": {
 				"actions": ["update"],
@@ -93,7 +104,7 @@ fail_plan := {
 						"service": "nile",
 						"repo": "",
 						"application_name": "nile-core",
-						"name": "vpc-nile-prod",
+						"name": "bucket-nile-prod",
 						"notification_distlist": "ops@example.com",
 						"ssp": "ssp-001",
 						"tr_product_id": "tr-001",
@@ -111,4 +122,14 @@ test_pass_no_deny if {
 
 test_fail_has_deny if {
 	count(deny) > 0 with input as fail_plan
+}
+
+test_network_without_labels_exempt if {
+	count(deny) == 0 with input as {"resource_changes": [{
+		"address": "google_compute_network.bare",
+		"mode": "managed",
+		"type": "google_compute_network",
+		"name": "bare",
+		"change": {"actions": ["create"], "after": {"name": "vpc"}},
+	}]}
 }

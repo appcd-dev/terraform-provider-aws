@@ -75,7 +75,7 @@ output "runner_gcp_attached" {
 }
 
 output "require_gcp_live_plan" {
-  description = "Whether gcp-migration-pr requires live tofu plan (true only when a Provider/generic SA-key ADC secret was created)."
+  description = "Whether gcp-iac-validate requires live tofu plan (true when Provider/generic SA-key ADC was created from gcp_credentials_json)."
   value       = var.enable_agent_stack ? local.enable_gcp_live_plan : false
 }
 
