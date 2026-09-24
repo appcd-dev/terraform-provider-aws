@@ -40,18 +40,49 @@ def _tf_string(name: str) -> str:
     return match.group(1).replace("$${", "${").replace('\\"', '"')
 
 
+def _expand_pack_invoke(
+    invoke: str,
+    *,
+    prefix: str,
+    hygiene: str,
+    pack_version: str,
+    preload_dir: str,
+    release_repo: str = "Walmart-StackGen/Nile-Factory",
+) -> str:
+    """Expand terraform ${local.*} / ${trimspace(...)} the way Guild paste resolves them."""
+    out = invoke.replace("${local.runner_git_env_prefix}", prefix)
+    out = out.replace("${local.runner_aws_cred_hygiene}", hygiene)
+    out = out.replace("${local.script_pack_preload_dir}", preload_dir)
+    out = out.replace("${local.script_pack_version}", pack_version)
+    out = out.replace("${trimspace(var.script_pack_release_repo)}", release_repo)
+    assert "${local." not in out, out[:200]
+    assert "${trimspace(" not in out, out[:200]
+    return out
+
+
 def main() -> None:
     prefix = _tf_string("runner_git_env_prefix")
+    hygiene = _tf_string("runner_aws_cred_hygiene")
     invoke = _tf_string("runner_pack_entry_invoke")
+    main_tf = MAIN_TF.read_text()
+    pack_version = re.search(
+        r'script_pack_version\s*=\s*"([^"]+)"',
+        main_tf,
+    ).group(1)
+    preload_dir = f"/opt/aws-migrator/script-pack/{pack_version}"
     assert prefix.rstrip().endswith(";"), (
         "runner_git_env_prefix must end with ';' so later env+command are not "
         "swallowed by export (session 55e77bfd bad variable name)"
     )
+    assert hygiene.rstrip().endswith(";"), hygiene[-40:]
     assert "export GH_TOKEN=" in prefix
-    # Session c6cb3339: prefix already ends with `;`; invoke must not add another.
+    # Session c6cb3339: prefix already ends with `;`; invoke must not add another
+    # at the glue point. Case-arm terminators (`;;`) inside pack_entry() are fine.
     assert not invoke.startswith("${local.runner_git_env_prefix};"), invoke
-    assert ";;" not in (prefix + " " + invoke.replace("${local.runner_git_env_prefix}", prefix)), (
-        "combined pack-entry invoke must not contain ;;"
+    rest = invoke.replace("${local.runner_git_env_prefix}", "", 1).lstrip()
+    assert not rest.startswith(";"), (
+        "runner_pack_entry_invoke must not start with ';' after the git prefix "
+        f"(glue would become ;;): {rest[:80]!r}"
     )
     assert not re.search(
         r'export GH_TOKEN=.*" GITHUB_TOKEN=.*" GIT_TERMINAL_PROMPT=0"?\s*$',
@@ -73,17 +104,25 @@ def main() -> None:
     assert got.returncode == 0, got.stderr
     assert "ok SOURCE_PR=53" in got.stdout, got.stdout
 
-    # Combined paste as Guild would expand it (session c6cb3339 ;; crash).
-    combined = invoke.replace("${local.runner_git_env_prefix}", prefix)
-    assert ";;" not in combined, combined[:200]
+    # Combined paste as Guild would expand it (session c6cb3339 ;; crash at glue).
+    combined = _expand_pack_invoke(
+        invoke,
+        prefix=prefix,
+        hygiene=hygiene,
+        pack_version=pack_version,
+        preload_dir=preload_dir,
+    )
+    glue = prefix.rstrip()[-1] + combined[len(prefix) : len(prefix) + 2]
+    assert ";;" not in glue, f"prefix+invoke glue produced ;;: {glue!r} / {combined[:120]!r}"
+    # Syntax-check under dash (/bin/sh on Ubuntu CI). Use `sh -n` so missing
+    # /opt pack or gh does not fail the contract; we only care about paste shape.
     got2 = subprocess.run(
-        ["/bin/sh", "-c", f"export SOURCE_PR='53'; {combined} destination gcp-source-fetch 'wf-x'"],
+        ["/bin/sh", "-n", "-c", f"export SOURCE_PR='53'; {combined} destination gcp-source-fetch 'wf-x'"],
         check=False,
         capture_output=True,
         text=True,
     )
-    # Will fail later (no gh / no pack), but must not be a ;; syntax error.
-    assert ";;" not in (got2.stderr or ""), got2.stderr
+    assert got2.returncode == 0, got2.stderr
     assert "Syntax error" not in (got2.stderr or ""), got2.stderr
 
     pack = PACK_ENTRY.read_text()
@@ -104,7 +143,7 @@ def main() -> None:
     versions = set(
         re.findall(
             r'script_pack_version\s*=\s*"([^"]+)"',
-            MAIN_TF.read_text(),
+            main_tf,
         )
     )
     stage_ver = re.search(
@@ -112,7 +151,7 @@ def main() -> None:
         (MODULE / "scripts" / "stage-runner.sh").read_text(),
     ).group(1)
     assert versions == {stage_ver}, (versions, stage_ver)
-    assert stage_ver == "20260911.26", stage_ver
+    assert stage_ver == pack_version, stage_ver
 
     dest = (MODULE / "scripts" / "run-destination-stage.sh").read_text()
     assert 'NILE_RULES_REF="${NILE_RULES_REF:-main}"' in dest, (

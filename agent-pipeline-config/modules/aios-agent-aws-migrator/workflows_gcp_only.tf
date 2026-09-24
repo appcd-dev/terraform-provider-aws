@@ -171,7 +171,8 @@ resource "sg_workflow" "aws_migrator_gcp_only" {
         **Validation contract:** when `REQUIRE_GCP_LIVE_PLAN=1`, `gcp_plan_status` must start with `success` (exact `success` or `success:sample:N/M`); missing credentials is a hard fail. Never run `tofu apply` on migrated GCP resources.
         **Validation contract:** run `tofu fmt`, `tofu validate`, optional `tofu test`, optional `tflint`, and live `tofu plan` (never apply). The pack auto-heals known provider limits (e.g. GCP `name_prefix` ≤37) and retries validate once before reporting `gcp_iac_validation_ok=false`. When `REQUIRE_GCP_LIVE_PLAN=1`, missing credentials fail the stage.
         **Hard evidence gate:** completion requires a successful runner result carrying `gcp_iac_validation_ok` and a non-empty `gcp_iac_validation_report`. Absent those, record `stage_summary:gcp-iac-validate=blocked:missing_runner_evidence` and return blocked.
-        **On static fails:** if `gcp_iac_validation_ok=false` with `static_fail_count>0`, read `gcp/artifacts/validation-report.json` `groups[].validate_error` and patch HCL under `gcp/groups/` (or re-run validate after pack autofix), then re-paste the identical BEGIN/END body once before accepting false.        **Discrete session notes (mandatory):** `note()` keys `gcp_iac_validation_ok`, `gcp_plan_status`, `gcp_iac_validation_report`, `stage_summary:gcp-iac-validate`.
+        **On static fails (remediate until useful):** if `gcp_iac_validation_ok=false` with `static_fail_count>0`, read `gcp/artifacts/validation-report.json` `groups[].validate_error` and `hcl_fix_targets.json` when present. Patch HCL under `gcp/groups/` (add required attrs, fix types, stub vars via `*.auto.tfvars` / `variables.tf` defaults). Prefer source-derived values; if missing, invent a migration assumption and append it to `gcp/artifacts/governance-assumptions.md`. Re-paste the validate BEGIN/END body. Do **not** accept `false` until the validate loop exits (ok=true, terminal blocked, or max iterations). Forbidden: inventing IAM action translations or network redesign.
+        **Discrete session notes (mandatory):** `note()` keys `gcp_iac_validation_ok`, `gcp_plan_status`, `gcp_iac_validation_report`, `stage_summary:gcp-iac-validate`.
         **Outputs:** discrete notes above.
 
         ${local.dbsplit_spawn_context_gcp_validate}
@@ -219,8 +220,8 @@ resource "sg_workflow" "aws_migrator_gcp_only" {
       note = <<-EOT
         **Upstream guard:** Prefer notes showing `gcp_iac_generated=true` / `stage_summary:gcp-iac-generate=ok`. Guild `read_notes` may mask those keys after busy generate stages — do **not** invent `skipped:generation_missing` from an incomplete note snapshot. If generate already ran this workflow (or workdir `gcp/groups/` exists), you MUST run OPA governance via execute_series; the runner emits `blocked:generation_missing` only when artifacts are truly absent.
         **Serial after validate:** prior DAG fan-out completed harden/validate/governance in ~1–2s with zero tools (trace e861d081). You MUST call execute_series; never return without OPA runner evidence.
-        **Living docs + OPA:** first tool call is ONE `${local.shell_tool_prefix}_execute_series` pasting the **exact** one-line body between `---BEGIN GCP_GOVERNANCE_CONFORM_EXECUTE_SERIES---` and `---END---` (`pack-entry.sh` … `destination gcp-iac-governance-conform`, `timeout_seconds=3600`). **FORBIDDEN:** label-as-command or `$`/`$${` expansion. Harness refreshes Governance-and-Policy, inventories resources, seeds/runs the validator, and runs Nile-Factory `rules/` OPA against `tofu plan` JSON (or HCL-synthesized plan JSON when GCP ADC is missing). Then **continue** (not paste-only): load `${local.sop_governance_conform_name}`, rebuild `gcp/artifacts/governance-decision-tree.json` from **this-run** docs, `${local.shell_tool_prefix}_create_files` the validator (drop `NILE_GOVERNANCE_VALIDATOR_SCAFFOLD`), read `gcp/artifacts/governance-opa-fix-hints.md` when OPA denies, fix mechanical HCL under `gcp/groups/` (tags, labels, security flags named in deny messages), re-run the series until `gcp_iac_governance_ok=true`. Do not invent controls absent from refreshed docs. Validation evidence is not human approval.
-        **Hard evidence gate:** require notes `gcp_iac_governance_ok` (`true` or `false`) plus `gcp_governance_commit_sha` / `gcp/artifacts/governance-source.json`. Docs-unavailable → `blocked:governance_docs_unavailable`. OPA/rules unavailable → `blocked:governance_opa_unavailable`. Nonconformant visits must remediate OPA/validator residuals and re-run until `gcp_iac_governance_ok=true` (loop exits on true or terminal blockers / max iterations). If residuals remain, `gcp-pr` still opens and documents them in `TODO.md` + PR body.
+        **Living docs + OPA:** first tool call is ONE `${local.shell_tool_prefix}_execute_series` pasting the **exact** one-line body between `---BEGIN GCP_GOVERNANCE_CONFORM_EXECUTE_SERIES---` and `---END---` (`pack-entry.sh` … `destination gcp-iac-governance-conform`, `timeout_seconds=3600`). **FORBIDDEN:** label-as-command or `$`/`$${` expansion. Harness refreshes Governance-and-Policy, inventories resources, runs OPA, and applies mechanical remediations (`governance-opa-remediations.json` → labels/tags/TLS). Then **continue** (not paste-only): load `${local.sop_governance_conform_name}`, rebuild `gcp/artifacts/governance-decision-tree.json` from **this-run** docs, `${local.shell_tool_prefix}_create_files` the validator (drop `NILE_GOVERNANCE_VALIDATOR_SCAFFOLD`), read `gcp/artifacts/governance-opa-remediations.json` + fix-hints for residuals, reason about missing keys (prefer AWS tags; else document migration assumptions in `governance-assumptions.md` and substitute vars), re-run the series until `gcp_iac_governance_ok=true`. Do not invent controls absent from refreshed docs. Validation evidence is not human approval.
+        **Hard evidence gate:** require notes `gcp_iac_governance_ok` (`true` or `false`) plus `gcp_governance_commit_sha` / `gcp/artifacts/governance-source.json`. Docs-unavailable → `blocked:governance_docs_unavailable`. OPA/rules unavailable → `blocked:governance_opa_unavailable`. Nonconformant visits must remediate OPA/validator residuals and re-run until `gcp_iac_governance_ok=true` (loop exits on true or terminal blockers / max iterations). If residuals remain, `gcp-pr` still opens and documents them in `TODO.md` + PR body + assumptions.
         **Discrete session notes (mandatory):** `note()` keys `gcp_iac_governance_ok`, `gcp_iac_governance_report`, `gcp_iac_opa_report` (when present), `gcp_governance_commit_sha`, `stage_summary:gcp-iac-governance-conform`.
         **Outputs:** discrete notes above plus `gcp_iac_opa_fix_hints` when OPA denies.
 
@@ -235,16 +236,15 @@ resource "sg_workflow" "aws_migrator_gcp_only" {
       # Clear residuals left when harden/governance were inserted ahead of this slot.
       runbook_refs = []
       skill_refs   = []
-      note         = "Deterministic validate→generate loop gate. No agent."
+      note         = "Deterministic validate remediates loop. No agent."
       action_config = {
-        loop_to        = "gcp-iac-generate"
-        max_iterations = var.max_convergence_iterations
+        loop_to        = "gcp-iac-validate"
+        max_iterations = var.max_validate_iterations
         exit_condition = "output_matches_regex"
-        # Destination generate is deterministic — re-entering generate will not heal tofu
-        # init/static failures or missing credentials. Exit the loop on ANY conclusive
-        # validate result (quoted true OR false) or an explicit blocked stage_summary so
-        # we proceed to gcp-pr instead of aborting on Guild's stage visit cap.
-        exit_match = "gcp_iac_validation_ok[^\\n]{0,40}\"true\"|gcp_iac_validation_ok[^\\n]{0,40}\"false\"|stage_summary:gcp-iac-validate=ok|stage_summary:gcp-iac-validate=blocked:|stage_summary:gcp-iac-validate=skipped:|stage_summary:gcp-iac-generate=skipped:|stage_summary:gcp-migration-blueprint=skipped:|stage_summary:gcp-source-fetch=blocked:|blocked:gcp_source_iac_fetch_failed|blocked:remote_runner_tofu_missing|blocked:remote_runner_shell_unavailable|GCP_SOURCE_FETCH_EXECUTE_SERIES: not found"
+        # Remediates until useful: agent patches HCL/vars between visits. Exit on
+        # validation_ok=true or terminal blockers only — not on false. Max iters
+        # still advances to governance/PR with remarks.
+        exit_match = "gcp_iac_validation_ok[^\\n]{0,40}\"true\"|stage_summary:gcp-iac-validate=ok|stage_summary:gcp-iac-validate=blocked:|stage_summary:gcp-source-fetch=blocked:|blocked:gcp_source_iac_fetch_failed|blocked:missing_gcp_credentials|blocked:remote_runner_tofu_missing|blocked:remote_runner_shell_unavailable|GCP_SOURCE_FETCH_EXECUTE_SERIES: not found"
       }
     },
     {

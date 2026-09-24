@@ -126,7 +126,9 @@ def main() -> None:
     ).group(1)
     assert "runner_pack_entry_invoke" in preflight_cmd
     assert "preflight" in preflight_cmd
-    assert len(invoke) < 550, f"pack-entry invoke too long: {len(invoke)}"
+    # /opt-prefer pack_entry + AWS cred hygiene glue is intentionally longer than
+    # the old gh-only one-liner; cap runaway growth, not the old 550 ceiling.
+    assert len(invoke) < 1200, f"pack-entry invoke too long: {len(invoke)}"
     assert len(command) < 200, f"scan body too long: {len(command)}"
     assert len(preflight_cmd) < 200, f"preflight body too long: {len(preflight_cmd)}"
 

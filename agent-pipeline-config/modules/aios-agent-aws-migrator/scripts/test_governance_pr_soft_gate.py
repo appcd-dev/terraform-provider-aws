@@ -51,7 +51,9 @@ def main() -> None:
 
     sop = SOP.read_text()
     assert "still opens with TODO" in sop or "document them in TODO" in sop
-    assert "Abandoning the run without opening a destination PR" in sop
+    assert "assumptions" in sop.lower()
+    assert "without a PR" in sop or "no destination PR" in sop
+    assert "governance-opa-remediations.json" in sop
 
     print("OK: governance soft-gate + remediation-loop contracts")
 

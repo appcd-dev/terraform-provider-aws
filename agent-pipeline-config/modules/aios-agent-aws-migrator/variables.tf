@@ -418,6 +418,17 @@ variable "max_governance_iterations" {
   }
 }
 
+variable "max_validate_iterations" {
+  description = "Cap for azure/gcp iac-validate remediates loops. Agent patches HCL / vars between visits until validation_ok=true or a terminal blocker (missing creds when required, runner tofu missing). Soft-opens destination PR after this cap with remarks."
+  type        = number
+  default     = 5
+
+  validation {
+    condition     = var.max_validate_iterations >= 1 && var.max_validate_iterations <= 20
+    error_message = "max_validate_iterations must be between 1 and 20."
+  }
+}
+
 variable "nile_governance_repo_url" {
   description = "Living Nile governance git remote refreshed at the start of each governance-conform run. Default is Walmart-StackGen/Governance-and-Policy. The docs/nile-governance submodule is an optional human pin, not the runtime source."
   type        = string

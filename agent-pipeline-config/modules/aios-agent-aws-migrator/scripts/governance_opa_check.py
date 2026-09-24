@@ -462,6 +462,85 @@ def deny_to_finding(
     }
 
 
+# TLS / private-by-default attrs the pack can set mechanically.
+_TLS_ATTR_HINTS = (
+    "enable_https_traffic_only",
+    "min_tls_version",
+    "https_only",
+    "uniform_bucket_level_access",
+    "public_network_access_enabled",
+    "can_ip_forward",
+)
+
+
+def finding_to_remediation(finding: dict[str, Any], *, cloud: str) -> dict[str, Any]:
+    """Map an OPA finding to a structured remediation the pack/agent can apply."""
+    message = str(finding.get("message") or "")
+    control_id = str(finding.get("control_id") or parse_control_id(message))
+    address = str(finding.get("resource_address") or "")
+    group_id = str(finding.get("group_id") or "")
+    key = ""
+    m = re.search(r'missing required (?:GCP label|Azure tag) "([^"]+)"', message)
+    if m:
+        key = m.group(1)
+    action = "unknown"
+    suggested = ""
+    assumption = False
+    assumption_reason = ""
+    if control_id == "TAG-002" and key:
+        action = "set_label"
+        assumption = True
+        assumption_reason = "Fill from AWS tags when present; else migration placeholder"
+    elif control_id == "TAG-001" and key:
+        action = "set_tag"
+        assumption = True
+        assumption_reason = "Fill from AWS tags when present; else migration placeholder"
+    elif control_id.startswith("TLS") or any(a in message for a in _TLS_ATTR_HINTS):
+        action = "set_attr"
+        for candidate in _TLS_ATTR_HINTS:
+            if candidate in message:
+                key = candidate
+                break
+        suggested = "true"
+    elif "missing required argument" in message.lower() or "Missing required argument" in message:
+        action = "set_attr"
+        arg_m = re.search(r'(?:argument|attribute)\s+"?([A-Za-z0-9_]+)"?', message, re.I)
+        if arg_m:
+            key = arg_m.group(1)
+    return {
+        "control_id": control_id,
+        "resource_address": address,
+        "group_id": group_id,
+        "action": action,
+        "key": key,
+        "suggested_value": suggested,
+        "assumption": assumption,
+        "assumption_reason": assumption_reason,
+        "message": message,
+        "cloud": cloud,
+    }
+
+
+def write_remediations(
+    artifacts: Path,
+    *,
+    cloud: str,
+    findings: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    remediations = [finding_to_remediation(f, cloud=cloud) for f in findings]
+    write_json(
+        artifacts / "governance-opa-remediations.json",
+        {
+            "schema": "nile-governance-opa-remediations/v1",
+            "cloud": cloud,
+            "remediation_count": len(remediations),
+            "remediations": remediations,
+            "generated_at": utc_now(),
+        },
+    )
+    return remediations
+
+
 def merge_plan_resource_changes(plans: list[dict[str, Any]]) -> dict[str, Any]:
     merged: list[Any] = []
     for plan in plans:
@@ -612,12 +691,16 @@ def run(argv: list[str] | None = None) -> int:
             "deny_count": len(findings),
         },
     )
+    write_remediations(artifacts, cloud=cloud, findings=findings)
 
     # Human-readable fix hints for the agent
     lines = [
         "# OPA governance denies (fix HCL, then re-run gcp-iac-governance-conform)",
         "",
         f"Rules SHA: `{source.get('commit_sha')}`",
+        "",
+        "Structured remediations: `governance-opa-remediations.json` "
+        "(pack applies mechanical set_label/set_tag/set_attr; agent owns residuals).",
         "",
     ]
     if not findings:

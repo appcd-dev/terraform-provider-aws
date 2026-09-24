@@ -4,7 +4,7 @@
 # Usage: DBSPLIT_EMBEDDED=1 bash -s <command> [args...] << 'DBSPLIT_STAGE_RUNNER' ... DBSPLIT_STAGE_RUNNER
 set -euo pipefail
 
-SCRIPT_PACK_VERSION="20260911.27"
+SCRIPT_PACK_VERSION="20260911.29"
 DBSPLIT_DEFAULT_STRATEGY="${DBSPLIT_DEFAULT_STRATEGY:-tfstate_monolith_decomposer}"
 DBSPLIT_DEFAULT_CAP="${DBSPLIT_DEFAULT_CAP:-0}"
 REQUIRED_ALLOCATE_MARKER="def merge_small_by_seed"
@@ -3064,11 +3064,15 @@ destination_validation_report_is_ready() {
   return 0
 }
 
-# Ensure azure/gcp PR stages ship a real validation matrix (not a stub / empty file).
+# Ensure azure/gcp PR stages ship a validation matrix. Prefer a real report from
+# validate; if still missing/stub after a refresh attempt, write an explicit
+# incomplete report and continue so review-candidate PRs still open with remarks
+# (session 5822818: pr_blocker=validation_report_incomplete blocked sibling PRs).
 ensure_destination_validation_report() {
   local work_root="${1:?WORK_ROOT}"
   local cloud="${2:?CLOUD}" # azure|gcp
   local report="${work_root}/${cloud}/artifacts/validation-report.json"
+  local plan_status validation_ok
 
   if destination_validation_report_is_ready "$report"; then
     return 0
@@ -3084,10 +3088,57 @@ ensure_destination_validation_report() {
   if destination_validation_report_is_ready "$report"; then
     return 0
   fi
-  mirror_note "$work_root" "pr_blocker" "validation_report_incomplete"
-  mirror_note "$work_root" "stage_summary:${cloud}-pr" "blocked:validation_report_incomplete"
-  echo "pr_blocker=validation_report_incomplete"
-  return 1
+
+  plan_status="$(read_note "$work_root" "${cloud}_plan_status" 2>/dev/null || true)"
+  validation_ok="$(read_note "$work_root" "${cloud}_iac_validation_ok" 2>/dev/null || true)"
+  mkdir -p "$(dirname "$report")"
+  if command -v jq >/dev/null 2>&1; then
+    jq -n \
+      --arg note "incomplete validation report — opening review-candidate PR with remarks" \
+      --arg plan "${plan_status:-unknown}" \
+      --arg vok "${validation_ok:-unknown}" \
+      --arg cloud "$cloud" \
+      '{
+        summary: {
+          note: $note,
+          validation_ok: $vok,
+          plan_status: $plan,
+          pr_policy: "soft_gate_open_with_remarks"
+        },
+        groups: [{
+          group_id: "_incomplete",
+          fmt: "unknown",
+          validate: "unknown",
+          plan: $plan,
+          note: ("Validate did not produce a complete matrix. Inspect " + $cloud + "/artifacts/ and TODO.md. Do not treat this PR as apply-ready.")
+        }]
+      }' >"$report"
+  else
+    cat >"$report" <<EOF
+{
+  "summary": {
+    "note": "incomplete validation report — opening review-candidate PR with remarks",
+    "validation_ok": "${validation_ok:-unknown}",
+    "plan_status": "${plan_status:-unknown}",
+    "pr_policy": "soft_gate_open_with_remarks"
+  },
+  "groups": [
+    {
+      "group_id": "_incomplete",
+      "fmt": "unknown",
+      "validate": "unknown",
+      "plan": "${plan_status:-unknown}",
+      "note": "Validate did not produce a complete matrix. Inspect ${cloud}/artifacts/ and TODO.md. Do not treat this PR as apply-ready."
+    }
+  ]
+}
+EOF
+  fi
+  mirror_note "$work_root" "validation_report_incomplete" "true"
+  mirror_note "$work_root" "stage_summary:${cloud}-pr" "ok:validation_report_incomplete_opening_pr"
+  echo "warning:validation_report_incomplete_opening_pr"
+  echo "validation_report_path=${report}"
+  return 0
 }
 
 cmd_sync_hydrated_iac_pr() {
@@ -5246,6 +5297,11 @@ cmd_destination_iac_governance_conform() {
       return 1
     fi
   fi
+  local fix_harness="${work_root}/scripts/apply_opa_mechanical_fixes.py"
+  if [ ! -f "$fix_harness" ] && [ -f "${script_dir}/apply_opa_mechanical_fixes.py" ]; then
+    mkdir -p "${work_root}/scripts"
+    cp "${script_dir}/apply_opa_mechanical_fixes.py" "$fix_harness"
+  fi
 
   local rc=0
   python3 "$harness" --work-root "$work_root" --cloud "$cloud" --all \
@@ -5259,6 +5315,22 @@ cmd_destination_iac_governance_conform() {
     if [ -f "$opa_report" ] && command -v jq >/dev/null 2>&1; then
       opa_ok="$(jq -r 'if .opa_ok == true then "true" else "false" end' "$opa_report" 2>/dev/null || echo false)"
       opa_blocked="$(jq -r '.blocked // empty' "$opa_report" 2>/dev/null || true)"
+    fi
+    # Mechanical remediations (labels/tags/TLS) then one OPA re-check in this visit.
+    if [ "$opa_ok" != "true" ] && [ "$opa_rc" -ne 2 ] && [ -f "$fix_harness" ]; then
+      python3 "$fix_harness" --work-root "$work_root" --cloud "$cloud" \
+        >"${artifacts_dir}/governance-opa-mechanical-fixes.out" \
+        2>"${artifacts_dir}/governance-opa-mechanical-fixes.err" || true
+      mirror_note "$work_root" "${cloud}_iac_opa_mechanical_fixes" \
+        "${artifacts_dir}/governance-opa-mechanical-fixes.json"
+      opa_rc=0
+      python3 "$opa_harness" --work-root "$work_root" --cloud "$cloud" \
+        >"${artifacts_dir}/governance-opa-check-retry.out" \
+        2>"${artifacts_dir}/governance-opa-check-retry.err" || opa_rc=$?
+      if [ -f "$opa_report" ] && command -v jq >/dev/null 2>&1; then
+        opa_ok="$(jq -r 'if .opa_ok == true then "true" else "false" end' "$opa_report" 2>/dev/null || echo false)"
+        opa_blocked="$(jq -r '.blocked // empty' "$opa_report" 2>/dev/null || true)"
+      fi
     fi
     if [ "$opa_rc" -eq 2 ]; then
       mirror_note "$work_root" "$ok_key" "false"
@@ -5360,6 +5432,8 @@ emit_governance_residual_md() {
   local opa_findings="${work_root}/${cloud}/artifacts/governance-opa-findings.json"
   local opa_hints="${work_root}/${cloud}/artifacts/governance-opa-fix-hints.md"
   local exceptions="${work_root}/${cloud}/artifacts/governance-exceptions.md"
+  local assumptions="${work_root}/${cloud}/artifacts/governance-assumptions.md"
+  local remediations="${work_root}/${cloud}/artifacts/governance-opa-remediations.json"
   local gov_ok opa_ok deny_count blocking_count
 
   gov_ok="$(read_note "$work_root" "${cloud}_iac_governance_ok" 2>/dev/null || true)"
@@ -5397,10 +5471,23 @@ emit_governance_residual_md() {
     echo
     echo "### TODO — clear residuals"
     echo
-    echo "1. Open [\`governance-opa-fix-hints.md\`](./governance-opa-fix-hints.md) (when present) and apply the named label/tag/flag fixes under \`${cloud}/groups/\`."
-    echo "2. Clear validator blockers in [\`governance-exceptions.md\`](./governance-exceptions.md)."
-    echo "3. Re-run \`${cloud}-iac-governance-conform\` (or the destination workflow) until \`${cloud}_iac_governance_ok=true\`."
-    echo "4. Do **not** apply cloud resources while \`opa_ok\` / \`conformance_ok\` are false unless an owner accepts each residual."
+    echo "1. Open [\`governance-opa-remediations.json\`](./governance-opa-remediations.json) and [\`governance-opa-fix-hints.md\`](./governance-opa-fix-hints.md); apply named label/tag/flag/var fixes under \`${cloud}/groups/\`."
+    echo "2. Record any migration placeholders in [\`governance-assumptions.md\`](./governance-assumptions.md)."
+    echo "3. Clear validator blockers in [\`governance-exceptions.md\`](./governance-exceptions.md)."
+    echo "4. Re-run \`${cloud}-iac-governance-conform\` until \`${cloud}_iac_governance_ok=true\`."
+    echo "5. Do **not** apply cloud resources while \`opa_ok\` / \`conformance_ok\` are false unless an owner accepts each residual."
+    echo
+  fi
+  if [ -f "$assumptions" ]; then
+    echo "### Migration assumptions"
+    echo
+    sed -n '1,60p' "$assumptions"
+    echo
+    echo "- Full list: [\`governance-assumptions.md\`](./governance-assumptions.md)"
+    echo
+  fi
+  if [ -f "$remediations" ]; then
+    echo "- Structured remediations: [\`governance-opa-remediations.json\`](./governance-opa-remediations.json)"
     echo
   fi
   if [ -f "$opa_findings" ] && command -v jq >/dev/null 2>&1; then
@@ -5629,9 +5716,10 @@ cmd_destination_iac_validate() {
         validate_error="$(validation_error_snippet init.out)"
         plan_status="skipped:static_validation_failed"
       else
-        # Heal known provider limits (e.g. GCP name_prefix ≤37) before validate.
+        # Heal known provider limits + stub missing tfvars before validate.
         if sanity_py="$(resolve_hcl_sanity_py "$work_root" 2>/dev/null)"; then
           python3 "$sanity_py" fix-provider-limits "$group_dir" >"provider-limits.out" 2>&1 || true
+          python3 "$sanity_py" write-stub-tfvars "$group_dir" >"stub-tfvars.out" 2>&1 || true
         fi
         "$tofu_bin" fmt -recursive -no-color >/dev/null 2>&1 || true
         if "$tofu_bin" fmt -recursive -check -no-color >"fmt.out" 2>&1; then
@@ -5643,9 +5731,10 @@ cmd_destination_iac_validate() {
         if tofu_validate_with_retry "$tofu_bin" "validate.out"; then
           validate_status="true"
         else
-          # Pack autofix: provider limits + surgical attr drops on this group's *.tf, then re-validate.
+          # Pack autofix: provider limits + surgical attr drops/adds on this group's *.tf, then re-validate.
           if sanity_py="$(resolve_hcl_sanity_py "$work_root" 2>/dev/null)"; then
             python3 "$sanity_py" fix-provider-limits "$group_dir" >>"provider-limits.out" 2>&1 || true
+            python3 "$sanity_py" write-stub-tfvars "$group_dir" >>"stub-tfvars.out" 2>&1 || true
             python3 "$sanity_py" parse-tofu-errors "validate.out" \
               --group-id "$group_id" --out "hcl_fix_targets.json" \
               >"hcl_fix_targets.raw.json" 2>/dev/null || true
@@ -6000,6 +6089,12 @@ write_azure_pr_body() {
     echo "- When a live plan runs, sampled success requires expected creates and no deletes or replacements."
     echo
     emit_governance_residual_md "$work_root" "azure"
+    if [ -f "${work_root}/azure/artifacts/governance-assumptions.md" ]; then
+      echo "## Migration assumptions"
+      echo
+      sed -n '1,80p' "${work_root}/azure/artifacts/governance-assumptions.md"
+      echo
+    fi
     echo "## Lint / security harden"
     echo
     if [ -n "$harden_excerpt" ]; then
@@ -6906,12 +7001,24 @@ write_gcp_pr_body() {
     harden_excerpt="$(sed -n '1,80p' "${work_root}/gcp/artifacts/harden-findings.md")"
   fi
 
+  local validation_incomplete=""
+  validation_incomplete="$(read_note "$work_root" "validation_report_incomplete" 2>/dev/null || true)"
+  if [ -z "$validation_incomplete" ] && [ -f "$validation_report" ]; then
+    if jq -e '(.summary.pr_policy // "") == "soft_gate_open_with_remarks" or (.groups[0].group_id // "") == "_incomplete"' "$validation_report" >/dev/null 2>&1; then
+      validation_incomplete="true"
+    fi
+  fi
+
   mkdir -p "$(dirname "$out_file")"
   {
     echo "## Summary"
     echo
     echo "Adds **review-candidate** GCP Terraform under \`gcp/\` (GCP naming and private-by-default defaults, honest emission labels) for AWS reverse-IaC groups."
     echo "Ambiguous mappings do not block the PR; operators must treat non-\`full_scaffold\` emissions as incomplete. Details: \`gcp/artifacts/review-needed.md\`."
+    if [ "$validation_incomplete" = "true" ] || [ "$validation_ok" != "true" ]; then
+      echo
+      echo "> **Not apply-ready.** Validation matrix is incomplete or failed (\`validation_ok=${validation_ok}\`, \`plan_status=${plan_status}\`). Opened so reviewers can inspect scaffolds, governance residuals, and TODO.md. Fix validate/plan before merge/apply."
+    fi
     echo
     echo "## Run status"
     echo
@@ -6925,6 +7032,7 @@ write_gcp_pr_body() {
     echo "| Live plan sample | \`${planned_groups}\` of \`${static_groups}\` (limit \`${sample_limit}\`) |"
     echo "| GCP validation | \`${validation_ok}\` |"
     echo "| GCP plan status | \`${plan_status}\` |"
+    echo "| Validation report complete | \`$([ "$validation_incomplete" = "true" ] && echo false || echo true)\` |"
     echo "| Harden autofixes | \`${harden_autofix}\` |"
     echo "| Harden residual findings | \`${harden_findings}\` |"
     echo "| Harden fmt / tflint fails | \`${harden_fmt}\` / \`${harden_lint}\` |"
@@ -6951,6 +7059,12 @@ write_gcp_pr_body() {
     echo "- When a live plan runs, sampled success requires expected creates and no deletes or replacements."
     echo
     emit_governance_residual_md "$work_root" "gcp"
+    if [ -f "${work_root}/gcp/artifacts/governance-assumptions.md" ]; then
+      echo "## Migration assumptions"
+      echo
+      sed -n '1,80p' "${work_root}/gcp/artifacts/governance-assumptions.md"
+      echo
+    fi
     echo "## Lint / security harden"
     echo
     if [ -n "$harden_excerpt" ]; then

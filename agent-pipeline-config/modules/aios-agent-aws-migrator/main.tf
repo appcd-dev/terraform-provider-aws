@@ -75,8 +75,11 @@ locals {
   resolved_gcp_integration_name   = trimspace(var.existing_gcp_integration_name)
 
   # Runner mothership sync: vault metadata must be flat env keys (GIT_TOKEN, AWS_ACCESS_KEY_ID, ARM_*, …).
+  # Create vault secrets whenever inline creds are set — including customer-managed runners
+  # (create_remote_runner=false). Gating AWS on create_remote_runner left Walmart with git
+  # sync only and empty AWS_* on nile-runner (session 1db33f6a cloud2code IMDS failure).
   create_runner_git_env_secret = trimspace(var.runner_git_token) != ""
-  create_runner_aws_env_secret = var.create_remote_runner && (
+  create_runner_aws_env_secret = (
     trimspace(var.runner_aws_access_key_id) != "" && trimspace(var.runner_aws_secret_access_key) != ""
   )
 
@@ -164,7 +167,9 @@ locals {
   gcp_mapping_catalog_script   = file("${path.module}/scripts/gcp_mapping_catalog.py")
   gcp_mapping_catalog_json     = file("${path.module}/mappings/aws-to-gcp.json")
   ensure_cloud2code_script     = file("${path.module}/scripts/ensure_cloud2code.sh")
-  script_pack_version          = "20260911.27"
+  # Keep in lockstep with scripts/stage-runner.sh SCRIPT_PACK_VERSION and a
+  # published pack-* GitHub release. 20260911.28 was bumped without a release.
+  script_pack_version          = "20260911.29"
   script_pack_git_ref          = "main"
   # Baked into the runner image under /opt, not under HOME. The ACA Azure Files
   # share mounts over /home/runner, so a pack under HOME depends on the
@@ -452,8 +457,17 @@ locals {
   # pasting multi-KB inline fetch; session d8faf9c8: browser download URL 404s on
   # private repos — use gh release download / API asset URL instead).
   script_pack_entry_url = "https://github.com/${trimspace(var.script_pack_release_repo)}/releases/download/pack-${local.script_pack_version}/pack-entry.sh"
+  # Prefer baked /opt stage scripts when the ACA image already has this pack
+  # (embed-script-pack.sh does not copy pack-entry.sh; Walmart disables vault pack
+  # sync). After a revision roll GIT_TOKEN/`token` may be absent and
+  # `gh release download` fails before any stage runs (session b55b2b3d / 62970ce6).
+  # Fall back to gh pack-entry for greenfield / lagging images.
   # Prefix already ends with `;` — do not add another or dash sees `;;` (session c6cb3339).
-  runner_pack_entry_invoke = "${local.runner_git_env_prefix} D=$(mktemp -d); gh release download 'pack-${local.script_pack_version}' -R '${trimspace(var.script_pack_release_repo)}' -p pack-entry.sh -D \"$${D}\" && bash \"$${D}/pack-entry.sh\""
+  # Use "$@"/$(mktemp) unescaped — $${@} corrupts under TF interpolation.
+  # Drop stale Azure Files ~/.aws cache so SDK does not chase expired IMDS/SSO
+  # before typed-secret env keys (session 3f867683 / ced6484d).
+  runner_aws_cred_hygiene = "unset AWS_PROFILE; rm -rf \"$${HOME}/.aws/cli/cache\" \"$${HOME}/.aws/sso\" 2>/dev/null || true; echo \"aws_env_keys=$(env | grep '^AWS_' | cut -d= -f1 | tr '\\n' ' ')\"; if [ -f \"$${HOME}/.aws/credentials\" ]; then echo aws_credentials_file=present; else echo aws_credentials_file=absent; fi;"
+  runner_pack_entry_invoke = "${local.runner_git_env_prefix} ${local.runner_aws_cred_hygiene} pack_entry(){ P='${local.script_pack_preload_dir}'; if [ -f \"$${P}/cloud2code-aws-scan.sh\" ] && [ -f \"$${P}/runner-capability-preflight.sh\" ] && [ -f \"$${P}/ingest-bootstrap.sh\" ] && [ -f \"$${P}/iac-pr-bootstrap.sh\" ] && [ -f \"$${P}/converge-bootstrap.sh\" ]; then case \"$${1}\" in preflight) shift; exec bash \"$${P}/runner-capability-preflight.sh\" \"$@\"; ;; scan) shift; exec bash \"$${P}/cloud2code-aws-scan.sh\" \"$@\"; ;; ingest) shift; exec bash \"$${P}/ingest-bootstrap.sh\" \"$@\"; ;; iac-pr) shift; exec bash \"$${P}/iac-pr-bootstrap.sh\" \"$@\"; ;; converge) shift; exec bash \"$${P}/converge-bootstrap.sh\" \"$@\"; ;; destination) shift; exec bash \"$${P}/run-destination-stage.sh\" \"$@\"; ;; *) echo \"pack_entry_error=unknown_cmd cmd=$${1}\" >&2; exit 2; ;; esac; fi; D=$(mktemp -d); gh release download 'pack-${local.script_pack_version}' -R '${trimspace(var.script_pack_release_repo)}' -p pack-entry.sh -D \"$${D}\" && exec bash \"$${D}/pack-entry.sh\" \"$@\"; }; pack_entry"
   # Self-heal pack fetch on every pack-path stage so a faked preflight (session
   # b506b854: printf runner_capability_preflight_ok) cannot leave /opt empty.
   runner_capability_preflight_execute_series_body = "${local.runner_pack_entry_invoke} preflight '{{workflow_run_id}}'"

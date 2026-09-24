@@ -619,9 +619,9 @@ def parse_tofu_errors(log_text: str, *, group_id: str = "", log_path: str = "") 
 
 
 def apply_surgical_fixes(group_dir: Path, targets: list[dict[str, Any]]) -> int:
-    """Drop attributes called out by parse_tofu_errors when suggestion is drop_*.
+    """Drop droppable attrs and add missing required arguments when possible.
 
-    Returns the number of attribute lines removed. Structural repairs
+    Returns the number of attribute lines removed or added. Structural repairs
     (broken blocks, wrong types) stay for the agent. Touches every `*.tf`
     in the group (destination roots use main.tf, not only generated.tf).
     """
@@ -637,27 +637,30 @@ def apply_surgical_fixes(group_dir: Path, targets: list[dict[str, Any]]) -> int:
     }
     by_addr: dict[str, set[str]] = {}
     global_attrs: set[str] = set()
+    add_by_addr: dict[str, set[str]] = {}
     for t in targets:
-        if t.get("suggestion") not in droppable:
-            continue
+        suggestion = str(t.get("suggestion") or "")
         attr = str(t.get("attribute") or "").strip()
-        if not attr:
-            continue
         addr = str(t.get("address") or "").strip()
-        if addr:
-            by_addr.setdefault(addr, set()).add(attr)
-        else:
-            global_attrs.add(attr)
+        if suggestion in droppable and attr:
+            if addr:
+                by_addr.setdefault(addr, set()).add(attr)
+            else:
+                global_attrs.add(attr)
+        elif suggestion == "add_required_attribute" and attr and addr:
+            add_by_addr.setdefault(addr, set()).add(attr)
 
-    if not by_addr and not global_attrs:
+    if not by_addr and not global_attrs and not add_by_addr:
         return 0
 
     removed = 0
+    added = 0
     for tf_path in tf_files:
         text = tf_path.read_text(encoding="utf-8")
         parts = re.split(r'(?=resource\s+"[^"]+"\s+"[^"]+"\s*\{)', text)
         out: list[str] = []
         file_removed = 0
+        file_added = 0
         for part in parts:
             m = re.match(r'resource\s+"([^"]+)"\s+"([^"]+)"\s*\{', part)
             if not m:
@@ -665,9 +668,6 @@ def apply_surgical_fixes(group_dir: Path, targets: list[dict[str, Any]]) -> int:
                 continue
             addr = f"{m.group(1)}.{m.group(2)}"
             attrs = set(by_addr.get(addr, set())) | global_attrs
-            if not attrs:
-                out.append(part)
-                continue
             new_part = part
             for attr in attrs:
                 new_part, n = re.subn(
@@ -677,12 +677,42 @@ def apply_surgical_fixes(group_dir: Path, targets: list[dict[str, Any]]) -> int:
                     flags=re.M,
                 )
                 file_removed += n
+            for attr in add_by_addr.get(addr, set()):
+                if re.search(rf"(?m)^\s*{re.escape(attr)}\s*=", new_part):
+                    continue
+                # Prefer var.<attr> when a matching variable exists in the group.
+                var_names = {
+                    v["name"]
+                    for tf in tf_files
+                    for v in _parse_variable_blocks(
+                        tf.read_text(encoding="utf-8", errors="replace")
+                    )
+                }
+                if attr in var_names:
+                    literal = f"var.{attr}"
+                elif attr.endswith("_id") or attr in {"project", "project_id", "region", "zone", "network", "subnetwork"}:
+                    literal = f'var.{attr}' if attr in var_names else '"migration-stub"'
+                elif attr in {"enabled", "enable", "force_destroy"}:
+                    literal = "true"
+                else:
+                    literal = '"migration-stub"'
+                # Insert after the opening brace line.
+                new_part, n = re.subn(
+                    rf'(resource\s+"[^"]+"\s+"[^"]+"\s*\{{\n)',
+                    rf"\g<1>  {attr} = {literal}\n",
+                    new_part,
+                    count=1,
+                )
+                file_added += n
             out.append(new_part)
-        if file_removed:
+        if file_removed or file_added:
             tf_path.write_text("".join(out), encoding="utf-8")
             removed += file_removed
-    print(f"surgical_fixes group={group_dir.name} removed_attrs={removed}")
-    return removed
+            added += file_added
+    print(
+        f"surgical_fixes group={group_dir.name} removed_attrs={removed} added_attrs={added}"
+    )
+    return removed + added
 
 
 # GCP instance template name_prefix max length (final name ≤63 with random suffix).
