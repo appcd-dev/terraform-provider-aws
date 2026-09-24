@@ -6217,7 +6217,8 @@ cmd_azure_pr() {
   git_commit_paths_if_changed \
     "azure: human TODO checklist for ${workflow_run_id}" \
     azure/artifacts/TODO.md \
-    azure/artifacts/review-needed.md || rc=$?
+    azure/artifacts/review-needed.md \
+    azure/artifacts/governance-assumptions.md || rc=$?
   if [ "$rc" -eq 0 ]; then commits=$((commits + 1)); elif [ "$rc" -ne 2 ]; then
     mirror_note "$work_root" "stage_summary:azure-pr" "blocked:todo_commit_failed"
     return 1
@@ -7187,7 +7188,8 @@ cmd_gcp_pr() {
   git_commit_paths_if_changed \
     "gcp: human TODO checklist for ${workflow_run_id}" \
     gcp/artifacts/TODO.md \
-    gcp/artifacts/review-needed.md || rc=$?
+    gcp/artifacts/review-needed.md \
+    gcp/artifacts/governance-assumptions.md || rc=$?
   if [ "$rc" -eq 0 ]; then commits=$((commits + 1)); elif [ "$rc" -ne 2 ]; then
     mirror_note "$work_root" "stage_summary:gcp-pr" "blocked:todo_commit_failed"
     return 1

@@ -286,6 +286,16 @@ def apply_remediations(
             continue
         by_group.setdefault(gid, []).append(item)
 
+    # Always leave an assumptions file for the destination PR (even when empty).
+    assumptions_path.parent.mkdir(parents=True, exist_ok=True)
+    if not assumptions_path.is_file():
+        assumptions_path.write_text(
+            "# Migration assumptions\n\n"
+            "Placeholders applied during OPA mechanical remediations are listed below.\n"
+            "Operators must replace them before apply.\n",
+            encoding="utf-8",
+        )
+
     for gid, items in by_group.items():
         group_dir = groups_root / gid
         if not group_dir.is_dir():
@@ -366,43 +376,9 @@ def apply_remediations(
 
 def remediations_from_findings(findings: list[dict[str, Any]], cloud: str) -> list[dict[str, Any]]:
     """Fallback when governance-opa-remediations.json is missing."""
-    out: list[dict[str, Any]] = []
-    for item in findings:
-        msg = str(item.get("message") or "")
-        control = str(item.get("control_id") or "")
-        address = str(item.get("resource_address") or "")
-        group_id = str(item.get("group_id") or "")
-        key = ""
-        m = re.search(r'missing required (?:GCP label|Azure tag) "([^"]+)"', msg)
-        if m:
-            key = m.group(1)
-        action = "unknown"
-        if control == "TAG-002" and key:
-            action = "set_label"
-        elif control == "TAG-001" and key:
-            action = "set_tag"
-        elif control.startswith("TLS") or "tls" in msg.lower() or "https" in msg.lower():
-            action = "set_attr"
-            if not key:
-                for candidate in TLS_ATTR_DEFAULTS:
-                    if candidate in msg:
-                        key = candidate
-                        break
-        out.append(
-            {
-                "control_id": control,
-                "resource_address": address,
-                "group_id": group_id,
-                "action": action,
-                "key": key,
-                "suggested_value": "",
-                "assumption": action in ("set_label", "set_tag"),
-                "assumption_reason": "migration placeholder if source tag missing",
-                "message": msg,
-                "cloud": cloud,
-            }
-        )
-    return out
+    from governance_opa_check import finding_to_remediation
+
+    return [finding_to_remediation(item, cloud=cloud) for item in findings]
 
 
 def main(argv: list[str] | None = None) -> int:

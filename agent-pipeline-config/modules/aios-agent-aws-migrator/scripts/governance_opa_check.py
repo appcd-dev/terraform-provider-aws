@@ -24,7 +24,37 @@ from governance_conform import authenticated_clone_url, git_output, utc_now
 
 DEFAULT_RULES_REPO = "https://github.com/Walmart-StackGen/Nile-Factory.git"
 DEFAULT_RULES_REF = "main"
-CONTROL_ID_RE = re.compile(r"^([A-Z]{2,5}-\d{3}):")
+CONTROL_ID_RE = re.compile(r"^([A-Z]{2,5}-\d{3})(?::|\s)")
+
+# google_* types with no labels attribute (keep in sync with TAG-002 / PRG-002 Rego).
+GCP_LABEL_INCAPABLE_TYPES = frozenset(
+    {
+        "google_compute_network",
+        "google_compute_subnetwork",
+        "google_compute_firewall",
+        "google_compute_route",
+        "google_compute_router",
+        "google_compute_router_nat",
+        "google_compute_global_address",
+        "google_compute_address",
+        "google_compute_forwarding_rule",
+        "google_compute_global_forwarding_rule",
+        "google_compute_target_http_proxy",
+        "google_compute_target_https_proxy",
+        "google_compute_url_map",
+        "google_compute_backend_service",
+        "google_compute_health_check",
+        "google_compute_firewall_policy",
+        "google_compute_firewall_policy_rule",
+        "google_service_account",
+        "google_service_account_iam_member",
+        "google_service_account_iam_binding",
+        "google_project_iam_member",
+        "google_project_iam_binding",
+        "google_project_iam_custom_role",
+        "google_project_service",
+    }
+)
 
 
 class RulesUnavailable(RuntimeError):
@@ -477,21 +507,48 @@ def finding_to_remediation(finding: dict[str, Any], *, cloud: str) -> dict[str, 
     """Map an OPA finding to a structured remediation the pack/agent can apply."""
     message = str(finding.get("message") or "")
     control_id = str(finding.get("control_id") or parse_control_id(message))
+    if control_id == "OPA_DENY":
+        # PRG-002 / NPC-002 / CM-001 / TAG-002 messages often omit the ':' after the id.
+        control_id = parse_control_id(message)
     address = str(finding.get("resource_address") or "")
     group_id = str(finding.get("group_id") or "")
     key = ""
-    m = re.search(r'missing required (?:GCP label|Azure tag) "([^"]+)"', message)
+    m = re.search(
+        r'missing required (?:GCP label|Azure tag|metadata) "([^"]+)"',
+        message,
+    )
     if m:
         key = m.group(1)
     action = "unknown"
     suggested = ""
     assumption = False
     assumption_reason = ""
-    if control_id == "TAG-002" and key:
+
+    resource_type = address.split(".", 1)[0] if address else ""
+    if cloud == "gcp" and resource_type in GCP_LABEL_INCAPABLE_TYPES and (
+        "label" in message.lower() or "metadata" in message.lower()
+    ):
+        action = "exempt_resource"
+        assumption_reason = f"{resource_type} has no labels attribute in the provider schema"
+    elif key and ("GCP label" in message or (cloud == "gcp" and "metadata" in message)):
+        # TAG-002, PRIO-001, PRG-002, NPC-002, CM-001 all reduce to label fill.
         action = "set_label"
         assumption = True
         assumption_reason = "Fill from AWS tags when present; else migration placeholder"
-    elif control_id == "TAG-001" and key:
+        # CM-001 uses Azure-style keys (apmid); map common aliases to GCP underscores.
+        if key == "apmid":
+            key = "apm_id"
+        elif key == "cost-center":
+            key = "cost_center"
+        elif key == "created-by":
+            key = "created_by"
+        elif key == "applicationname":
+            key = "application_name"
+        elif key == "notificationdistlist":
+            key = "notification_distlist"
+        elif key == "trproductid":
+            key = "tr_product_id"
+    elif key and ("Azure tag" in message or (cloud == "azure" and "metadata" in message)):
         action = "set_tag"
         assumption = True
         assumption_reason = "Fill from AWS tags when present; else migration placeholder"
@@ -507,6 +564,7 @@ def finding_to_remediation(finding: dict[str, Any], *, cloud: str) -> dict[str, 
         arg_m = re.search(r'(?:argument|attribute)\s+"?([A-Za-z0-9_]+)"?', message, re.I)
         if arg_m:
             key = arg_m.group(1)
+
     return {
         "control_id": control_id,
         "resource_address": address,
