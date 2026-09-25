@@ -4,7 +4,7 @@
 # Usage: DBSPLIT_EMBEDDED=1 bash -s <command> [args...] << 'DBSPLIT_STAGE_RUNNER' ... DBSPLIT_STAGE_RUNNER
 set -euo pipefail
 
-SCRIPT_PACK_VERSION="20260925.40"
+SCRIPT_PACK_VERSION="20260925.41"
 DBSPLIT_DEFAULT_STRATEGY="${DBSPLIT_DEFAULT_STRATEGY:-tfstate_monolith_decomposer}"
 DBSPLIT_DEFAULT_CAP="${DBSPLIT_DEFAULT_CAP:-0}"
 REQUIRED_ALLOCATE_MARKER="def merge_small_by_seed"
@@ -3471,12 +3471,13 @@ cmd_prepare_parallel_artifacts() {
   local work_root="${1:?WORK_ROOT}"
   require_embedded_invocation || return 1
 
-  # Fail fast with an emitted sentinel instead of jq-ing missing files for a
-  # truncated workflow id and spinning to the 30m tool timeout (trace 1c64c4a5).
-  if [ ! -f "${work_root}/logical_group_manifest.json" ] || [ ! -f "${work_root}/batch_payloads.json" ]; then
-    echo "converge_input_error=missing_ingest_inputs work_root=${work_root}" >&2
+  # batch_payloads.json is created by prepare-parallel-artifacts itself. Treating
+  # it as an ingest prerequisite made the registry PR stage fail on every fresh
+  # run, before the generator had a chance to create its output.
+  if [ ! -s "${work_root}/logical_group_manifest.json" ]; then
+    echo "converge_input_error=missing_logical_group_manifest work_root=${work_root}" >&2
     mirror_note "$work_root" "blocked:converge_inputs_missing" "true" || true
-    mirror_note "$work_root" "converge_input_error" "missing_ingest_inputs" || true
+    mirror_note "$work_root" "converge_input_error" "missing_logical_group_manifest" || true
     echo 'blocked:converge_inputs_missing: "true"'
     return 1
   fi

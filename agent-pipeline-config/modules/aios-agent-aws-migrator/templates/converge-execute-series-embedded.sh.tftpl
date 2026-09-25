@@ -23,11 +23,11 @@ ${dbsplit_script_pack_preload_helpers}
 if ! dbsplit_ensure_script_pack "$WORK_ROOT"; then
   exit 1
 fi
-# Fail fast when the work root lacks ingest outputs (truncated workflow id,
-# trace 1c64c4a5) instead of jq-ing missing files until the 30m tool timeout.
-if [ ! -f "$WORK_ROOT/logical_group_manifest.json" ] || [ ! -f "$WORK_ROOT/batch_payloads.json" ]; then
+# The manifest is the ingest prerequisite. batch_payloads.json is generated
+# by prepare-parallel-artifacts inside this converge visit.
+if [ ! -s "$WORK_ROOT/logical_group_manifest.json" ]; then
   echo 'blocked:converge_inputs_missing: "true"'
-  echo "converge_input_error=missing_ingest_inputs work_root=$WORK_ROOT"
+  echo "converge_input_error=missing_logical_group_manifest work_root=$WORK_ROOT"
   exit 1
 fi
 bash -s hydrate-and-plan-matrix "$WORK_ROOT" < "$WORK_ROOT/scripts/stage-runner.sh" || true
