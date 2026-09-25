@@ -133,6 +133,14 @@ if [ -n "$CLOUD2CODE_EXCLUDE" ] && command -v cloud2code >/dev/null 2>&1; then
   rm -f "${_sup_file}"
 fi
 CLOUD2CODE_TAGS="$(coalesce_value cloud2code_tags CLOUD2CODE_TAGS)"
+CLOUD2CODE_ALLOW_PARTIAL="$(coalesce_value cloud2code_allow_partial CLOUD2CODE_ALLOW_PARTIAL)"
+# Pack-entry passes only the region/run id positionally, so persist the optional
+# opt-in in the workflow input file during preflight before execution reaches us.
+case "$CLOUD2CODE_ALLOW_PARTIAL" in
+  ""|false|0|no) CLOUD2CODE_ALLOW_PARTIAL=false ;;
+  true|1|yes) CLOUD2CODE_ALLOW_PARTIAL=true ;;
+  *) echo "blocked:cloud2code_allow_partial_invalid value=${CLOUD2CODE_ALLOW_PARTIAL}"; exit 1 ;;
+esac
 CLOUD2CODE_OUTPUT_DIR="$(coalesce_value cloud2code_output_dir CLOUD2CODE_OUTPUT_DIR)"
 CLOUD2CODE_DISCOVERY_NAME="$(coalesce_value cloud2code_discovery_name CLOUD2CODE_DISCOVERY_NAME)"
 IAC_REPOSITORY_URL="$(coalesce_value iac_repository_url IAC_REPOSITORY_URL)"
@@ -177,7 +185,11 @@ fi
 if [ -f "$SCRIPT_PACK_DIR/ensure_cloud2code.sh" ]; then
   # shellcheck source=/dev/null
   . "$SCRIPT_PACK_DIR/ensure_cloud2code.sh"
-  ensure_cloud2code || true
+  if ! ensure_cloud2code; then
+    mirror_note "blocked:remote_runner_cloud2code_version_unavailable" "true"
+    echo 'blocked:remote_runner_cloud2code_version_unavailable: "true"'
+    exit 1
+  fi
 fi
 
 if ! command -v cloud2code >/dev/null 2>&1; then
@@ -212,9 +224,11 @@ aws sts get-caller-identity >"$WORK_ROOT/.work/aws-caller-identity.json" 2>"$WOR
     fi
   }
 
-# Build and run import; on read_failed hard-stop, exclude failing types and retry once
-# so partial IAM (or flaky types) does not wipe a usable tfstate.
+# Build and run the import. Each attempt uses a clean output directory so a
+# failed/partial tfstate cannot leak into a later successful attempt.
 run_cloud2code_import() {
+  rm -f "$CLOUD2CODE_OUTPUT_DIR/terraform.tfstate"
+  export CLOUD2CODE_OUTPUT_DIR
   local -a cmd=(cloud2code import aws --region "$AWS_REGION" --output-dir "$CLOUD2CODE_OUTPUT_DIR" "--auto-import=$CLOUD2CODE_AUTO_IMPORT")
   if [ -n "$CLOUD2CODE_DISCOVERY_NAME" ]; then
     cmd+=(--name "$CLOUD2CODE_DISCOVERY_NAME")
@@ -227,6 +241,9 @@ run_cloud2code_import() {
   fi
   if [ -n "$CLOUD2CODE_EXCLUDE" ]; then
     cmd+=(--exclude "$CLOUD2CODE_EXCLUDE")
+  fi
+  if [ "$CLOUD2CODE_ALLOW_PARTIAL" = true ]; then
+    cmd+=(--allow-partial)
   fi
   printf '%q ' "${cmd[@]}" >"$WORK_ROOT/.work/cloud2code-command.txt"
   echo >>"$WORK_ROOT/.work/cloud2code-command.txt"
@@ -243,66 +260,43 @@ extract_read_failed_types() {
 }
 
 CMD_OK=0
+# Do not carry partial status from an earlier stage retry in the same workflow.
+mirror_note "cloud2code_throttle_skipped" ""
+THROTTLE_SKIPPED=""
 run_cloud2code_import && CMD_OK=1 || CMD_OK=0
 if [ "$CMD_OK" -ne 1 ]; then
-  # Check for API rate limiting / throttling aborts
-  # cloud2code: "Error: could not import from aws: scan aborted due to API rate limiting: error while reading the resources of type: aws_cloudwatch_log_group: ... ThrottlingException"
+  # Retry a throttled scan once after a cooling-off period. Never turn a
+  # repeated throttle or read failure into success by excluding the affected
+  # resource type: that silently converts a failed inventory into a partial one.
   _throttle_type="$(grep -Eo 'scan aborted due to API rate limiting: error while reading the resources of type: [a-z0-9_]+' "$WORK_ROOT/.work/cloud2code.log" 2>/dev/null | grep -Eo 'aws_[a-z0-9_]+' | tail -1 || true)"
   if [ -z "$_throttle_type" ]; then
-    _throttle_type="$(grep -i 'ThrottlingException' "$WORK_ROOT/.work/cloud2code.log" 2>/dev/null | grep -Eo 'aws_[a-z0-9_]+' | tail -1 || true)"
+    _throttle_type="$(grep -iE 'ThrottlingException|Throttling: Rate exceeded|RequestLimitExceeded' "$WORK_ROOT/.work/cloud2code.log" 2>/dev/null | grep -Eo 'aws_[a-z0-9_]+' | tail -1 || true)"
   fi
-
-  if [ -n "$_throttle_type" ] && [ -z "$CLOUD2CODE_INCLUDE" ]; then
+  if [ -n "$_throttle_type" ]; then
     echo "cloud2code_throttle_detected=${_throttle_type}"
     mirror_note "cloud2code_throttle_detected" "${_throttle_type}"
-    _backoff="${CLOUD2CODE_THROTTLE_BACKOFF_SECONDS:-15}"
+    _backoff="${CLOUD2CODE_THROTTLE_BACKOFF_SECONDS:-60}"
     echo "cloud2code_throttle_backoff=${_backoff}s"
     sleep "$_backoff"
-    
     run_cloud2code_import && CMD_OK=1 || CMD_OK=0
-    
-    # If it fails again on the same or another throttle, exclude it to save the rest of the scan.
-    if [ "$CMD_OK" -ne 1 ]; then
-      _throttle_type2="$(grep -Eo 'scan aborted due to API rate limiting: error while reading the resources of type: [a-z0-9_]+' "$WORK_ROOT/.work/cloud2code.log" 2>/dev/null | grep -Eo 'aws_[a-z0-9_]+' | tail -1 || true)"
-      if [ -z "$_throttle_type2" ]; then
-        _throttle_type2="$(grep -i 'ThrottlingException' "$WORK_ROOT/.work/cloud2code.log" 2>/dev/null | grep -Eo 'aws_[a-z0-9_]+' | tail -1 || true)"
-      fi
-      if [ -n "$_throttle_type2" ]; then
-        _throttle_type="$_throttle_type2"
-      fi
-
+    if [ "$CMD_OK" -ne 1 ] && grep -qiE 'ThrottlingException|Throttling: Rate exceeded|RequestLimitExceeded|provider API rate limited' "$WORK_ROOT/.work/cloud2code.log"; then
+      _retry_throttle_type="$(grep -Eo 'scan aborted due to API rate limiting: error while reading the resources of type: [a-z0-9_]+' "$WORK_ROOT/.work/cloud2code.log" 2>/dev/null | grep -Eo 'aws_[a-z0-9_]+' | tail -1 || true)"
+      [ -n "$_retry_throttle_type" ] && _throttle_type="$_retry_throttle_type"
+      THROTTLE_SKIPPED="${THROTTLE_SKIPPED:+${THROTTLE_SKIPPED},}${_throttle_type}"
+      mirror_note "cloud2code_throttle_skipped" "$THROTTLE_SKIPPED"
       echo "cloud2code_throttle_softskip=${_throttle_type}"
-      mirror_note "cloud2code_throttle_skipped" "${_throttle_type}"
-      
-      if [ -n "$CLOUD2CODE_EXCLUDE" ]; then
-        CLOUD2CODE_EXCLUDE="${CLOUD2CODE_EXCLUDE},${_throttle_type}"
-      else
-        CLOUD2CODE_EXCLUDE="${_throttle_type}"
+      if [ "$CLOUD2CODE_ALLOW_PARTIAL" = true ]; then
+        if [ -n "$CLOUD2CODE_EXCLUDE" ]; then
+          CLOUD2CODE_EXCLUDE="${CLOUD2CODE_EXCLUDE},${_throttle_type}"
+        else
+          CLOUD2CODE_EXCLUDE="${_throttle_type}"
+        fi
+        CLOUD2CODE_EXCLUDE="$(printf '%s' "$CLOUD2CODE_EXCLUDE" | tr ',' '\n' | awk 'NF && !seen[$0]++' | paste -sd, -)"
+        echo "cloud2code_exclude_after_throttle=${CLOUD2CODE_EXCLUDE}"
+        mirror_note "cloud2code_exclude" "$CLOUD2CODE_EXCLUDE"
+        run_cloud2code_import && CMD_OK=1 || CMD_OK=0
       fi
-      CLOUD2CODE_EXCLUDE="$(printf '%s' "$CLOUD2CODE_EXCLUDE" | tr ',' '\n' | awk 'NF && !seen[$0]++' | paste -sd, -)"
-      echo "cloud2code_exclude_after_throttle=${CLOUD2CODE_EXCLUDE}"
-      mirror_note "cloud2code_exclude" "$CLOUD2CODE_EXCLUDE"
-      
-      run_cloud2code_import && CMD_OK=1 || CMD_OK=0
     fi
-  fi
-fi
-
-if [ "$CMD_OK" -ne 1 ]; then
-  _failed_types="$(extract_read_failed_types || true)"
-  if [ -n "${_failed_types}" ] && [ -z "$CLOUD2CODE_INCLUDE" ]; then
-    echo "cloud2code_read_failed_types=${_failed_types}"
-    mirror_note "cloud2code_read_failed_types" "${_failed_types}"
-    if [ -n "$CLOUD2CODE_EXCLUDE" ]; then
-      CLOUD2CODE_EXCLUDE="${CLOUD2CODE_EXCLUDE},${_failed_types}"
-    else
-      CLOUD2CODE_EXCLUDE="${_failed_types}"
-    fi
-    # de-dupe
-    CLOUD2CODE_EXCLUDE="$(printf '%s' "$CLOUD2CODE_EXCLUDE" | tr ',' '\n' | awk 'NF && !seen[$0]++' | paste -sd, -)"
-    echo "cloud2code_exclude_after_read_failed=${CLOUD2CODE_EXCLUDE}"
-    mirror_note "cloud2code_exclude" "$CLOUD2CODE_EXCLUDE"
-    run_cloud2code_import && CMD_OK=1 || CMD_OK=0
   fi
 fi
 
@@ -327,12 +321,18 @@ if [ -n "$TFSTATE_DECOMPOSER_LAYER_TAXONOMY_JSON" ]; then mirror_note "tfstate_d
 if [ -n "$TFSTATE_DECOMPOSER_MAX_TUNING_ITERATIONS" ]; then mirror_note "tfstate_decomposer_max_tuning_iterations" "$TFSTATE_DECOMPOSER_MAX_TUNING_ITERATIONS"; fi
 
 if [ "$CMD_OK" -ne 1 ]; then
+  _failed_types="$(extract_read_failed_types || true)"
+  [ -n "$_failed_types" ] && echo "cloud2code_read_failed_types=${_failed_types}"
   mirror_note "blocked:cloud2code_scan_failed" "true"
   mirror_note "cloud2code_log_path" "$WORK_ROOT/.work/cloud2code.log"
   mirror_note "stage_summary:cloud2code-scan-aws" "blocked:cloud2code_import_failed"
   echo 'blocked:cloud2code_scan_failed: "true"'
   echo "cloud2code_log_path=$WORK_ROOT/.work/cloud2code.log"
-  echo "cloud2code_scan_retryable: \"true\""
+  if grep -qiE 'ThrottlingException|Throttling: Rate exceeded|RequestLimitExceeded|provider API rate limited' "$WORK_ROOT/.work/cloud2code.log"; then
+    echo "cloud2code_scan_retryable: \"true\""
+  else
+    echo "cloud2code_scan_retryable: \"false\""
+  fi
   echo "cloud2code_log_tail_begin"
   tail -n 120 "$WORK_ROOT/.work/cloud2code.log" 2>/dev/null || true
   echo "cloud2code_log_tail_end"
@@ -358,7 +358,23 @@ fi
 
 MANAGED_COUNT="$(jq '[.resources[]? | select(.mode=="managed") | .instances[]?] | length' "$STATE_PATH" 2>/dev/null || echo 0)"
 RESOURCE_TYPE_COUNT="$(jq '[.resources[]? | select(.mode=="managed") | .type] | unique | length' "$STATE_PATH" 2>/dev/null || echo 0)"
+if [ "$MANAGED_COUNT" -le 0 ]; then
+  mirror_note "blocked:cloud2code_state_empty" "true"
+  mirror_note "cloud2code_tfstate_path" "$STATE_PATH"
+  echo 'blocked:cloud2code_state_empty: "true"'
+  exit 1
+fi
+
 THROTTLE_SKIPPED="$(read_note "cloud2code_throttle_skipped")"
+if [ "$CLOUD2CODE_ALLOW_PARTIAL" != true ] && [ -n "$THROTTLE_SKIPPED" ]; then
+  mirror_note "blocked:cloud2code_partial_scan" "true"
+  mirror_note "cloud2code_partial_resource_types" "$THROTTLE_SKIPPED"
+  echo 'blocked:cloud2code_partial_scan: "true"'
+  echo "cloud2code_partial_resource_types=${THROTTLE_SKIPPED}"
+  echo "cloud2code_tfstate_path=$STATE_PATH"
+  echo "monolith_resource_count=$MANAGED_COUNT"
+  exit 1
+fi
 
 mirror_note "cloud2code_scan_ok" "true"
 mirror_note "cloud2code_tfstate_path" "$STATE_PATH"
@@ -371,6 +387,7 @@ mirror_note "stage_summary:cloud2code-scan-aws" "ok"
 
 echo 'cloud2code_scan_ok: "true"'
 if [ -n "$THROTTLE_SKIPPED" ]; then
+  echo "cloud2code_partial_scan: true"
   echo "cloud2code_throttle_skipped=${THROTTLE_SKIPPED}"
 fi
 echo "aws_region=$AWS_REGION"

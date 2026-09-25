@@ -139,6 +139,7 @@ EOT
 ${local.dbsplit_spawn_context_base}
 default_source_iac_repository_url: ${trimspace(var.default_iac_repository_url)}
 default_source_iac_branch: ${local.gcp_only_source_branch}
+timeout_seconds: ${local.subagent_budgets.script_runner_timeout_seconds}
 
 ---BEGIN GCP_SOURCE_FETCH_EXECUTE_SERIES---
 ${local.gcp_source_fetch_execute_series_body}
@@ -197,6 +198,7 @@ EOT
 
   dbsplit_spawn_context_gcp_pr = <<-EOT
 ${local.dbsplit_spawn_context_base}
+timeout_seconds: ${local.subagent_budgets.script_runner_timeout_seconds}
 
 ---BEGIN GCP_PR_EXECUTE_SERIES---
 ${local.gcp_pr_execute_series_body}

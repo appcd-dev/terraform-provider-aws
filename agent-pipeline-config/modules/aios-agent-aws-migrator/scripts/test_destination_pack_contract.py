@@ -153,6 +153,22 @@ def main() -> None:
     assert versions == {stage_ver}, (versions, stage_ver)
     assert stage_ver == pack_version, stage_ver
 
+    stage_context = (MODULE / "stage_context.tf").read_text()
+    for stage in ("gcp_source_fetch", "gcp_pr"):
+        match = re.search(
+            rf"dbsplit_spawn_context_{stage}\s*=\s*<<-EOT(.*?)\nEOT",
+            stage_context,
+            re.DOTALL,
+        )
+        assert match, f"missing spawn context for {stage}"
+        assert "timeout_seconds: ${local.subagent_budgets.script_runner_timeout_seconds}" in match.group(1), (
+            f"{stage} execute_series must inherit the configured runner timeout"
+        )
+
+    gcp_workflow = (MODULE / "workflows_gcp_only.tf").read_text()
+    assert "set `timeout_seconds=3600`" in gcp_workflow
+    assert "the 30-second default killed this stage" in gcp_workflow
+
     dest = (MODULE / "scripts" / "run-destination-stage.sh").read_text()
     assert 'NILE_RULES_REF="${NILE_RULES_REF:-main}"' in dest, (
         "run-destination-stage must default NILE_RULES_REF to a live ref"

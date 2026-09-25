@@ -34,6 +34,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
     "cloud2code_include",
     "cloud2code_exclude",
     "cloud2code_tags",
+    "cloud2code_allow_partial",
     "cloud2code_output_dir",
     "cloud2code_discovery_name",
     "iac_repository_url",
@@ -202,7 +203,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
         Done when: your stage result includes the runner line `cloud2code_scan_ok: "true"`, a non-empty state path, and resource count greater than zero.
         How: ONE `${local.shell_tool_prefix}_execute_series` whose `commands[0].command` is the **exact one-line body** between `---BEGIN CLOUD2CODE_SCAN_EXECUTE_SERIES---` and `---END---` below (starts with `GIT_TOKEN=` / `gh release download` of `pack-entry.sh`, then `scan`). create_agent is fine with that same body in the expectation.
         **FORBIDDEN:** `command="CLOUD2CODE_SCAN_EXECUTE_SERIES"` or any other use of the marker label as the shell command (exit 127). Swap only `AWS_REGION_PLACEHOLDER` and `{{workflow_run_id}}`. Do not invent pack-dir checks or alternate cloud2code invocations.
-        On mangled paste or exit 127: paste the same BEGIN/END body once more before giving up. Prefer the pack command over inventing shell. Echo the runner success or blocker lines in your result; do not paraphrase them away. If the scan did not succeed, say that in plain words — do **not** write `cloud2code_scan_ok=true` or `cloud2code_scan_ok: "true"` in a "not produced" sentence (that falsely finishes the loop).
+        On mangled paste or exit 127: paste the same BEGIN/END body once more before giving up. Prefer the pack command over inventing shell. Echo the runner success or blocker lines in your result; do not paraphrase them away. If the scan reports `blocked:cloud2code_partial_scan`, `blocked:cloud2code_scan_failed`, or another blocker, do not present it as success or proceed to ingest; report the missing/throttled resource types. The wrapper already performs one throttling retry; a partial inventory is not complete.
 
         ${local.aws_migrator_spawn_context_cloud2code}
       EOT
@@ -218,7 +219,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
         exit_condition = "output_matches_regex"
         # Require scan_ok AND tfstate_path so "No `cloud2code_scan_ok: \"true\"`"
         # prose cannot FINISH (session b506b854). Blocker names stay bare.
-        exit_match = "cloud2code_scan_ok:\\s*\\\"true\\\"[\\s\\S]{0,400}cloud2code_tfstate_path=|blocked:missing_aws_region|blocked:remote_runner_cloud2code_missing|blocked:remote_runner_awscli_missing|blocked:remote_runner_jq_missing|blocked:cloud2code_scan_failed|script_pack_error="
+        exit_match = "cloud2code_scan_ok:\\s*\\\"true\\\"[\\s\\S]{0,400}cloud2code_tfstate_path=|blocked:missing_aws_region|blocked:remote_runner_cloud2code_missing|blocked:remote_runner_awscli_missing|blocked:remote_runner_jq_missing|blocked:cloud2code_scan_failed|blocked:cloud2code_partial_scan|blocked:cloud2code_state_empty|blocked:remote_runner_cloud2code_version_unavailable|script_pack_error="
       }
     },
     {
@@ -230,7 +231,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
         condition = "output_matches_regex"
         # Emitted sentinel forms only — must not be a bare substring of exit_match
         # (loop FINISH reasons paste exit_match text).
-        match   = "blocked:missing_aws_region:\\s*\\\"true\\\"|blocked:remote_runner_cloud2code_missing:\\s*\\\"true\\\"|blocked:remote_runner_awscli_missing:\\s*\\\"true\\\"|blocked:remote_runner_jq_missing:\\s*\\\"true\\\"|blocked:cloud2code_scan_failed:\\s*\\\"true\\\"|blocked:cloud2code_tfstate_missing:\\s*\\\"true\\\"|blocked:cloud2code_tfstate_invalid:\\s*\\\"true\\\"|blocked:cloud2code_workflow_run_id_unresolved:\\s*\\\"true\\\"|stage_summary:cloud2code-scan-aws=blocked:|CLOUD2CODE_SCAN_EXECUTE_SERIES: not found|cloud2code-aws-scan\\.sh: No such file|script_pack_error=[A-Za-z0-9_]"
+        match   = "blocked:missing_aws_region:\\s*\\\"true\\\"|blocked:remote_runner_cloud2code_missing:\\s*\\\"true\\\"|blocked:remote_runner_awscli_missing:\\s*\\\"true\\\"|blocked:remote_runner_jq_missing:\\s*\\\"true\\\"|blocked:cloud2code_scan_failed:\\s*\\\"true\\\"|blocked:cloud2code_partial_scan:\\s*\\\"true\\\"|blocked:cloud2code_state_empty:\\s*\\\"true\\\"|blocked:remote_runner_cloud2code_version_unavailable:\\s*\\\"true\\\"|blocked:cloud2code_tfstate_missing:\\s*\\\"true\\\"|blocked:cloud2code_tfstate_invalid:\\s*\\\"true\\\"|blocked:cloud2code_workflow_run_id_unresolved:\\s*\\\"true\\\"|stage_summary:cloud2code-scan-aws=blocked:|CLOUD2CODE_SCAN_EXECUTE_SERIES: not found|cloud2code-aws-scan\\.sh: No such file|script_pack_error=[A-Za-z0-9_]"
         skip_to = "final-gate-and-memory"
         reason  = "Cloud2code scan blocked — skip ingest, registry, destination, and orphan stages"
       }
