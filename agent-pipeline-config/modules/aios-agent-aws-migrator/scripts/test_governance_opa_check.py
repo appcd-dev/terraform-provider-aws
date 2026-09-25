@@ -177,6 +177,48 @@ resource "google_compute_instance" "this" {
             self.assertEqual(after["labels"]["apm_id"], "apm-migration")
             self.assertEqual(after["labels"]["cost_center"], "cc-migration")
 
+    def test_plan_diagnostics_group_repeated_root_causes(self) -> None:
+        findings = [
+            {
+                "control_id": "PLAN_FAILED",
+                "group_id": f"group-{i}",
+                "message": (
+                    f'PLAN_FAILED: group-{i}: Error: Unsupported argument\\n'
+                    'on main.tf line 3, in resource "google_logging_project_bucket_config" "this":\\n'
+                    'An argument named "labels" is not expected here.'
+                ),
+            }
+            for i in range(3)
+        ]
+        summaries = goc.summarize_failure_classes(findings)
+        self.assertEqual(len(summaries), 1)
+        self.assertEqual(summaries[0]["kind"], "unsupported_argument")
+        self.assertEqual(summaries[0]["resource_type"], "google_logging_project_bucket_config")
+        self.assertEqual(summaries[0]["attribute"], "labels")
+        self.assertEqual(len(summaries[0]["groups"]), 3)
+
+    def test_unclassified_diagnostic_does_not_guess_repair(self) -> None:
+        result = goc.diagnose_plan_failure("Error: arbitrary provider failure")
+        self.assertEqual(result["kind"], "unclassified_plan_error")
+        self.assertEqual(result["recommended_action"], "inspect_full_plan_error_before_editing")
+
+    def test_known_gcp_label_incapable_provider_types(self) -> None:
+        for resource_type in (
+            "google_logging_project_bucket_config",
+            "google_bigtable_table",
+        ):
+            with self.subTest(resource_type=resource_type):
+                self.assertIn(resource_type, goc.GCP_LABEL_INCAPABLE_TYPES)
+                finding = {
+                    "control_id": "TAG-002",
+                    "resource_address": f"{resource_type}.this",
+                    "message": f'{resource_type}.this missing required GCP label "owner"',
+                }
+                self.assertEqual(
+                    goc.finding_to_remediation(finding, cloud="gcp")["action"],
+                    "exempt_resource",
+                )
+
     def test_is_credential_plan_error(self) -> None:
         self.assertTrue(goc.is_credential_plan_error("Error: Could not find default credentials"))
         self.assertFalse(goc.is_credential_plan_error("Error: Unsupported argument"))

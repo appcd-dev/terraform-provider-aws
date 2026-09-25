@@ -151,9 +151,69 @@ label_incapable_plan := {
 				},
 			},
 		},
+		{
+			"address": "google_logging_project_bucket_config.this",
+			"mode": "managed",
+			"type": "google_logging_project_bucket_config",
+			"name": "this",
+			"change": {"actions": ["create"], "after": {"bucket_id": "migration"}},
+		},
+		{
+			"address": "google_bigtable_table.primary",
+			"mode": "managed",
+			"type": "google_bigtable_table",
+			"name": "primary",
+			"change": {"actions": ["create"], "after": {"name": "primary"}},
+		},
 	],
 }
 
 test_label_incapable_no_tag002 if {
 	count(deny) == 0 with input as label_incapable_plan
+}
+
+test_sql_instance_user_labels_are_recognized if {
+	plan := {
+		"resource_changes": [
+			{
+				"address": "google_sql_database_instance.this",
+				"mode": "managed",
+				"type": "google_sql_database_instance",
+				"name": "this",
+				"change": {
+					"actions": ["create"],
+					"after": {"settings": [{"user_labels": {"owner": "team"}}]},
+				},
+			},
+			{
+				"address": "google_sql_database_instance.incomplete",
+				"mode": "managed",
+				"type": "google_sql_database_instance",
+				"name": "incomplete",
+				"change": {
+					"actions": ["create"],
+					"after": {"settings": [{"user_labels": {}}]},
+				},
+			},
+		],
+	}
+	count(deny) == 25 with input as plan
+}
+
+test_sql_instance_user_labels_satisfy_tag002 if {
+	plan := {
+		"resource_changes": [
+			{
+				"address": "google_sql_database_instance.this",
+				"mode": "managed",
+				"type": "google_sql_database_instance",
+				"name": "this",
+				"change": {
+					"actions": ["create"],
+					"after": {"settings": [{"user_labels": {"owner": "team"}}]},
+				},
+			},
+		],
+	}
+	count(deny) == 12 with input as plan
 }

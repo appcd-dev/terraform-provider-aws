@@ -168,8 +168,9 @@ module "aws_migrator" {
   # Bind integration credentials to the runner. The typed GCP secret supports
   # Vault's GCP resolver, while a generic runner secret separately injects the
   # service-account JSON required by tofu as ADC.
-  runner_gcp_env_secret_id = ""
-  require_gcp_live_plan    = local.enable_gcp_live_plan ? true : null
+  runner_gcp_env_secret_id             = ""
+  require_gcp_live_plan                = local.enable_gcp_live_plan ? true : null
+  remote_runner_generic_secret_ref_ids = local.enable_gcp_live_plan ? [sg_secret.runner_gcp_env[0].id] : []
   remote_runner_typed_secret_refs = merge(
     {
       aws    = sg_secret.aws_vault.id
@@ -177,7 +178,6 @@ module "aws_migrator" {
     },
     local.enable_gcp_live_plan ? { gcp = module.gcp_integration[0].secret_id } : {},
   )
-  remote_runner_generic_secret_ref_ids = local.enable_gcp_live_plan ? [sg_secret.runner_gcp_env[0].id] : []
 
   create_remote_runner          = true
   remote_runner_attach_to_agent = true

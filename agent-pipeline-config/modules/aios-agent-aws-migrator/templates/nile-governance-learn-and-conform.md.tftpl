@@ -51,7 +51,7 @@ python3 $WORK_ROOT/scripts/governance_conform.py --work-root $WORK_ROOT --cloud 
 
 Or re-run the stage harness (`run-destination-stage.sh azure-iac-governance-conform` or `gcp-iac-governance-conform`).
 
-The harness also runs **OPA Rego** from Nile-Factory `rules/` against `tofu plan` JSON for each group, emits `governance-opa-remediations.json`, and applies **mechanical** label/tag/TLS fixes. Read residuals in:
+The harness also runs **OPA Rego** from Nile-Factory `rules/` against `tofu plan` JSON for each group, emits `governance-opa-remediations.json`, and applies **mechanical** label/tag/TLS fixes. It groups repeated plan failures into `failure_classes` in `governance-opa-report.json`; diagnose/fix the shared cause once rather than editing every duplicate finding. For explicit provider-schema diagnostics (for example, `An argument named "labels" is not expected here`), the runner removes only that exact attribute from the named resource, then re-plans automatically. It never guesses fixes for unclassified diagnostics. Read residuals in:
 
 - `azure|gcp/artifacts/governance-opa-remediations.json`
 - `azure|gcp/artifacts/governance-opa-fix-hints.md`
@@ -67,6 +67,8 @@ For each residual remediation / deny:
 2. If the source has no value, **make a migration assumption**: pick a Nile-safe placeholder (not TAG-003 banned tokens like `tbd`/`test`/`unknown`), write the HCL or `variables.tf` / `*.auto.tfvars` change, and append a row to `azure|gcp/artifacts/governance-assumptions.md` (what, why, how to replace for prod).
 3. Allowed edits: labels, tags, var defaults, provider required args, `name_prefix`, private-by-default / TLS flags named by denies.
 4. Re-run the execute series after edits.
+
+For a plan failure, use `failure_classes` and the full diagnostic before editing. Find the generator/catalog/policy source that produced the failure, make the durable correction when you own that layer, add a focused regression test, regenerate or fix the generated HCL, and rerun validation. A repair that does not change the next report requires a new diagnosis—not repeating the same edit. Distinguish provider schema errors, missing credentials, invalid values/dependencies, and OPA policy defects; do not mislabel an unavailable plan as an IaC pass.
 
 Do **not** invent IAM action translations or network redesigns.
 

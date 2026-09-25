@@ -32,6 +32,9 @@ def main() -> None:
     assert "emit_governance_residual_md()" in stage
     assert "governance-opa-fix-hints.md" in stage
     assert "TODO — clear residuals" in stage
+    assert "repair_limit=4" in stage
+    assert "no safe fix changed files" in stage
+    assert 'stage_summary:${stage_id}" "nonconformant:governance_residual"' in stage
 
     for wf_path, cloud in ((GCP_WF, "gcp"), (AZURE_WF, "azure")):
         wf = wf_path.read_text()
@@ -48,6 +51,10 @@ def main() -> None:
         assert "false" not in exit_match
         assert f"stage_summary:{cloud}-iac-governance-conform=ok|" not in exit_match
         assert "opens with TODOs" in wf or "documents" in wf
+        if cloud == "gcp":
+            assert "failure_classes" in wf
+            assert "governance_nonconformant" in wf
+            assert "do not imply apply readiness" in wf
 
     sop = SOP.read_text()
     assert "still opens with TODO" in sop or "document them in TODO" in sop

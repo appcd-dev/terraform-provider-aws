@@ -53,6 +53,10 @@ GCP_LABEL_INCAPABLE_TYPES = frozenset(
         "google_project_iam_binding",
         "google_project_iam_custom_role",
         "google_project_service",
+        # These expose no supported labels field; Cloud SQL is handled through
+        # settings.user_labels by the governance policies and remediation tool.
+        "google_logging_project_bucket_config",
+        "google_bigtable_table",
     }
 )
 
@@ -143,6 +147,47 @@ def is_credential_plan_error(message: str) -> bool:
     """True when tofu plan failed for missing cloud credentials (not HCL errors)."""
     lower = (message or "").lower()
     return any(hint in lower for hint in _CREDENTIAL_HINTS)
+
+
+def diagnose_plan_failure(message: str) -> dict[str, Any]:
+    """Classify deterministic provider diagnostics without guessing at fixes."""
+    text = str(message or "")
+    resource = re.search(r'in resource "([A-Za-z_][A-Za-z0-9_]*)" "([A-Za-z0-9_-]+)"', text)
+    unsupported = re.search(r'An argument named "([A-Za-z_][A-Za-z0-9_]*)" is not expected here', text, re.I)
+    missing = re.search(r'The argument "([A-Za-z_][A-Za-z0-9_]*)" is required, but no definition was found', text, re.I)
+    if unsupported:
+        kind, attr = "unsupported_argument", unsupported.group(1)
+        action = "remove_rejected_argument_and_recheck"
+    elif missing:
+        kind, attr = "missing_required_argument", missing.group(1)
+        action = "derive_required_value_from_provider_schema_and_source"
+    elif is_credential_plan_error(text):
+        kind, attr, action = "missing_credentials", "", "restore_credentials_and_retry_plan"
+    else:
+        kind, attr, action = "unclassified_plan_error", "", "inspect_full_plan_error_before_editing"
+    return {
+        "kind": kind,
+        "resource_type": resource.group(1) if resource else "",
+        "resource_name": resource.group(2) if resource else "",
+        "attribute": attr,
+        "recommended_action": action,
+        "diagnostic": text[:1600],
+    }
+
+
+def summarize_failure_classes(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Collapse repeated plan failures to actionable root-cause classes."""
+    grouped: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for finding in findings:
+        if str(finding.get("control_id") or "") != "PLAN_FAILED":
+            continue
+        diag = diagnose_plan_failure(finding.get("message", ""))
+        key = (diag["kind"], diag["resource_type"], diag["attribute"])
+        item = grouped.setdefault(key, {**diag, "groups": []})
+        gid = str(finding.get("group_id") or "")
+        if gid and gid not in item["groups"]:
+            item["groups"].append(gid)
+    return sorted(grouped.values(), key=lambda item: (item["kind"], item["resource_type"], item["attribute"]))
 
 
 def _matching_brace_span(text: str, open_idx: int) -> tuple[int, int] | None:
@@ -731,6 +776,7 @@ def run(argv: list[str] | None = None) -> int:
         write_json(merged_plan_path, merge_plan_resource_changes(merged_plans))
 
     opa_ok = len(findings) == 0
+    failure_classes = summarize_failure_classes(findings)
     report = {
         "schema": "nile-governance-opa-report/v1",
         "cloud": cloud,
@@ -742,6 +788,7 @@ def run(argv: list[str] | None = None) -> int:
         "groups_checked": len(group_results),
         "max_groups_limit": args.max_groups,
         "plan_failures": plan_failures,
+        "failure_classes": failure_classes,
         "deny_count": len(findings),
         "opa_ok": opa_ok,
         "blocked": "",
@@ -765,6 +812,15 @@ def run(argv: list[str] | None = None) -> int:
         "# OPA governance denies (fix HCL, then re-run gcp-iac-governance-conform)",
         "",
         f"Rules SHA: `{source.get('commit_sha')}`",
+        "",
+        "Root-cause plan failure classes (deduplicated):",
+        "",
+        *(
+            f"- `{item['kind']}` on `{item['resource_type']}` attribute `{item['attribute']}` "
+            f"in {len(item['groups'])} group(s): {item['recommended_action']}"
+            for item in failure_classes
+        ),
+        "" if failure_classes else "- None.",
         "",
         "Structured remediations: `governance-opa-remediations.json` "
         "(pack applies mechanical set_label/set_tag/set_attr; agent owns residuals).",

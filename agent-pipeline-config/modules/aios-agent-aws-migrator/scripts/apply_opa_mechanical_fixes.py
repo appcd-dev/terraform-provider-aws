@@ -16,6 +16,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from governance_opa_check import GCP_LABEL_INCAPABLE_TYPES, finding_to_remediation
+
 # Keep in sync with gcp_iac_generate.REQUIRED_GCP_LABELS (TAG-002 / TAG-003 safe).
 REQUIRED_GCP_LABELS = {
     "owner": "platformengineering",
@@ -274,6 +276,32 @@ def ensure_resource_labels_line(text: str, address: str) -> tuple[str, int]:
     if not m:
         return text, 0
     rtype, rname = m.group(1), m.group(2)
+    # Never synthesize an argument that the Google provider schema does not expose.
+    # SQL instances use nested settings.user_labels; logging bucket configs and
+    # Bigtable tables have no supported top-level labels attribute.
+    if rtype in GCP_LABEL_INCAPABLE_TYPES:
+        return text, 0
+    if rtype == "google_sql_database_instance":
+        resource_match = re.search(
+            rf'(resource\s+"{re.escape(rtype)}"\s+"{re.escape(rname)}"\s*\{{)(.*?)(\n\}})',
+            text,
+            re.S,
+        )
+        if not resource_match:
+            return text, 0
+        body = resource_match.group(2)
+        settings_match = re.search(r"(?m)^\s*settings\s*\{", body)
+        if not settings_match:
+            return text, 0
+        settings_open = resource_match.start(2) + settings_match.end() - 1
+        settings_span = _matching_brace_span(text, settings_open)
+        if not settings_span:
+            return text, 0
+        settings_body = text[settings_span[0] + 1 : settings_span[1]]
+        if re.search(r"(?m)^\s*user_labels\s*=", settings_body):
+            return text, 0
+        insert_at = settings_span[1]
+        return text[:insert_at] + "\n    user_labels = var.labels\n  " + text[insert_at:], 1
     attr = "tags" if rtype.startswith("azurerm_") else "labels"
     var_ref = "var.tags" if attr == "tags" else "var.labels"
     pattern = re.compile(
@@ -321,6 +349,64 @@ def ensure_tls_attr(text: str, address: str, attr: str, literal: str) -> tuple[s
     return text[: match.start(2)] + new_body + text[match.end(2) :], 1
 
 
+def _remove_resource_attribute(text: str, resource_type: str, resource_name: str, attr: str) -> tuple[str, int]:
+    """Remove a provider-rejected top-level attribute from one matching resource block."""
+    pattern = re.compile(
+        rf'(resource\s+"{re.escape(resource_type)}"\s+"{re.escape(resource_name)}"\s*\{{)(.*?)(\n\}})',
+        re.S,
+    )
+    match = pattern.search(text)
+    if not match:
+        return text, 0
+    body, count = re.subn(
+        rf"(?m)^\s*{re.escape(attr)}\s*=.*(?:\n|$)",
+        "",
+        match.group(2),
+        count=1,
+    )
+    if not count:
+        return text, 0
+    return text[:match.start(2)] + body + text[match.end(2):], 1
+
+
+def apply_provider_schema_fixes(work_root: Path, cloud: str, findings: list[dict[str, Any]]) -> dict[str, Any]:
+    """Apply only deterministic fixes explicitly proven by provider schema errors.
+
+    Removes a provider-rejected argument only when tofu identifies both the
+    exact resource block and attribute. Other schema errors remain actionable
+    for the agent instead of being guessed at.
+    """
+    groups_root = work_root / cloud / "groups"
+    applied = 0
+    fixes: list[dict[str, str]] = []
+    for finding in findings:
+        if str(finding.get("control_id") or "") != "PLAN_FAILED":
+            continue
+        message = str(finding.get("message") or "")
+        rejected = re.search(r'An argument named "([A-Za-z_][A-Za-z0-9_]*)" is not expected here', message, re.I)
+        # Only metadata arguments are safe to remove automatically. A rejected
+        # security/configuration argument requires an explicit semantic decision.
+        if not rejected or rejected.group(1) not in {"labels", "tags"}:
+            continue
+        resource = re.search(r'in resource "([A-Za-z_][A-Za-z0-9_]*)" "([A-Za-z0-9_-]+)"', message)
+        rejected_attr = rejected.group(1)
+        group_id = str(finding.get("group_id") or "")
+        if not resource or not group_id:
+            continue
+        group_dir = groups_root / group_id
+        removed = 0
+        for path in sorted(group_dir.glob("*.tf")):
+            original = path.read_text(encoding="utf-8")
+            updated, count = _remove_resource_attribute(original, resource.group(1), resource.group(2), rejected_attr)
+            if count:
+                path.write_text(updated, encoding="utf-8")
+                removed += count
+                fixes.append({"group_id": group_id, "resource": f"{resource.group(1)}.{resource.group(2)}", "attribute": rejected_attr, "file": path.name})
+                break
+        applied += removed
+    return {"applied": applied, "fixes": fixes}
+
+
 def apply_remediations(
     work_root: Path,
     cloud: str,
@@ -332,6 +418,12 @@ def apply_remediations(
     applied = 0
     skipped = 0
     by_group: dict[str, list[dict[str, Any]]] = {}
+
+    # Terraform's provider-schema diagnostic is stronger evidence than an OPA
+    # label deny. Repair only the exact rejected attribute/resource pair, then
+    # let the caller re-plan. Never infer arbitrary provider capabilities.
+    provider_fixes = apply_provider_schema_fixes(work_root, cloud, remediations)
+    applied += int(provider_fixes.get("applied") or 0)
 
     for item in remediations:
         action = str(item.get("action") or "")
@@ -427,6 +519,7 @@ def apply_remediations(
         "applied": applied,
         "skipped": skipped,
         "remediation_count": len(remediations),
+        "provider_schema_fixes": provider_fixes,
         "assumptions_path": str(assumptions_path),
         "generated_at": utc_now(),
     }

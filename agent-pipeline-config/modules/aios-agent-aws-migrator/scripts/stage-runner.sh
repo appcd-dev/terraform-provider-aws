@@ -4,7 +4,7 @@
 # Usage: DBSPLIT_EMBEDDED=1 bash -s <command> [args...] << 'DBSPLIT_STAGE_RUNNER' ... DBSPLIT_STAGE_RUNNER
 set -euo pipefail
 
-SCRIPT_PACK_VERSION="20260911.35"
+SCRIPT_PACK_VERSION="20260925.38"
 DBSPLIT_DEFAULT_STRATEGY="${DBSPLIT_DEFAULT_STRATEGY:-tfstate_monolith_decomposer}"
 DBSPLIT_DEFAULT_CAP="${DBSPLIT_DEFAULT_CAP:-0}"
 REQUIRED_ALLOCATE_MARKER="def merge_small_by_seed"
@@ -5316,22 +5316,30 @@ cmd_destination_iac_governance_conform() {
       opa_ok="$(jq -r 'if .opa_ok == true then "true" else "false" end' "$opa_report" 2>/dev/null || echo false)"
       opa_blocked="$(jq -r '.blocked // empty' "$opa_report" 2>/dev/null || true)"
     fi
-    # Mechanical remediations (labels/tags/TLS) then one OPA re-check in this visit.
-    if [ "$opa_ok" != "true" ] && [ "$opa_rc" -ne 2 ] && [ -f "$fix_harness" ]; then
+    # Schema-aware repair loop: trust explicit provider diagnostics, apply only
+    # deterministic fixes, then re-plan/re-evaluate. Stop when clean, blocked, or
+    # no safe fix changed files; the agent then owns semantic residuals.
+    local repair_round=0 repair_limit=4 fixes_json fixes_applied
+    while [ "$opa_ok" != "true" ] && [ "$opa_rc" -ne 2 ] && [ -f "$fix_harness" ] && [ "$repair_round" -lt "$repair_limit" ]; do
+      repair_round=$((repair_round + 1))
       python3 "$fix_harness" --work-root "$work_root" --cloud "$cloud" \
-        >"${artifacts_dir}/governance-opa-mechanical-fixes.out" \
-        2>"${artifacts_dir}/governance-opa-mechanical-fixes.err" || true
-      mirror_note "$work_root" "${cloud}_iac_opa_mechanical_fixes" \
-        "${artifacts_dir}/governance-opa-mechanical-fixes.json"
+        >"${artifacts_dir}/governance-opa-mechanical-fixes-${repair_round}.out" \
+        2>"${artifacts_dir}/governance-opa-mechanical-fixes-${repair_round}.err" || true
+      fixes_json="${artifacts_dir}/governance-opa-mechanical-fixes.json"
+      mirror_note "$work_root" "${cloud}_iac_opa_mechanical_fixes" "$fixes_json"
+      fixes_applied="$(jq -r '.applied // 0' "$fixes_json" 2>/dev/null || echo 0)"
+      if ! [[ "$fixes_applied" =~ ^[0-9]+$ ]] || [ "$fixes_applied" -eq 0 ]; then
+        break
+      fi
       opa_rc=0
       python3 "$opa_harness" --work-root "$work_root" --cloud "$cloud" \
-        >"${artifacts_dir}/governance-opa-check-retry.out" \
-        2>"${artifacts_dir}/governance-opa-check-retry.err" || opa_rc=$?
+        >"${artifacts_dir}/governance-opa-check-retry-${repair_round}.out" \
+        2>"${artifacts_dir}/governance-opa-check-retry-${repair_round}.err" || opa_rc=$?
       if [ -f "$opa_report" ] && command -v jq >/dev/null 2>&1; then
         opa_ok="$(jq -r 'if .opa_ok == true then "true" else "false" end' "$opa_report" 2>/dev/null || echo false)"
         opa_blocked="$(jq -r '.blocked // empty' "$opa_report" 2>/dev/null || true)"
       fi
-    fi
+    done
     if [ "$opa_rc" -eq 2 ]; then
       mirror_note "$work_root" "$ok_key" "false"
       mirror_note "$work_root" "${cloud}_iac_governance_report" "$report"
@@ -5389,9 +5397,9 @@ cmd_destination_iac_governance_conform() {
     return 0
   fi
 
-  mirror_note "$work_root" "stage_summary:${stage_id}" "ok"
+  mirror_note "$work_root" "stage_summary:${stage_id}" "nonconformant:governance_residual"
   echo "${ok_key}: \"false\""
-  echo "stage_summary:${stage_id}=ok"
+  echo "stage_summary:${stage_id}=nonconformant:governance_residual"
   echo "${cloud}_governance_commit_sha=${sha}"
   return 0
 }

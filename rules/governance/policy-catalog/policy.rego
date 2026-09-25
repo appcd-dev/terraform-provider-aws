@@ -55,7 +55,18 @@ gcp_label_incapable_types := {
 	"google_project_iam_binding",
 	"google_project_iam_custom_role",
 	"google_project_service",
+	# These resources expose no supported labels field.
+	"google_logging_project_bucket_config",
+	"google_bigtable_table",
 }
+
+gcp_labels(rc) := labels if {
+	rc.type == "google_sql_database_instance"
+	settings := object.get(rc.change.after, "settings", [])
+	is_array(settings)
+	count(settings) > 0
+	labels := object.get(settings[0], "user_labels", {})
+} else := object.get(rc.change.after, "labels", {})
 
 azure_https_types := {
 	"azurerm_app_service",
@@ -130,7 +141,7 @@ deny contains msg if {
 	startswith(rc.type, "google_")
 	not gcp_label_incapable_types[rc.type]
 	after := object.get(rc.change, "after", {})
-	labels := object.get(after, "labels", null)
+	labels := gcp_labels(rc)
 	labels != null
 	some required in required_gcp_labels
 	not nonempty_string(object.get(labels, required, ""))

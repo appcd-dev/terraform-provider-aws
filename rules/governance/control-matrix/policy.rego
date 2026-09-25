@@ -36,7 +36,18 @@ gcp_label_incapable_types := {
 	"google_project_iam_binding",
 	"google_project_iam_custom_role",
 	"google_project_service",
+	# These resources expose no supported labels field.
+	"google_logging_project_bucket_config",
+	"google_bigtable_table",
 }
+
+gcp_labels(rc) := labels if {
+	rc.type == "google_sql_database_instance"
+	settings := object.get(rc.change.after, "settings", [])
+	is_array(settings)
+	count(settings) > 0
+	labels := object.get(settings[0], "user_labels", {})
+} else := object.get(rc.change.after, "labels", {})
 
 nonempty(s) if {
 	is_string(s)
@@ -49,6 +60,13 @@ has_supported_metadata_map(after) if {
 
 has_supported_metadata_map(after) if {
 	is_object(object.get(after, "labels", null))
+}
+
+has_supported_metadata_map(after) if {
+	settings := object.get(after, "settings", [])
+	is_array(settings)
+	count(settings) > 0
+	is_object(object.get(settings[0], "user_labels", null))
 }
 
 # Azure tags use hyphens (apmid, cost-center); GCP labels use underscores (apm_id, cost_center).
@@ -72,6 +90,13 @@ has_metadata(after, key) if {
 
 has_metadata(after, key) if {
 	map_has_metadata(object.get(after, "labels", null), key)
+}
+
+has_metadata(after, key) if {
+	settings := object.get(after, "settings", [])
+	is_array(settings)
+	count(settings) > 0
+	map_has_metadata(object.get(settings[0], "user_labels", null), key)
 }
 
 deny contains msg if {

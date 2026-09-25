@@ -65,7 +65,18 @@ gcp_label_incapable_types := {
 	"google_project_iam_binding",
 	"google_project_iam_custom_role",
 	"google_project_service",
+	# These resources expose no supported labels field.
+	"google_logging_project_bucket_config",
+	"google_bigtable_table",
 }
+
+gcp_labels(rc) := labels if {
+	rc.type == "google_sql_database_instance"
+	settings := object.get(rc.change.after, "settings", [])
+	is_array(settings)
+	count(settings) > 0
+	labels := object.get(settings[0], "user_labels", {})
+} else := object.get(rc.change.after, "labels", {})
 
 managed_change(rc) if {
 	rc.mode == "managed"
@@ -97,7 +108,7 @@ deny contains msg if {
 deny contains msg if {
 	some rc in input.resource_changes
 	gcp_labelable_resource(rc)
-	labels := object.get(rc.change.after, "labels", {})
+	labels := gcp_labels(rc)
 	some required in required_gcp_labels
 	not nonempty(object.get(labels, required, ""))
 	msg := sprintf("PRIO-001: governance/priority-controls.md § Section 5 – Priority 1 Controls; Section 9 – Priority by Cloud: %s missing required GCP label %q", [rc.address, required])

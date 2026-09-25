@@ -105,7 +105,18 @@ gcp_label_incapable_types := {
 	"google_project_iam_binding",
 	"google_project_iam_custom_role",
 	"google_project_service",
+	# These resources expose no supported labels field.
+	"google_logging_project_bucket_config",
+	"google_bigtable_table",
 }
+
+gcp_labels(rc) := labels if {
+	rc.type == "google_sql_database_instance"
+	settings := object.get(rc.change.after, "settings", [])
+	is_array(settings)
+	count(settings) > 0
+	labels := object.get(settings[0], "user_labels", {})
+} else := object.get(rc.change.after, "labels", {})
 
 gcp_labelable_resource(rc) if {
 	gcp_resource(rc)
@@ -139,7 +150,7 @@ deny contains msg if {
 deny contains msg if {
 	some rc in input.resource_changes
 	gcp_labelable_resource(rc)
-	labels := object.get(rc.change.after, "labels", {})
+	labels := gcp_labels(rc)
 	some key in required_gcp_labels
 	not nonempty_string(object.get(labels, key, ""))
 	msg := sprintf("TAG-002 governance/tagging-labeling-standard.md § Section 7 – GCP Label Standard: %s missing required GCP label %q", [resource_ref(rc), key])
@@ -159,7 +170,7 @@ deny contains msg if {
 deny contains msg if {
 	some rc in input.resource_changes
 	gcp_labelable_resource(rc)
-	labels := object.get(rc.change.after, "labels", {})
+	labels := gcp_labels(rc)
 	some key in required_gcp_labels
 	val := object.get(labels, key, "")
 	nonempty_string(val)
@@ -181,7 +192,7 @@ deny contains msg if {
 deny contains msg if {
 	some rc in input.resource_changes
 	gcp_labelable_resource(rc)
-	labels := object.get(rc.change.after, "labels", {})
+	labels := gcp_labels(rc)
 	env := object.get(labels, "environment", "")
 	nonempty_string(env)
 	norm := normalized_string(env)
