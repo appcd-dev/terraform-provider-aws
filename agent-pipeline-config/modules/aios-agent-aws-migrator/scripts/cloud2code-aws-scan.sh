@@ -134,10 +134,13 @@ if [ -n "$CLOUD2CODE_EXCLUDE" ] && command -v cloud2code >/dev/null 2>&1; then
 fi
 CLOUD2CODE_TAGS="$(coalesce_value cloud2code_tags CLOUD2CODE_TAGS)"
 CLOUD2CODE_ALLOW_PARTIAL="$(coalesce_value cloud2code_allow_partial CLOUD2CODE_ALLOW_PARTIAL)"
-# Pack-entry passes only the region/run id positionally, so persist the optional
-# opt-in in the workflow input file during preflight before execution reaches us.
+# Discovery should preserve accessible resources when individual reads are
+# denied. Cloud2Code marks these inventories partial; downstream stages must
+# retain that caveat rather than treating skipped reads as complete coverage.
+# An explicit false remains available for operators who require a complete scan.
 case "$CLOUD2CODE_ALLOW_PARTIAL" in
-  ""|false|0|no) CLOUD2CODE_ALLOW_PARTIAL=false ;;
+  "" ) CLOUD2CODE_ALLOW_PARTIAL=true ;;
+  false|0|no) CLOUD2CODE_ALLOW_PARTIAL=false ;;
   true|1|yes) CLOUD2CODE_ALLOW_PARTIAL=true ;;
   *) echo "blocked:cloud2code_allow_partial_invalid value=${CLOUD2CODE_ALLOW_PARTIAL}"; exit 1 ;;
 esac
@@ -366,14 +369,37 @@ if [ "$MANAGED_COUNT" -le 0 ]; then
 fi
 
 THROTTLE_SKIPPED="$(read_note "cloud2code_throttle_skipped")"
-if [ "$CLOUD2CODE_ALLOW_PARTIAL" != true ] && [ -n "$THROTTLE_SKIPPED" ]; then
+# Cloud2Code reports read permissions and other omissions in this integrity
+# line. Keep them visible in the workflow result and distinguish a usable
+# partial state from a complete inventory.
+SCAN_INTEGRITY="$(grep -Eo 'scan integrity: listed=[0-9]+ imported=[0-9]+ import_state_skipped=[0-9]+ read_skipped=[0-9]+ read_failed=[0-9]+ throttled_types=[0-9]+' "$WORK_ROOT/.work/cloud2code.log" 2>/dev/null | tail -1 || true)"
+SCAN_PARTIAL=false
+if [ -n "$SCAN_INTEGRITY" ]; then
+  read -r _listed _imported _state_skipped _read_skipped _read_failed _throttled <<<"$(printf '%s\n' "$SCAN_INTEGRITY" | sed -E 's/^scan integrity: listed=([0-9]+) imported=([0-9]+) import_state_skipped=([0-9]+) read_skipped=([0-9]+) read_failed=([0-9]+) throttled_types=([0-9]+)$/\1 \2 \3 \4 \5 \6/')"
+  if [ "$_listed" -gt "$_imported" ] || [ "$_state_skipped" -gt 0 ] || [ "$_read_skipped" -gt 0 ] || [ "$_read_failed" -gt 0 ] || [ "$_throttled" -gt 0 ]; then
+    SCAN_PARTIAL=true
+  fi
+fi
+if [ -n "$THROTTLE_SKIPPED" ]; then SCAN_PARTIAL=true; fi
+if [ -n "$THROTTLE_SKIPPED" ] || { [ "$CLOUD2CODE_ALLOW_PARTIAL" != true ] && [ "$SCAN_PARTIAL" = true ]; }; then
   mirror_note "blocked:cloud2code_partial_scan" "true"
   mirror_note "cloud2code_partial_resource_types" "$THROTTLE_SKIPPED"
   echo 'blocked:cloud2code_partial_scan: "true"'
+  [ -n "$SCAN_INTEGRITY" ] && echo "$SCAN_INTEGRITY"
   echo "cloud2code_partial_resource_types=${THROTTLE_SKIPPED}"
   echo "cloud2code_tfstate_path=$STATE_PATH"
   echo "monolith_resource_count=$MANAGED_COUNT"
   exit 1
+fi
+
+if [ "$SCAN_PARTIAL" = true ]; then
+  mirror_note "cloud2code_partial_scan" "true"
+  mirror_note "cloud2code_scan_integrity" "$SCAN_INTEGRITY"
+  echo 'cloud2code_partial_scan: "true"'
+  if [ -n "$SCAN_INTEGRITY" ]; then echo "$SCAN_INTEGRITY"; fi
+  if [ -n "$THROTTLE_SKIPPED" ]; then echo "cloud2code_throttle_skipped=${THROTTLE_SKIPPED}"; fi
+else
+  mirror_note "cloud2code_partial_scan" "false"
 fi
 
 mirror_note "cloud2code_scan_ok" "true"
