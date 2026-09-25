@@ -26,7 +26,7 @@ Pin `pack-20260827.4` (or the current pack tag) in production for reproducible C
 
 - `aiden-runner` 0.2.22
 - OpenTofu 1.12.5 (`tofu`)
-- Cloud2Code 0.5.4
+- Cloud2Code 0.5.5
 - AWS CLI v2, `gh`, `git`, `jq`, `python3`, `opa`, `tflint`, `curl`/`wget`/`tar`
 - User `runner` (uid 1000), `HOME=/home/runner`
 - Script pack at `/home/runner/.aws-migrator/script-pack/<version>/` including
