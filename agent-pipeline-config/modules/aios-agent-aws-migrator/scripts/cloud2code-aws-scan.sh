@@ -245,6 +245,50 @@ extract_read_failed_types() {
 CMD_OK=0
 run_cloud2code_import && CMD_OK=1 || CMD_OK=0
 if [ "$CMD_OK" -ne 1 ]; then
+  # Check for API rate limiting / throttling aborts
+  # cloud2code: "Error: could not import from aws: scan aborted due to API rate limiting: error while reading the resources of type: aws_cloudwatch_log_group: ... ThrottlingException"
+  _throttle_type="$(grep -Eo 'scan aborted due to API rate limiting: error while reading the resources of type: [a-z0-9_]+' "$WORK_ROOT/.work/cloud2code.log" 2>/dev/null | grep -Eo 'aws_[a-z0-9_]+' | tail -1 || true)"
+  if [ -z "$_throttle_type" ]; then
+    _throttle_type="$(grep -i 'ThrottlingException' "$WORK_ROOT/.work/cloud2code.log" 2>/dev/null | grep -Eo 'aws_[a-z0-9_]+' | tail -1 || true)"
+  fi
+
+  if [ -n "$_throttle_type" ] && [ -z "$CLOUD2CODE_INCLUDE" ]; then
+    echo "cloud2code_throttle_detected=${_throttle_type}"
+    mirror_note "cloud2code_throttle_detected" "${_throttle_type}"
+    _backoff="${CLOUD2CODE_THROTTLE_BACKOFF_SECONDS:-15}"
+    echo "cloud2code_throttle_backoff=${_backoff}s"
+    sleep "$_backoff"
+    
+    run_cloud2code_import && CMD_OK=1 || CMD_OK=0
+    
+    # If it fails again on the same or another throttle, exclude it to save the rest of the scan.
+    if [ "$CMD_OK" -ne 1 ]; then
+      _throttle_type2="$(grep -Eo 'scan aborted due to API rate limiting: error while reading the resources of type: [a-z0-9_]+' "$WORK_ROOT/.work/cloud2code.log" 2>/dev/null | grep -Eo 'aws_[a-z0-9_]+' | tail -1 || true)"
+      if [ -z "$_throttle_type2" ]; then
+        _throttle_type2="$(grep -i 'ThrottlingException' "$WORK_ROOT/.work/cloud2code.log" 2>/dev/null | grep -Eo 'aws_[a-z0-9_]+' | tail -1 || true)"
+      fi
+      if [ -n "$_throttle_type2" ]; then
+        _throttle_type="$_throttle_type2"
+      fi
+
+      echo "cloud2code_throttle_softskip=${_throttle_type}"
+      mirror_note "cloud2code_throttle_skipped" "${_throttle_type}"
+      
+      if [ -n "$CLOUD2CODE_EXCLUDE" ]; then
+        CLOUD2CODE_EXCLUDE="${CLOUD2CODE_EXCLUDE},${_throttle_type}"
+      else
+        CLOUD2CODE_EXCLUDE="${_throttle_type}"
+      fi
+      CLOUD2CODE_EXCLUDE="$(printf '%s' "$CLOUD2CODE_EXCLUDE" | tr ',' '\n' | awk 'NF && !seen[$0]++' | paste -sd, -)"
+      echo "cloud2code_exclude_after_throttle=${CLOUD2CODE_EXCLUDE}"
+      mirror_note "cloud2code_exclude" "$CLOUD2CODE_EXCLUDE"
+      
+      run_cloud2code_import && CMD_OK=1 || CMD_OK=0
+    fi
+  fi
+fi
+
+if [ "$CMD_OK" -ne 1 ]; then
   _failed_types="$(extract_read_failed_types || true)"
   if [ -n "${_failed_types}" ] && [ -z "$CLOUD2CODE_INCLUDE" ]; then
     echo "cloud2code_read_failed_types=${_failed_types}"
@@ -314,6 +358,7 @@ fi
 
 MANAGED_COUNT="$(jq '[.resources[]? | select(.mode=="managed") | .instances[]?] | length' "$STATE_PATH" 2>/dev/null || echo 0)"
 RESOURCE_TYPE_COUNT="$(jq '[.resources[]? | select(.mode=="managed") | .type] | unique | length' "$STATE_PATH" 2>/dev/null || echo 0)"
+THROTTLE_SKIPPED="$(read_note "cloud2code_throttle_skipped")"
 
 mirror_note "cloud2code_scan_ok" "true"
 mirror_note "cloud2code_tfstate_path" "$STATE_PATH"
@@ -325,6 +370,9 @@ mirror_note "cloud2code_resource_type_count" "$RESOURCE_TYPE_COUNT"
 mirror_note "stage_summary:cloud2code-scan-aws" "ok"
 
 echo 'cloud2code_scan_ok: "true"'
+if [ -n "$THROTTLE_SKIPPED" ]; then
+  echo "cloud2code_throttle_skipped=${THROTTLE_SKIPPED}"
+fi
 echo "aws_region=$AWS_REGION"
 echo "cloud2code_tfstate_path=$STATE_PATH"
 echo "monolith_state_uri=$STATE_PATH"
