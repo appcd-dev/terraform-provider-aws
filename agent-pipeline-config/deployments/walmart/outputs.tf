@@ -44,14 +44,10 @@ output "enable_governance_codify" {
 }
 
 output "github_integration_name" {
-  description = "Resolved GitHub integration name (provisioned or looked up)."
-  value = nonsensitive(
-    local.provision_github ? (
-      trimspace(var.github_integration_name) != "" ? trimspace(var.github_integration_name) : "cloud-github"
-      ) : (
-      local.use_existing_github ? data.sg_guild_integration.github[0].name : ""
-    )
-  )
+  description = "Resolved GitHub integration name."
+  value = var.enable_agent_stack || var.enable_governance_codify ? nonsensitive(
+    data.sg_guild_integration.github[0].name
+  ) : ""
 }
 
 output "governance_codify_workflow_name" {
@@ -75,14 +71,14 @@ output "runner_gcp_attached" {
 }
 
 output "require_gcp_live_plan" {
-  description = "Whether gcp-iac-validate requires live tofu plan (true when Provider/generic SA-key ADC was created from gcp_credentials_json)."
-  value       = var.enable_agent_stack ? local.enable_gcp_live_plan : false
+  description = "Whether gcp-iac-validate requires live tofu plan. False here: the bound vibe-gcp vault secret resolves OAuth tokens, not ADC JSON."
+  value       = false
 }
 
 output "next_steps" {
   description = "Human-readable checklist for what to do after this apply."
   value = var.enable_agent_stack ? trimspace(<<-EOT
-    Phase 2 applied. Confirm the remote runner is online in StackGen UI and typed secrets sync (github/aws${local.runner_gcp_attached ? "/gcp" : ""}). Script pack version must match script_pack_version output. ${local.enable_gcp_live_plan ? "GCP live plan is required (SA-key ADC bound). Re-run gcp-migration-pr after secret sync." : (local.runner_gcp_attached ? "GCP typed slot is attached; live tofu plan stays soft until TF_VAR_gcp_credentials_json is a service_account key." : "To attach GCP to the runner, set runner_gcp_env_secret_id or TF_VAR_gcp_credentials_json + gcp_project_id and re-apply.")} Then start aws-migrator-discovery or gcp-migration-pr.
+    Phase 2 applied. Confirm the remote runner is online in StackGen UI and typed secrets sync (github/aws${local.runner_gcp_attached ? "/gcp" : ""}). Script pack version must match script_pack_version output. ${local.runner_gcp_attached ? "GCP typed slot is attached; the live tofu plan stays soft until a vault secret with GOOGLE_APPLICATION_CREDENTIALS_JSON metadata (service_account key) is bound to the runner instead of the vibe-gcp OAuth secret." : "To attach GCP to the runner, set runner_gcp_env_secret_id and re-apply."} Then start aws-migrator-discovery or gcp-migration-pr.
   EOT
     ) : (var.enable_governance_codify ? trimspace(<<-EOT
     Governance codify applied. In StackGen UI start workflow governance-rules-codify (passive intent: governance-rules-codify) to test markdown → Rego PR generation.

@@ -26,7 +26,7 @@ deployments/
 
 ## Apply (walmart — Nile-Staging)
 
-Phase 1 — StackGen bootstrap (no cloud CLI creds):
+Single apply — integrations, vault secrets, and the remote runner already exist in the workspace, so this root looks them up by name and attaches the agent + workflows. Policy-only bootstrap (fresh workspace, no integrations yet): set `enable_agent_stack = false` and `enable_governance_codify = false`.
 
 ```bash
 cd agent-pipeline-config/deployments/walmart
@@ -35,7 +35,9 @@ cat > ../../tfvars/walmart.tfvars <<'EOF'
 stackgen_url        = "https://walmart.cloud.stackgen.com"
 stackgen_token      = "<STACKGEN_PAT>"
 stackgen_project_id = "<WORKSPACE_UUID>"
-enable_agent_stack  = false
+github_integration_name = "<GITHUB_INTEGRATION>"   # e.g. cloud-github
+aws_integration_name    = "<AWS_INTEGRATION>"       # e.g. vibe-aws-scanner
+remote_runner_name      = "<RUNNER_NAME>"          # e.g. nile-runner
 EOF
 
 tofu init
@@ -43,10 +45,9 @@ tofu apply -input=false -var-file=../../tfvars/walmart.tfvars
 tofu output dangerous_ops_policy_id
 ```
 
-Phase 2 — after customer creates integrations + runner and sends exact names:
+When the customer later creates or changes integrations/runner (or sends new names), edit the tfvars and re-apply:
 
 ```bash
-# edit tfvars: enable_agent_stack = true, github/aws/runner names
 tofu apply -input=false -var-file=../../tfvars/walmart.tfvars
 tofu output script_pack_version
 ```

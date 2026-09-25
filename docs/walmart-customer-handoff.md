@@ -15,7 +15,7 @@ tofu output dangerous_ops_policy_id
 
 This creates the `dangerous-ops` logic policy in Nile-Staging. No AWS/Azure CLI creds required.
 
-Optional phase 1b: set `enable_governance_codify = true` (and a GitHub integration name or `provision_github_integration` + token) to install `governance-rules-codify` without the migrator agent stack.
+Optional phase 1b: set `enable_governance_codify = true` (with the customer's GitHub integration name) to install `governance-rules-codify` without the migrator agent stack.
 
 ## Phase 2 (customer — before agent apply)
 

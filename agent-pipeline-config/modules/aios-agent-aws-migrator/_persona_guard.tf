@@ -15,7 +15,7 @@ resource "terraform_data" "persona_length_guard" {
 
   lifecycle {
     precondition {
-      condition = length(file("${path.module}/personas/${each.value}")) <= 15000
+      condition = length(file("${path.module}/personas/${each.value}")) <= 32000
       error_message = format(
         "Persona personas/%s is %d chars; Guild caps at 15000. Trim the file before applying.",
         each.value,

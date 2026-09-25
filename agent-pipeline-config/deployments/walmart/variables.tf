@@ -18,7 +18,7 @@ variable "stackgen_project_id" {
 variable "enable_agent_stack" {
   description = "When false, apply only StackGen bootstrap resources (policy, optional models). When true, attach agent + workflows to customer-created integrations and remote runner."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "enable_governance_codify" {
@@ -27,21 +27,8 @@ variable "enable_governance_codify" {
   default     = false
 }
 
-variable "provision_github_integration" {
-  description = "When true and github_token is set, Terraform creates the GitHub Guild integration instead of looking up an existing one by name."
-  type        = bool
-  default     = false
-}
-
-variable "github_token" {
-  description = "GitHub PAT for provision_github_integration (repo + read:org). Pass via TF_VAR_github_token; do not commit."
-  type        = string
-  sensitive   = true
-  default     = ""
-}
-
 variable "github_integration_name" {
-  description = "GitHub Guild integration name — existing (lookup) or name to create when provision_github_integration is true. Default cloud-github when provisioning."
+  description = "Existing GitHub Guild integration name (required). Customer creates the integration in the StackGen UI."
   type        = string
   default     = "cloud-github"
 }
@@ -59,23 +46,9 @@ variable "remote_runner_name" {
 }
 
 variable "runner_aws_env_secret_id" {
-  description = "Vault secret UUID bound to nile-runner typed aws slot when inline runner_aws_* keys are empty. Default nile-vibe-scanner-main (still Vibe-scoped — prefer TF_VAR_runner_aws_access_key_id for iam::366938945728:user/nile-factory)."
+  description = "Existing vault secret UUID bound to the nile-runner typed aws slot (AWS_ACCESS_KEY_ID/SECRET metadata)."
   type        = string
   default     = "59dfde2a-3980-56a5-81f8-bb9be5de5e33"
-}
-
-variable "runner_aws_access_key_id" {
-  description = "Inline AWS access key for runner sync (creates aws-migrator-runner-aws-env). Use nile-factory keys for account 366938945728. Pass via TF_VAR_runner_aws_access_key_id."
-  type        = string
-  sensitive   = true
-  default     = ""
-}
-
-variable "runner_aws_secret_access_key" {
-  description = "Inline AWS secret key paired with runner_aws_access_key_id. Pass via TF_VAR_runner_aws_secret_access_key."
-  type        = string
-  sensitive   = true
-  default     = ""
 }
 
 variable "runner_aws_region" {
@@ -96,27 +69,8 @@ variable "gcp_integration_name" {
   default     = ""
 }
 
-variable "gcp_credentials_json" {
-  description = "GCP service account key JSON for nile-runner live tofu plan. When set with gcp_project_id, Terraform creates a generic vault secret and binds typed slot gcp on the remote runner. Pass via TF_VAR_gcp_credentials_json; do not commit."
-  type        = string
-  sensitive   = true
-  default     = ""
-}
-
-variable "gcp_project_id" {
-  description = "GCP project ID written into the runner GCP vault secret (required with gcp_credentials_json)."
-  type        = string
-  default     = ""
-}
-
-variable "gcp_region" {
-  description = "Default GCP region embedded in the runner GCP vault secret."
-  type        = string
-  default     = "us-central1"
-}
-
 variable "runner_gcp_env_secret_id" {
-  description = "Existing vault secret UUID bound to nile-runner typed gcp slot when gcp_credentials_json is empty. Secret metadata must include GOOGLE_APPLICATION_CREDENTIALS_JSON (generic subcategory)."
+  description = "Existing vault secret UUID bound to the nile-runner typed gcp slot. A secret with GOOGLE_APPLICATION_CREDENTIALS_JSON (service_account key) metadata enables live tofu plan; the current vibe-gcp OAuth secret does not."
   type        = string
   default     = ""
 }
