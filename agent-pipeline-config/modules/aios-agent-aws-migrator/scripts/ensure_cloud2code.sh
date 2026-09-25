@@ -2,7 +2,7 @@
 # It installs into the runner user's home directory so root access is unnecessary.
 # Re-downloads when the on-PATH binary is missing or not the pinned version.
 ensure_cloud2code() {
-  local version="${CLOUD2CODE_VERSION:-0.5.3}"
+  local version="${CLOUD2CODE_VERSION:-0.5.4}"
   local release_base="${CLOUD2CODE_RELEASE_BASE_URL:-https://releases.stackgen.com/binaries/cloud2code}"
   local target_os target_arch machine archive_url install_dir tmp_dir current
 
