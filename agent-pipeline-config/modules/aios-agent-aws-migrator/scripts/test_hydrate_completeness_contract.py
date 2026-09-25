@@ -40,6 +40,8 @@ def test_ready_requires_hydrate_complete() -> None:
 def test_converge_tpl_default_unlimited() -> None:
     assert "Default visit cap is unlimited" in CONVERGE_TPL
     assert "default 8" not in CONVERGE_TPL
+    assert "wall-clock budget defers the rest" in CONVERGE_TPL
+    assert "blocked:converge_inputs_missing" in CONVERGE_TPL
 
 
 def test_no_remote_state_scaffold_docs() -> None:

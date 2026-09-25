@@ -4,7 +4,7 @@
 # Usage: DBSPLIT_EMBEDDED=1 bash -s <command> [args...] << 'DBSPLIT_STAGE_RUNNER' ... DBSPLIT_STAGE_RUNNER
 set -euo pipefail
 
-SCRIPT_PACK_VERSION="20260925.39"
+SCRIPT_PACK_VERSION="20260925.40"
 DBSPLIT_DEFAULT_STRATEGY="${DBSPLIT_DEFAULT_STRATEGY:-tfstate_monolith_decomposer}"
 DBSPLIT_DEFAULT_CAP="${DBSPLIT_DEFAULT_CAP:-0}"
 REQUIRED_ALLOCATE_MARKER="def merge_small_by_seed"
@@ -17,6 +17,16 @@ DBSPLIT_RUN_TTL_HOURS="${DBSPLIT_RUN_TTL_HOURS:-48}"
 DBSPLIT_RUN_KEEP="${DBSPLIT_RUN_KEEP:-3}"
 DBSPLIT_LOCK_TIMEOUT_SECONDS="${DBSPLIT_LOCK_TIMEOUT_SECONDS:-60}"
 DBSPLIT_LOCK_STALE_SECONDS="${DBSPLIT_LOCK_STALE_SECONDS:-1800}"
+# Converge visits must finish inside the nile-runner 30m result-wait window
+# (trace 1c64c4a5: a full 83-group hydrate overran the tool call, so the result
+# spilled and the visit was re-run concurrently, racing .git/index.lock). The
+# matrix defers remaining groups and emits converge_batch_incomplete so the
+# loop resumes on the next visit instead of losing the whole batch.
+DBSPLIT_HYDRATE_VISIT_BUDGET_SECONDS="${DBSPLIT_HYDRATE_VISIT_BUDGET_SECONDS:-1200}"
+# tfstate is committed to the discovery PR (user requirement) — the repo
+# .gitignore allowlists aws/** tfstate, but keep force-add so a stale clone
+# ignore rule can never silently drop the monolith or shards again.
+DBSPLIT_GIT_FORCE_ADD_TFSTATE="${DBSPLIT_GIT_FORCE_ADD_TFSTATE:-1}"
 
 mark_run_activity() {
   local work_root="${1:?WORK_ROOT}"
@@ -92,6 +102,24 @@ release_run_lock() {
   if [ -n "$lock_dir" ]; then
     rm -rf "$lock_dir" 2>/dev/null || true
   fi
+}
+
+# A converge visit killed at the nile-runner 30m tool timeout can die mid
+# `git add`/`git commit` and leave .git/index.lock behind; the next visit then
+# fails with "Unable to create '.git/index.lock': File exists" (trace 1c64c4a5).
+# Remove it only when no live git process is running in this clone.
+clear_stale_git_index_lock() {
+  local repo_dir="${1:-$(pwd)}"
+  local lock_file="${repo_dir}/.git/index.lock"
+  if [ ! -f "$lock_file" ]; then
+    return 0
+  fi
+  if pgrep -x git >/dev/null 2>&1; then
+    echo "git_index_lock=busy path=${lock_file}" >&2
+    return 0
+  fi
+  rm -f "$lock_file" 2>/dev/null || true
+  echo "git_index_lock_cleared=stale path=${lock_file}"
 }
 
 mirror_note() {
@@ -2055,7 +2083,10 @@ git_commit_paths_if_changed() {
   local path
   for path in "$@"; do
     if [ -e "$path" ] || git ls-files --error-unmatch "$path" >/dev/null 2>&1; then
-      git add -A -- "$path" 2>/dev/null || git add -- "$path" 2>/dev/null || true
+      # --force so a global *.tfstate ignore rule can never silently drop the
+      # monolith / shard state the discovery PR must carry (trace 1c64c4a5:
+      # aws/artifacts/cloud2code/*/terraform.tfstate was skipped by gitignore).
+      git add -A --force -- "$path" 2>/dev/null || git add --force -- "$path" 2>/dev/null || true
     fi
   done
   if git diff --cached --quiet; then
@@ -3222,7 +3253,8 @@ cmd_sync_hydrated_iac_pr() {
   fi
   echo "repo_generated_tf_count=${repo_generated_count}"
 
-  git add -A
+  clear_stale_git_index_lock "$repo_dir"
+  git add -A --force
   if git diff --cached --quiet; then
     mirror_note "$work_root" "hydrated_iac_sync_status" "ok:no_changes"
     mirror_note "$work_root" "source_iac_branch" "$branch"
@@ -3264,7 +3296,6 @@ cmd_sync_hydrated_iac_pr() {
   echo "source_iac_branch=${branch}"
   [ -n "$pr_url" ] && [ "$pr_url" != "null" ] && echo "iac_pr_url=${pr_url}"
 }
-
 resolve_tofu_bin() {
   if command -v tofu >/dev/null 2>&1; then
     command -v tofu
@@ -3408,7 +3439,15 @@ sample_group_ids_json() {
   local work_root="${1:?WORK_ROOT}"
   local manifest_path="${work_root}/logical_group_manifest.json"
   local group_count sample_size
-  group_count="$(jq 'length' "$manifest_path")"
+  if [ ! -f "$manifest_path" ]; then
+    echo "converge_input_error=missing_logical_group_manifest path=${manifest_path}" >&2
+    return 1
+  fi
+  group_count="$(jq 'length' "$manifest_path" 2>/dev/null || true)"
+  if ! [[ "$group_count" =~ ^[0-9]+$ ]]; then
+    echo "converge_input_error=bad_manifest_group_count group_count=${group_count:-unset} path=${manifest_path}" >&2
+    return 1
+  fi
   # Full coverage by default. Cap only when DBSPLIT_HYDRATE_SAMPLE_SIZE is set.
   if [ -n "${DBSPLIT_HYDRATE_SAMPLE_SIZE:-}" ] && [ "${DBSPLIT_HYDRATE_SAMPLE_SIZE}" -gt 0 ] 2>/dev/null; then
     sample_size="$DBSPLIT_HYDRATE_SAMPLE_SIZE"
@@ -3422,26 +3461,56 @@ sample_group_ids_json() {
   fi
   mirror_note "$work_root" "large_state_sample_size" "$sample_size"
   mirror_note "$work_root" "hydrate_group_total" "$group_count"
-  jq -c --argjson n "$sample_size" 'keys | sort | .[0:$n]' "$manifest_path"
+  jq -c --argjson n "$sample_size" 'keys | sort | .[0:$n]' "$manifest_path" 2>/dev/null || {
+    echo "converge_input_error=manifest_jq_failed path=${manifest_path}" >&2
+    return 1
+  }
 }
 
 cmd_prepare_parallel_artifacts() {
   local work_root="${1:?WORK_ROOT}"
   require_embedded_invocation || return 1
 
-  DBSPLIT_QUIET_PY=1 run_decomposer_py "$work_root" prepare-parallel-artifacts "$work_root"
+  # Fail fast with an emitted sentinel instead of jq-ing missing files for a
+  # truncated workflow id and spinning to the 30m tool timeout (trace 1c64c4a5).
+  if [ ! -f "${work_root}/logical_group_manifest.json" ] || [ ! -f "${work_root}/batch_payloads.json" ]; then
+    echo "converge_input_error=missing_ingest_inputs work_root=${work_root}" >&2
+    mirror_note "$work_root" "blocked:converge_inputs_missing" "true" || true
+    mirror_note "$work_root" "converge_input_error" "missing_ingest_inputs" || true
+    echo 'blocked:converge_inputs_missing: "true"'
+    return 1
+  fi
+
+  DBSPLIT_QUIET_PY=1 run_decomposer_py "$work_root" prepare-parallel-artifacts "$work_root" || return 1
   mirror_note "$work_root" "stage_summary:prepare-parallel-artifacts" "ok"
 
+  if [ ! -f "${work_root}/sample_group_ids.json" ]; then
+    echo "converge_input_error=missing_sample_group_ids work_root=${work_root}" >&2
+    mirror_note "$work_root" "blocked:converge_inputs_missing" "true" || true
+    mirror_note "$work_root" "converge_input_error" "missing_sample_group_ids" || true
+    echo 'blocked:converge_inputs_missing: "true"'
+    return 1
+  fi
+
   local sample_ids
-  sample_ids="$(jq -c '.' "${work_root}/sample_group_ids.json")"
+  sample_ids="$(jq -c '.' "${work_root}/sample_group_ids.json" 2>/dev/null || true)"
+  if [ -z "$sample_ids" ] || [ "$sample_ids" = "null" ]; then
+    echo "converge_input_error=bad_sample_group_ids work_root=${work_root}" >&2
+    mirror_note "$work_root" "blocked:converge_inputs_missing" "true" || true
+    mirror_note "$work_root" "converge_input_error" "bad_sample_group_ids" || true
+    echo 'blocked:converge_inputs_missing: "true"'
+    return 1
+  fi
   mirror_note "$work_root" "large_state_sample_group_ids" "$sample_ids"
   mirror_note "$work_root" "sample_group_ids_path" "${work_root}/sample_group_ids.json"
   mirror_note "$work_root" "batch_payloads_path" "${work_root}/batch_payloads.json"
   mirror_note "$work_root" "identifier_map_path" "${work_root}/identifier_map.json"
 
   local group_count sample_size
-  group_count="$(jq 'length' "${work_root}/logical_group_manifest.json")"
-  sample_size="$(jq 'length' "${work_root}/sample_group_ids.json")"
+  group_count="$(jq 'length' "${work_root}/logical_group_manifest.json" 2>/dev/null || echo 0)"
+  sample_size="$(jq 'length' "${work_root}/sample_group_ids.json" 2>/dev/null || echo 0)"
+  [[ "$group_count" =~ ^[0-9]+$ ]] || group_count=0
+  [[ "$sample_size" =~ ^[0-9]+$ ]] || sample_size=0
   if [ "$sample_size" -lt "$group_count" ]; then
     mirror_note "$work_root" "large_state_sample_mode" "true"
   else
@@ -3531,23 +3600,39 @@ def drop_attr_lines(block: str, attrs) -> str:
     return block
 
 def drop_list_or_block_attr(block: str, attr: str) -> str:
-    # Attribute form: mixed_instances_policy = [ ... ] (possibly nested)
+    # Attribute form: attr = [ ... ] or attr = { ... } (possibly nested). Scan
+    # a balanced span so multi-line values are removed whole. The previous
+    # single-line fallback orphaned the value body when the opener line did
+    # not end in '[' (trace 1c64c4a5: bare `{` on generated.tf line 6 →
+    # "Argument or block definition required" init_failed x3).
     pattern = re.compile(
-        rf"^(\s*){re.escape(attr)}\s*=\s*\[",
+        rf"^(\s*){re.escape(attr)}\s*=\s*[\[\{{]",
         re.M,
     )
     while True:
         m = pattern.search(block)
         if not m:
             break
-        i = m.end() - 1  # at '['
+        opener = m.group(0).rstrip()[-1]
+        i = m.end() - 1  # at '[' or '{'
         depth = 0
         j = i
+        in_str = False
+        escape = False
         while j < len(block):
             ch = block[j]
-            if ch == "[":
+            if in_str:
+                if escape:
+                    escape = False
+                elif ch == "\\":
+                    escape = True
+                elif ch == '"':
+                    in_str = False
+            elif ch == '"':
+                in_str = True
+            elif ch == opener:
                 depth += 1
-            elif ch == "]":
+            elif ch == ("]" if opener == "[" else "}"):
                 depth -= 1
                 if depth == 0:
                     j += 1
@@ -3559,7 +3644,6 @@ def drop_list_or_block_attr(block: str, attr: str) -> str:
         if j < len(block) and block[j] == "\n":
             j += 1
         block = block[: m.start()] + block[j:]
-    block = re.sub(rf"^\s*{re.escape(attr)}\s*=.*\n", "", block, flags=re.M)
     return block
 
 def _extract_bracket_span(text: str, open_idx: int) -> int:
@@ -4398,11 +4482,30 @@ cmd_hydrate_and_plan_matrix() {
     cmd_prepare_parallel_artifacts "$work_root" || return 1
   fi
 
+  # Serialize visits: a retried tool call must not hydrate and git-push
+  # concurrently with a previous visit that is still running (trace 1c64c4a5:
+  # overlapping converge visits raced .git/index.lock in PR sync and both were
+  # killed at the 30m tool timeout). Lock waits up to DBSPLIT_LOCK_TIMEOUT and
+  # fails loudly when a live visit holds it.
+  local visit_lock=""
+  visit_lock="$(acquire_run_lock "$work_root" "converge-visit")" || {
+    echo "converge_visit_error=lock_timeout" >&2
+    echo 'converge_retryable: "true"'
+    echo 'converge_batch_incomplete: "true"'
+    echo "hydrate_incomplete_reason=visit_lock_held"
+    return 0
+  }
+
   # Cap work per pack visit so one execute_series cannot OOM the runner
   # (signal: killed). 0 = unlimited (default) — finish all groups before Ready.
   # Set DBSPLIT_HYDRATE_MAX_GROUPS_PER_VISIT>0 only when deliberately batching;
   # shell-converge-loop GO_BACKs until hydrate_groups_remaining=0.
   local max_per_visit="${DBSPLIT_HYDRATE_MAX_GROUPS_PER_VISIT:-0}"
+  # Wall-clock budget per visit (default 20m) so the visit completes inside the
+  # nile-runner 30m result-wait window; remaining groups are deferred and the
+  # loop resumes them next visit instead of losing the whole batch result.
+  local visit_budget="${DBSPLIT_HYDRATE_VISIT_BUDGET_SECONDS:-1200}"
+  local visit_deadline=$(( $(date +%s) + visit_budget ))
   local ok_count fail_count zero_count total missing_count soft_count compile_ok_count
   local skipped_ok processed_this_visit remaining deferred
   ok_count=0
@@ -4444,6 +4547,13 @@ cmd_hydrate_and_plan_matrix() {
       remaining=$((remaining + 1))
       deferred=$((deferred + 1))
       echo "group_deferred=${group_id} reason=visit_batch_cap max=${max_per_visit}"
+      continue
+    fi
+
+    if [ "$visit_budget" -gt 0 ] 2>/dev/null && [ "$(date +%s)" -ge "$visit_deadline" ] 2>/dev/null; then
+      remaining=$((remaining + 1))
+      deferred=$((deferred + 1))
+      echo "group_deferred=${group_id} reason=visit_time_budget budget_seconds=${visit_budget}"
       continue
     fi
 
@@ -4597,8 +4707,10 @@ PY
       mirror_note "$work_root" "hcl_fix_report_path" "$agg" || true
     fi
     # Soft-fail: keep exit 0 so converge can still sync generated.tf to the PR.
+    release_run_lock "$visit_lock"
     return 0
   fi
+  release_run_lock "$visit_lock"
   return 0
 }
 
@@ -7386,6 +7498,7 @@ cmd_commit_pr() {
   branch="$(allocate_unique_pr_branch "$repo_full" "discovery" "$workflow_run_id")"
 
   cd "$repo_dir"
+  clear_stale_git_index_lock "$repo_dir"
   if ! git switch -c "$branch"; then
     mirror_note "$work_root" "pr_blocker" "branch_create_failed"
     echo "pr_blocker=branch_create_failed"
@@ -7423,6 +7536,10 @@ cmd_commit_pr() {
     [ -n "$tfstate_file" ] || continue
     tfstate_paths+=("$tfstate_file")
   done < <(find aws/groups -type f \( -name '*.tfstate' -o -name '*.tfstate.backup' \) 2>/dev/null || true)
+  while IFS= read -r tfstate_file; do
+    [ -n "$tfstate_file" ] || continue
+    tfstate_paths+=("$tfstate_file")
+  done < <(find aws/artifacts/cloud2code -type f -name '*.tfstate' 2>/dev/null || true)
   git_commit_paths_if_changed \
     "aws: tfstate monolith and split shards for ${workflow_run_id}" \
     "${tfstate_paths[@]}" || rc=$?
@@ -7430,6 +7547,18 @@ cmd_commit_pr() {
     mirror_note "$work_root" "pr_blocker" "tfstate_commit_failed"
     return 1
   fi
+  # Evidence: monolith + shard state must be tracked in the PR (gitignore-proof).
+  local committed_tfstate_count=0 monolith_tfstate_tracked=false
+  committed_tfstate_count="$(git ls-files -- 'aws/groups/**/*.tfstate' 'aws/artifacts/cloud2code/**/*.tfstate' 2>/dev/null | wc -l | tr -d ' ')"
+  if git ls-files --error-unmatch 'aws/artifacts/cloud2code/aws-*/terraform.tfstate' >/dev/null 2>&1 \
+    || git ls-files -- 'aws/artifacts/cloud2code/**/*.tfstate' 2>/dev/null | grep -q .; then
+    monolith_tfstate_tracked=true
+  fi
+  echo "tfstate_committed=true"
+  echo "tfstate_tracked_count=${committed_tfstate_count}"
+  echo "monolith_tfstate_tracked=${monolith_tfstate_tracked}"
+  mirror_note "$work_root" "tfstate_tracked_count" "$committed_tfstate_count"
+  mirror_note "$work_root" "monolith_tfstate_tracked" "$monolith_tfstate_tracked"
   # 3) migration blueprint
   rc=0
   git_commit_paths_if_changed \

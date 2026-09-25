@@ -7,11 +7,17 @@ tfplan
 **/backend.hcl
 
 # Terraform state records live resource metadata and can carry secrets in
-# plaintext attributes. The split pipeline writes per-group state under
-# aws/groups/ and aws/artifacts/; none of it may be committed.
+# plaintext attributes. The general rule keeps stray local state out of git.
+# EXCEPTION: aws-cloud-discovery PRs must commit the scanned monolith state
+# (aws/artifacts/cloud2code/<region>/terraform.tfstate) and the per-group
+# shards (aws/groups/<group>/terraform.tfstate) — they are the run's core
+# artifact and the pack force-adds them (trace 1c64c4a5).
 *.tfstate
 *.tfstate.*
 *.tfstate.backup
+!aws/artifacts/cloud2code/**
+!aws/groups/**/*.tfstate
+!aws/groups/**/*.tfstate.backup
 agent-pipeline-config/tfvars/*.json
 
 # Local runner / Helm values often embed mothership tokens — never commit.

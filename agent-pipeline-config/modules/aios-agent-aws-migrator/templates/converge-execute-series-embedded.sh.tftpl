@@ -23,14 +23,21 @@ ${dbsplit_script_pack_preload_helpers}
 if ! dbsplit_ensure_script_pack "$WORK_ROOT"; then
   exit 1
 fi
+# Fail fast when the work root lacks ingest outputs (truncated workflow id,
+# trace 1c64c4a5) instead of jq-ing missing files until the 30m tool timeout.
+if [ ! -f "$WORK_ROOT/logical_group_manifest.json" ] || [ ! -f "$WORK_ROOT/batch_payloads.json" ]; then
+  echo 'blocked:converge_inputs_missing: "true"'
+  echo "converge_input_error=missing_ingest_inputs work_root=$WORK_ROOT"
+  exit 1
+fi
 bash -s hydrate-and-plan-matrix "$WORK_ROOT" < "$WORK_ROOT/scripts/stage-runner.sh" || true
 # Always push generated.tf to the discovery PR. Validation / zero-diff stay soft
 # signals — losing hydrate work when fmt/validate fails wastes the scan.
 # hydrate may soft-fail, batch-cap incomplete, or leave a checkpoint after OOM;
 # do not let set -e skip the sync.
-# Matrix resumes already-green groups. Default visit cap is unlimited (0);
-# set DBSPLIT_HYDRATE_MAX_GROUPS_PER_VISIT>0 only to batch; shell-converge-loop
-# GO_BACKs until hydrate_groups_remaining=0 before Ready.
+# Matrix resumes already-green groups. Default visit cap is unlimited (0) and a
+# 20m wall-clock budget defers the rest inside the 30m nile-runner window;
+# shell-converge-loop GO_BACKs until hydrate_groups_remaining=0 before Ready.
 IAC_REPOSITORY_URL="$(jq -r --arg d "${default_iac_repository_url}" '.iac_repository_url // $d' "$WORK_ROOT/notes.json" 2>/dev/null || echo "${default_iac_repository_url}")"
 DEFAULT_BRANCH="$(jq -r --arg d "${default_branch}" '.default_branch // $d' "$WORK_ROOT/notes.json" 2>/dev/null || echo "${default_branch}")"
 bash -s sync-hydrated-iac-pr "$WORK_ROOT" "$${IAC_REPOSITORY_URL}" "$${DEFAULT_BRANCH}" "$${WORKFLOW_RUN_ID}" \
