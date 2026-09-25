@@ -200,6 +200,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
       skill_refs       = []
       note             = <<-EOT
         Goal: scan the AWS region into Terraform state so later stages have a state file path. Do not ask the operator for that path.
+        If the scan reports permission-skipped reads (`listed > imported`, `read_skipped > 0`, especially IAM `GetRolePolicy`), stop at the scan gate. Do not invoke ingest or enable partial mode to create a successful-looking PR. Report exact denied actions/resources and ask the operator to update the read-only runner identity before rerunning (for this failure, grant `iam:GetRolePolicy` on only the required role ARNs, e.g. `arn:aws:iam::<account-id>:role/<role-name>`; do not grant `iam:*`).
         Done when: your stage result includes the runner line `cloud2code_scan_ok: "true"`, a non-empty state path, and resource count greater than zero.
         How: ONE `${local.shell_tool_prefix}_execute_series` whose `commands[0].command` is the **exact one-line body** between `---BEGIN CLOUD2CODE_SCAN_EXECUTE_SERIES---` and `---END---` below (starts with `GIT_TOKEN=` / `gh release download` of `pack-entry.sh`, then `scan`). create_agent is fine with that same body in the expectation.
         **FORBIDDEN:** `command="CLOUD2CODE_SCAN_EXECUTE_SERIES"` or any other use of the marker label as the shell command (exit 127). Swap only `AWS_REGION_PLACEHOLDER` and `{{workflow_run_id}}`. Do not invent pack-dir checks or alternate cloud2code invocations.
@@ -262,7 +263,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
         exit_condition = "output_matches_regex"
         # Quoted true only — prose "count_reconciliation_ok=true were not produced"
         # false-FINISHed ingest (session c38ad01b) and skipped a real retry.
-        exit_match     = "count_reconciliation_ok:\\s*\\\"true\\\"|blocked:missing_monolith_state_uri|blocked:three_runner_attempts_failed|blocked:ingest_script_pack_failed|blocked:split_lock_timeout|script_pack_verify_ok:\\s*\\\"false\\\"|script_pack_error="
+        exit_match = "count_reconciliation_ok:\\s*\\\"true\\\"|blocked:missing_monolith_state_uri|blocked:three_runner_attempts_failed|blocked:ingest_script_pack_failed|blocked:split_lock_timeout|script_pack_verify_ok:\\s*\\\"false\\\"|script_pack_error="
       }
     },
     {
@@ -291,7 +292,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
         Goal: open a PR with the generated AWS Terraform folders, or leave a concrete reason the PR could not open.
         Done when: your stage result includes the batch payloads path and either a PR URL or a real PR blocker from the runner.
         How: ONE `${local.shell_tool_prefix}_execute_series` with `commands[0].command` set to the **exact one-line body** between `---BEGIN IAC_PR_EXECUTE_SERIES---` and `---END---` below (starts with `GIT_TOKEN=` / `WORKFLOW_RUN_ID=` and runs `iac-pr-bootstrap.sh` on the pack). create_agent is fine with the same body.
-        **FORBIDDEN:** `command="IAC_PR_EXECUTE_SERIES"` or running the marker label as shell (exit 127). Soft split-quality scores are warnings, not blockers.
+        **FORBIDDEN:** `command="IAC_PR_EXECUTE_SERIES"` or running the marker label as shell (exit 127). Soft split-quality scores are warnings, not blockers. Never rebuild this one-liner by hand: it contains nested quotes. If the runner returns `/bin/sh: Syntax error: Unterminated quoted string`, the command was mangled; retry only by copying the exact BEGIN/END body unchanged.
         Prefer the pack command over inventing shell. Echo only runner-emitted success or blocker lines; do not paraphrase them away.
 
         ${local.dbsplit_spawn_context_registry}
@@ -309,8 +310,8 @@ resource "sg_workflow" "aws_migrator_discovery" {
       note = <<-EOT
         Goal: hydrate generated Terraform HCL for sampled groups, push it to the discovery PR, and keep fixing until fmt/validate passes when possible. A zero-change plan is nice but optional.
         Done when: the runner printed `terraform_validation_ok: "true"` or `terraform_validation_ok: "false"` (plus sync status). Validation false is not a stage failure and must not skip the PR sync or stop orphan/final stages.
-        How: ONE `${local.shell_tool_prefix}_execute_series` pasting the **exact** BEGIN/END `CONVERGE_EXECUTE_SERIES` one-liner (starts with `GIT_TOKEN=` / `WORKFLOW_RUN_ID=` and runs `converge-bootstrap.sh` on the pack). create_agent is fine for HCL fixes.
-        **FORBIDDEN:** `command="CONVERGE_EXECUTE_SERIES"` or `exec …/CONVERGE_EXECUTE_SERIES` (exit 127). Never use the marker label as the command.
+        How: ONE `${local.shell_tool_prefix}_execute_series` pasting the **exact** BEGIN/END `CONVERGE_EXECUTE_SERIES` one-liner (starts with `GIT_TOKEN=` / `WORKFLOW_RUN_ID=` and runs `converge-bootstrap.sh` on the pack); set `timeout_seconds=3600`. The workflow id is passed as argv and the pack entrypoint exports it before invoking the bootstrap. create_agent is fine for HCL fixes.
+        **FORBIDDEN:** `command="CONVERGE_EXECUTE_SERIES"` or `exec …/CONVERGE_EXECUTE_SERIES` (exit 127). Never use the marker label as the command. On `/bin/sh: Syntax error: Unterminated quoted string`, fix the command construction once; do not repeat malformed variants. On `error=WORKFLOW_RUN_ID_unset`, confirm the runner call passed the run id as its positional argument and re-paste the exact command once — do not retry identical commands that omit it.
         If `hcl_fix_target_count>0` (or the report lists targets): **in this same visit**, surgically edit named `generated.tf` blocks, then re-run the pack. Never truncate or blank `generated.tf`. A bare pack re-run with no edits is not progress when targets exist.
         If the tool returns `signal: killed` / exit 137, or stdout has `converge_batch_incomplete: "true"` / `converge_retryable: "true"`: echo `blocked:runner_killed: "true"` (when killed) plus the pack retry lines, then re-run the **same** pack command. Do **not** invent HCL surgery for a kill. Pack resumes already-green groups and continues the batch.
         If the runner sentinel is truncated/missing: echo what you have and let the loop retry once. Do **not** write `terraform_validation_ok=true` in a "not produced" sentence.

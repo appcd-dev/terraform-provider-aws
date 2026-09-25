@@ -128,7 +128,7 @@ def main() -> None:
     assert "preflight" in preflight_cmd
     # /opt-prefer pack_entry + AWS cred hygiene glue is intentionally longer than
     # the old gh-only one-liner; cap runaway growth, not the old 550 ceiling.
-    assert len(invoke) < 1200, f"pack-entry invoke too long: {len(invoke)}"
+    assert len(invoke) < 1600, f"pack-entry invoke too long: {len(invoke)}"
     assert len(command) < 200, f"scan body too long: {len(command)}"
     assert len(preflight_cmd) < 200, f"preflight body too long: {len(preflight_cmd)}"
 
@@ -160,6 +160,13 @@ def main() -> None:
     assert not re.search(
         r"blocked:remote_runner_script_pack_missing\|", gate_match
     ), "preflight gate must use emitted :true forms, not bare names"
+
+    # Ingest: fail closed unless the scan wrapper persisted its completed marker.
+    ingest_template = (MODULE / "templates" / "ingest-execute-series-embedded.sh.tftpl").read_text()
+    assert '.cloud2code_scan_ok == "true"' in ingest_template
+    assert "blocked:cloud2code_scan_incomplete" in ingest_template
+    assert "Do not invoke ingest" in scan
+    assert "GetRolePolicy" in scan
 
     # Ingest: skills empty, one bootstrap body, concrete false on blocked gate.
     ingest = _binding(workflow, "ingest-and-split")

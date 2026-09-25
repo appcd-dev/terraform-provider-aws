@@ -67,6 +67,15 @@ mkdir -p "$WORK_ROOT/scripts" "$WORK_ROOT/state" "$WORK_ROOT/.work"
 [ -f "$WORK_ROOT/notes.json" ] || echo '{}' >"$WORK_ROOT/notes.json"
 chmod 700 "$WORK_ROOT" 2>/dev/null || true
 
+# Do not let a scan permission/read failure fall through into ingest just because
+# the workflow conditional gate lost the sentinel in an LLM summary.
+if [ ! -f "$WORK_ROOT/notes.json" ] || ! jq -e '.cloud2code_scan_ok == "true"' "$WORK_ROOT/notes.json" >/dev/null 2>&1; then
+  echo 'blocked:cloud2code_scan_incomplete: "true"'
+  echo 'stage_summary:ingest-and-split=blocked:cloud2code_scan_incomplete'
+  echo 'error=cloud2code_scan_not_verified'
+  exit 1
+fi
+
 if ! dbsplit_resolve_monolith_uri "$WORK_ROOT"; then
   # Emit the loop/gate sentinel directly so ingest-split-loop and
   # ingest-blocked-gate match without LLM translation of error=MONOLITH_URI_unset.

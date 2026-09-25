@@ -125,6 +125,15 @@ def main() -> None:
     assert got2.returncode == 0, got2.stderr
     assert "Syntax error" not in (got2.stderr or ""), got2.stderr
 
+    # Discovery entrypoint arguments must be promoted into the environment before
+    # the generated bootstraps run. execute_series passes argv to pack_entry; it
+    # does not export WORKFLOW_RUN_ID on behalf of the command.
+    for stage in ("ingest", "iac-pr", "converge"):
+        assert (
+            f';; {stage}) export WORKFLOW_RUN_ID="${{2}}"; shift; exec bash'
+            in invoke
+        ), f"{stage} dispatch must export the positional workflow run id"
+
     pack = PACK_ENTRY.read_text()
     assert "destination)" in pack
     assert "run-destination-stage.sh" in pack

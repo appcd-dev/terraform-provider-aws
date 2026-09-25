@@ -33,6 +33,13 @@ variable "github_integration_name" {
   default     = "cloud-github"
 }
 
+variable "github_secret_id" {
+  description = "Existing vault secret UUID bound to the GitHub integration for storing sensitive credentials."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 variable "aws_integration_name" {
   description = "Existing AWS Aiden integration name (required when enable_agent_stack is true)."
   type        = string
