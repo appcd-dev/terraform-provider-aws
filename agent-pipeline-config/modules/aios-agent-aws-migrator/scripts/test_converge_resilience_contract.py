@@ -113,6 +113,47 @@ def test_workflow_wiring() -> None:
     assert "blocked:converge_inputs_missing" in converge
 
 
+def test_converge_workflow_id_argv_fallback() -> None:
+    # pack_entry receives `converge RUN_ID`, shifts the command, then execs the
+    # bootstrap with RUN_ID as argv[1]. Env remains preferred, argv is fallback.
+    assert 'WORKFLOW_RUN_ID="$${WORKFLOW_RUN_ID:-$${1:-}}"' in CONVERGE_TPL
+    assert 'error=WORKFLOW_RUN_ID_unset argv_count=$#' in CONVERGE_TPL
+    pack_entry = (MODULE / "main.tf").read_text(encoding="utf-8")
+    assert 'converge) export WORKFLOW_RUN_ID=' in pack_entry
+    assert 'converge-bootstrap.sh' in pack_entry
+
+
+def test_converge_status_artifact_is_durable_and_synced() -> None:
+    assert "write_converge_status_artifact()" in STAGE
+    assert 'converge-status.json' in STAGE
+    assert 'schema:"nile-converge-status/v1"' in STAGE
+    assert 'terraform_validation_ok:$validation_ok' in STAGE
+    assert 'terraform_validation_ok:null' in STAGE
+    assert 'hydrate_groups_remaining:$remaining' in STAGE
+    assert 'aws/artifacts/converge-status.json' in STAGE
+
+
+def test_lock_recovery_never_steals_live_or_fresh_unowned_lock() -> None:
+    lock = STAGE.split("try_reclaim_run_lock() {", 1)[1].split("\nacquire_run_lock()", 1)[0]
+    assert 'if kill -0 "$holder_pid"' in lock
+    assert 'lock_reclaimed=dead_holder' in lock
+    assert 'lock_reclaimed=stale_unowned' in lock
+    assert 'Never use a short age-only grace' in lock
+    assert 'lock_reclaimed=no_holder' not in lock
+    assert 'reclaim-guard' in lock
+    assert 'guard_pid' in lock
+    assert 'guard_quarantine' in lock
+    # Age alone must not evict a valid live PID holder.
+    assert 'A valid live owner is never evicted based on age' in lock
+
+
+def test_script_pack_version_is_in_sync() -> None:
+    main_tf = (MODULE / "main.tf").read_text(encoding="utf-8")
+    match = re.search(r'script_pack_version = "([0-9.]+)"', main_tf)
+    assert match
+    assert f'SCRIPT_PACK_VERSION="{match.group(1)}"' in STAGE
+
+
 def main() -> None:
     test_converge_inputs_fail_fast()
     test_converge_visit_budget_and_serialization()
@@ -120,6 +161,10 @@ def main() -> None:
     test_tfstate_committed_to_pr()
     test_drop_list_or_block_attr_balanced_scan()
     test_workflow_wiring()
+    test_converge_workflow_id_argv_fallback()
+    test_converge_status_artifact_is_durable_and_synced()
+    test_lock_recovery_never_steals_live_or_fresh_unowned_lock()
+    test_script_pack_version_is_in_sync()
     print("OK: converge resilience + tfstate-in-PR contract")
 
 

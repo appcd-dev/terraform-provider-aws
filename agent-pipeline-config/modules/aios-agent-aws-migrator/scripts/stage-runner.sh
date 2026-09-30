@@ -4,7 +4,7 @@
 # Usage: DBSPLIT_EMBEDDED=1 bash -s <command> [args...] << 'DBSPLIT_STAGE_RUNNER' ... DBSPLIT_STAGE_RUNNER
 set -euo pipefail
 
-SCRIPT_PACK_VERSION="20260929.03"
+SCRIPT_PACK_VERSION="20260930.01"
 DBSPLIT_DEFAULT_STRATEGY="${DBSPLIT_DEFAULT_STRATEGY:-tfstate_monolith_decomposer}"
 DBSPLIT_DEFAULT_CAP="${DBSPLIT_DEFAULT_CAP:-0}"
 REQUIRED_ALLOCATE_MARKER="def merge_small_by_seed"
@@ -53,37 +53,82 @@ mtime_epoch() {
   stat -c %Y "$path" 2>/dev/null || stat -f %m "$path" 2>/dev/null || echo 0
 }
 
+try_reclaim_run_lock() {
+  local lock_dir="${1:?LOCK_DIR}" name="${2:?LOCK_NAME}"
+  local now lock_mtime holder_pid guard quarantine
+  guard="${lock_dir}.reclaim-guard"
+  # Serialize reclaimers and re-read owner metadata under the guard. This keeps
+  # two contenders from both deciding that the same lock is stale. The guard
+  # also has an owner so SIGKILL cannot strand recovery indefinitely.
+  if ! mkdir "$guard" 2>/dev/null; then
+    local guard_pid guard_mtime guard_quarantine
+    guard_pid="$(sed -n 's/^pid=//p' "${guard}/holder" 2>/dev/null | head -1 | tr -d '[:space:]')"
+    guard_mtime="$(mtime_epoch "$guard")"
+    if [ -n "$guard_pid" ] && [[ "$guard_pid" =~ ^[0-9]+$ ]] && ! kill -0 "$guard_pid" 2>/dev/null; then
+      guard_quarantine="${guard}.reclaim.$$.$(date +%s)"
+      if mv "$guard" "$guard_quarantine" 2>/dev/null; then
+        rm -rf "$guard_quarantine" 2>/dev/null || true
+      fi
+    elif [ -z "$guard_pid" ] && [ "$guard_mtime" -gt 0 ] && \
+      [ $(( $(date +%s) - guard_mtime )) -gt "$DBSPLIT_LOCK_STALE_SECONDS" ]; then
+      guard_quarantine="${guard}.reclaim.$$.$(date +%s)"
+      if mv "$guard" "$guard_quarantine" 2>/dev/null; then
+        rm -rf "$guard_quarantine" 2>/dev/null || true
+      fi
+    fi
+    mkdir "$guard" 2>/dev/null || return 1
+  fi
+  printf 'pid=%s\n' "$$" >"${guard}/holder" 2>/dev/null || true
+  now="$(date +%s)"
+  lock_mtime="$(mtime_epoch "$lock_dir")"
+  holder_pid=""
+  if [ -f "${lock_dir}/holder" ]; then
+    holder_pid="$(sed -n 's/^pid=//p' "${lock_dir}/holder" 2>/dev/null | head -1 | tr -d '[:space:]')"
+  fi
+
+  if [ -n "$holder_pid" ] && [[ "$holder_pid" =~ ^[0-9]+$ ]]; then
+    # A valid live owner is never evicted based on age. PID reuse is
+    # conservative (it can delay recovery, never steal a live lock).
+    if kill -0 "$holder_pid" 2>/dev/null; then
+      rmdir "$guard" 2>/dev/null || true
+      return 1
+    fi
+    quarantine="${lock_dir}.reclaim.$$.$now"
+    if mv "$lock_dir" "$quarantine" 2>/dev/null; then
+      echo "lock_reclaimed=dead_holder name=${name} pid=${holder_pid} path=${lock_dir}" >&2
+      rm -rf "$quarantine" 2>/dev/null || true
+      rmdir "$guard" 2>/dev/null || true
+      return 0
+    fi
+  elif [ "$lock_mtime" -gt 0 ] && [ $((now - lock_mtime)) -gt "$DBSPLIT_LOCK_STALE_SECONDS" ]; then
+    # Missing/corrupt owner record can only be reclaimed after the long TTL.
+    # Never use a short age-only grace: a contender may be between mkdir and
+    # writing holder, and stealing that lock can overlap a live writer.
+    quarantine="${lock_dir}.reclaim.$$.$now"
+    if mv "$lock_dir" "$quarantine" 2>/dev/null; then
+      echo "lock_reclaimed=stale_unowned name=${name} age=$((now - lock_mtime))s path=${lock_dir}" >&2
+      rm -rf "$quarantine" 2>/dev/null || true
+      rmdir "$guard" 2>/dev/null || true
+      return 0
+    fi
+  fi
+  rmdir "$guard" 2>/dev/null || true
+  return 1
+}
+
 acquire_run_lock() {
   local work_root="${1:?WORK_ROOT}"
   local name="${2:?LOCK_NAME}"
   local lock_root="${work_root}/.work/locks"
   local lock_dir="${lock_root}/${name}.lock"
-  local start now lock_mtime holder_pid
+  local start now
   mkdir -p "$lock_root"
   start="$(date +%s)"
   while ! mkdir "$lock_dir" 2>/dev/null; do
     now="$(date +%s)"
-    lock_mtime="$(mtime_epoch "$lock_dir")"
-    holder_pid=""
-    if [ -f "${lock_dir}/holder" ]; then
-      holder_pid="$(sed -n 's/^pid=//p' "${lock_dir}/holder" 2>/dev/null | head -1 | tr -d '[:space:]')"
-    fi
-    # SIGKILL/OOM (session c38ad01b): holder never runs release_run_lock. Reclaim
-    # immediately when the recorded pid is gone instead of waiting the stale TTL.
-    if [ -n "$holder_pid" ] && [[ "$holder_pid" =~ ^[0-9]+$ ]] && ! kill -0 "$holder_pid" 2>/dev/null; then
-      echo "lock_reclaimed=dead_holder name=${name} pid=${holder_pid} path=${lock_dir}" >&2
-      rm -rf "$lock_dir" 2>/dev/null || true
-      continue
-    fi
-    # Empty/corrupt holder with a short grace — likely a crashed writer.
-    if [ -z "$holder_pid" ] && [ "$lock_mtime" -gt 0 ] && [ $((now - lock_mtime)) -gt 30 ]; then
-      echo "lock_reclaimed=no_holder name=${name} path=${lock_dir}" >&2
-      rm -rf "$lock_dir" 2>/dev/null || true
-      continue
-    fi
-    if [ "$lock_mtime" -gt 0 ] && [ $((now - lock_mtime)) -gt "$DBSPLIT_LOCK_STALE_SECONDS" ]; then
-      echo "lock_reclaimed=stale name=${name} age=$((now - lock_mtime))s path=${lock_dir}" >&2
-      rm -rf "$lock_dir" 2>/dev/null || true
+    # SIGKILL/OOM: holder never runs release_run_lock. Reclaim only after
+    # atomically serializing contenders and re-checking owner metadata.
+    if try_reclaim_run_lock "$lock_dir" "$name"; then
       continue
     fi
     if [ $((now - start)) -ge "$DBSPLIT_LOCK_TIMEOUT_SECONDS" ]; then
@@ -3029,6 +3074,9 @@ cmd_sync_groups_to_repo() {
   if [ -f "${work_root}/.work/aws-caller-identity.json" ]; then
     cp "${work_root}/.work/aws-caller-identity.json" "${artifacts_dir}/aws-caller-identity.json"
   fi
+  if [ -s "${work_root}/aws/artifacts/converge-status.json" ]; then
+    cp "${work_root}/aws/artifacts/converge-status.json" "${artifacts_dir}/converge-status.json"
+  fi
   prepare_aws_discovery_pr_artifacts "$work_root" "$artifacts_dir"
 
   if [ ! -f "${source_dir}/README.md" ]; then
@@ -4501,6 +4549,40 @@ write_hydrate_checkpoint() {
   mirror_note "$work_root" "hydrate_last_group" "$last_group" || true
 }
 
+write_converge_status_artifact() {
+  local work_root="${1:?WORK_ROOT}"
+  local complete="${2:?COMPLETE}"
+  local validation_ok="${3:-}"
+  local total="${4:-0}" ok="${5:-0}" failed="${6:-0}"
+  local remaining="${7:-0}" generated="${8:-0}" compile_ok="${9:-0}"
+  local blocker="${10:-}"
+  local artifact="${work_root}/aws/artifacts/converge-status.json"
+  mkdir -p "$(dirname "$artifact")"
+  local tmp
+  tmp="$(mktemp "${artifact}.XXXXXX")"
+  if [ "$complete" = "true" ]; then
+    jq -n \
+      --arg run_id "$(read_note "$work_root" workflow_run_id 2>/dev/null || true)" \
+      --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg blocker "$blocker" \
+      --argjson validation_ok "$validation_ok" \
+      --argjson total "$total" --argjson ok "$ok" --argjson failed "$failed" \
+      --argjson remaining "$remaining" --argjson generated "$generated" \
+      --argjson compile_ok "$compile_ok" \
+      '{schema:"nile-converge-status/v1",workflow_run_id:$run_id,updated_at:$timestamp,complete:true,blocker:$blocker,terraform_validation_ok:$validation_ok,hydrate_groups_total:$total,hydrate_groups_ok:$ok,hydrate_groups_failed:$failed,hydrate_groups_remaining:$remaining,hydrated_generated_tf_count:$generated,compile_ok_groups:$compile_ok}' >"$tmp"
+  else
+    jq -n \
+      --arg run_id "$(read_note "$work_root" workflow_run_id 2>/dev/null || true)" \
+      --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg blocker "$blocker" \
+      --argjson total "$total" --argjson ok "$ok" --argjson failed "$failed" \
+      --argjson remaining "$remaining" --argjson generated "$generated" \
+      --argjson compile_ok "$compile_ok" \
+      '{schema:"nile-converge-status/v1",workflow_run_id:$run_id,updated_at:$timestamp,complete:false,blocker:$blocker,terraform_validation_ok:null,hydrate_groups_total:$total,hydrate_groups_ok:$ok,hydrate_groups_failed:$failed,hydrate_groups_remaining:$remaining,hydrated_generated_tf_count:$generated,compile_ok_groups:$compile_ok}' >"$tmp"
+  fi
+  mv "$tmp" "$artifact"
+  mirror_note "$work_root" "converge_status_artifact" "$artifact" || true
+  echo "converge_status_artifact=${artifact}"
+}
+
 cmd_hydrate_and_plan_matrix() {
   local work_root="${1:?WORK_ROOT}"
   require_embedded_invocation || return 1
@@ -4530,6 +4612,10 @@ cmd_hydrate_and_plan_matrix() {
     echo 'converge_retryable: "true"'
     echo 'converge_batch_incomplete: "true"'
     echo "hydrate_incomplete_reason=visit_lock_held"
+    local lock_generated_count lock_total
+    lock_generated_count="$(find "${work_root}/groups" -mindepth 2 -maxdepth 2 -name generated.tf -size +0 2>/dev/null | wc -l | tr -d ' ')"
+    lock_total="$(jq 'length' "$sample_path" 2>/dev/null || echo 0)"
+    write_converge_status_artifact "$work_root" false "" "${lock_total:-0}" 0 0 "${lock_total:-0}" "${lock_generated_count:-0}" 0 visit_lock_held
     return 0
   }
 
@@ -4698,6 +4784,11 @@ cmd_hydrate_and_plan_matrix() {
     echo "terraform_validation_ok: \"${validation_ok}\""
     echo "multi_plan_zero_diff_ok: \"${multi_ok}\""
   fi
+
+  # Durable runner-side validation record, copied into the discovery PR below.
+  write_converge_status_artifact "$work_root" "$([[ "$batch_incomplete" != true ]] && echo true || echo false)" "$validation_ok" \
+    "$total" "$ok_count" "$fail_count" "$remaining" "$generated_count" "$compile_ok_count" \
+    "$([ "$batch_incomplete" = true ] && echo batch_incomplete || true)"
 
   # Aggregate surgical targets across the sample so the agent has one punch list
   # instead of re-running the same pack with no diagnosis.
@@ -7660,7 +7751,8 @@ cmd_commit_pr() {
     aws/artifacts/sample_group_ids.json \
     aws/artifacts/batch_payloads.json \
     aws/artifacts/identifier_map.json \
-    aws/artifacts/notes.json || rc=$?
+    aws/artifacts/notes.json \
+    aws/artifacts/converge-status.json || rc=$?
   if [ "$rc" -eq 0 ]; then commits=$((commits + 1)); elif [ "$rc" -ne 2 ]; then
     mirror_note "$work_root" "pr_blocker" "split_report_commit_failed"
     return 1

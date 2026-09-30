@@ -323,7 +323,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
         On `blocked:converge_inputs_missing: "true"` (wrong run id / missing ingest outputs): echo it and stop — do not retry converge with invented ids.
         If `hcl_fix_target_count>0`: surgically edit the named `generated.tf` blocks in this visit, then re-run the pack. Never truncate or blank `generated.tf`; a bare re-run with no edits is not progress when targets exist.
         On `signal: killed` / exit 137 / `converge_batch_incomplete: "true"` / `converge_retryable: "true"`: echo `blocked:runner_killed: "true"` (when killed) plus the pack retry lines and re-run the **same** command. A tool timeout with no result also means re-paste once — visits are serialized and resume from the checkpoint.
-        If the sentinel is truncated/missing: echo what you have and let the loop retry once. Do **not** write `terraform_validation_ok=true` in a "not produced" sentence.
+        If the sentinel is truncated/missing: echo what you have and let the loop retry once. Check `aws/artifacts/converge-status.json` in the PR for durable status (`null` means incomplete). Never remove a live visit lock; retry and let the runner reclaim dead/stale locks. Do **not** write `terraform_validation_ok=true` in a "not produced" sentence.
 
         ${local.dbsplit_spawn_context_converge}
       EOT

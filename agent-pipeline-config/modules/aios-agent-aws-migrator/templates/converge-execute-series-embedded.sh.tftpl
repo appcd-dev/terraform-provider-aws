@@ -2,9 +2,9 @@ set -euo pipefail
 # Preloaded as ${script_pack_preload_dir}/converge-bootstrap.sh.
 # Stage note pastes only: WORKFLOW_RUN_ID='…' DBSPLIT_EMBEDDED=1 bash …/converge-bootstrap.sh
 export HOME=${runner_work_home}
-export WORKFLOW_RUN_ID="$${WORKFLOW_RUN_ID:-}"
+export WORKFLOW_RUN_ID="$${WORKFLOW_RUN_ID:-$${1:-}}"
 if [ -z "$${WORKFLOW_RUN_ID}" ] || printf '%s' "$${WORKFLOW_RUN_ID}" | grep -q '{{'; then
-  echo "error=WORKFLOW_RUN_ID_unset" >&2
+  echo "error=WORKFLOW_RUN_ID_unset argv_count=$#" >&2
   exit 1
 fi
 ABS_WORK_ROOT="${runner_work_home}/.$${WORKFLOW_RUN_ID}"
