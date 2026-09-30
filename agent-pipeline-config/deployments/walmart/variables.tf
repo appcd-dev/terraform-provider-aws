@@ -34,7 +34,7 @@ variable "github_integration_name" {
 }
 
 variable "github_secret_id" {
-  description = "Existing vault secret UUID bound to the GitHub integration for storing sensitive credentials."
+  description = "Existing vault secret UUID bound to the GitHub integration. When enable_agent_stack is true, the same secret is attached to the remote runner typed github slot (SCM metadata `token` is aliased to GIT_TOKEN/GH_TOKEN by runner preflight). This root never creates the secret."
   type        = string
   sensitive   = true
   default     = ""

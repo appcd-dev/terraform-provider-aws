@@ -4,7 +4,7 @@
 # The customer creates GitHub/AWS/GCP Guild integrations, vault secrets, and
 # the remote runner in the StackGen UI. This root only looks them up by name,
 # attaches agent + workflows, and binds existing vault secrets to the runner
-# typed aws/gcp slots. TF never creates cloud integrations, vault secrets, or
+# typed github/aws/gcp slots. TF never creates cloud integrations, vault secrets, or
 # registers a runner.
 #
 # enable_agent_stack = false applies only the dangerous-ops policy and optional
@@ -23,6 +23,12 @@ locals {
   # OAuth tokens, not ADC JSON).
   runner_gcp_attached      = var.enable_agent_stack && trimspace(var.runner_gcp_env_secret_id) != ""
   runner_gcp_env_secret_id = trimspace(var.runner_gcp_env_secret_id)
+  # GitHub Guild vault secret (SCM metadata `token`) bound to the runner typed
+  # github slot. Preflight aliases `token` → GIT_TOKEN/GH_TOKEN; do not create a
+  # second secret.
+  # github_secret_id is sensitive; the attached flag is only whether it is set.
+  runner_github_attached      = var.enable_agent_stack && trimspace(nonsensitive(var.github_secret_id)) != ""
+  runner_github_env_secret_id = trimspace(var.github_secret_id)
 }
 
 resource "sg_policy" "dangerous_ops" {
@@ -124,11 +130,15 @@ module "aws_migrator" {
   remote_runner_attach_to_agent = true
   # Pack is baked into the ACA nile-factory-runner image (Stackgen-Runner). Keep
   # SCRIPT_PACK_* generic vault sync off — Walmart Guild rejects Generic/env
-  # secrets for that path. Git credentials are configured on the runner itself
-  # (customer-managed): without them nile-runner_gh / pack-entry / gh pr create
-  # fail with "populate GH_TOKEN" even when the cloud-github MCP integration works.
+  # secrets for that path. Git credentials come from the existing GitHub
+  # integration vault secret (typed slot `github`). Without that binding,
+  # nile-runner_gh / pack-entry / gh pr create fail with "populate GH_TOKEN"
+  # even when the cloud-github MCP integration works. SCM metadata exposes
+  # `token`; runner preflight aliases it to GIT_TOKEN/GH_TOKEN.
   remote_runner_script_pack_sync_enabled = false
   remote_runner_secret_sync_enabled      = true
+  # Typed slot `github` → existing cloud-github vault secret (no new secret).
+  runner_git_env_secret_id = local.runner_github_env_secret_id
   # Typed slot `aws` → AWS_ACCESS_KEY_ID/SECRET via vault resolve. Bind the
   # customer's pre-created vault secret (this root never inline-creates one).
   runner_aws_env_secret_id = var.runner_aws_env_secret_id

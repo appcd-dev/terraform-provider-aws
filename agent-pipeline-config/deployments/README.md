@@ -35,9 +35,10 @@ cat > ../../tfvars/walmart.tfvars <<'EOF'
 stackgen_url        = "https://walmart.cloud.stackgen.com"
 stackgen_token      = "<STACKGEN_PAT>"
 stackgen_project_id = "<WORKSPACE_UUID>"
-github_integration_name = "<GITHUB_INTEGRATION>"   # e.g. cloud-github
-aws_integration_name    = "<AWS_INTEGRATION>"       # e.g. vibe-aws-scanner
-remote_runner_name      = "<RUNNER_NAME>"          # e.g. nile-runner
+github_integration_name  = "<GITHUB_INTEGRATION>"   # e.g. cloud-github
+github_secret_id         = "<GITHUB_VAULT_SECRET_UUID>"  # bound to runner typed github slot
+aws_integration_name     = "<AWS_INTEGRATION>"       # e.g. vibe-aws-scanner
+remote_runner_name       = "<RUNNER_NAME>"          # e.g. nile-runner
 EOF
 
 tofu init

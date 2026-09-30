@@ -32,8 +32,9 @@ Customer creates these in StackGen UI for workspace **Nile-Staging** (`bbc8f2a8-
 ### Runner prerequisites
 
 - Image: `ghcr.io/walmart-stackgen/nile-factory-runner` (see [`runner/README.md`](../../runner/README.md) and Stackgen-Runner ACA)
-- Script pack is **baked into the ACA image** (Walmart disables Guild vault secret sync). Image tag pack version must match `tofu output script_pack_version` after phase 2.
-- Git + AWS credentials on the runner (customer configures via UI — TF does not create git/aws runner secrets in the walmart path)
+- Script pack is **baked into the ACA image** (Walmart disables Guild generic/script-pack vault secret sync). Image tag pack version must match `tofu output script_pack_version` after phase 2.
+- Git credentials: set `github_secret_id` to the existing GitHub integration vault secret. Phase 2 binds that secret to the runner typed `github` slot (TF does not create a new secret). Runner preflight aliases SCM metadata `token` to `GIT_TOKEN` / `GH_TOKEN`.
+- AWS credentials: set `runner_aws_env_secret_id` to the existing AWS vault secret (typed `aws` slot). TF does not create git/aws runner secrets in the walmart path.
 - Runner status **online** in StackGen UI before starting workflows
 
 ### Hand back exact names
@@ -41,9 +42,11 @@ Customer creates these in StackGen UI for workspace **Nile-Staging** (`bbc8f2a8-
 Customer sends the **integration names** and **runner name** as shown in StackGen (not display labels). Example:
 
 ```
-github_integration_name = "cloud-github"
-aws_integration_name    = "cloud-aws"
-remote_runner_name      = "nile-staging-runner"
+github_integration_name  = "cloud-github"
+github_secret_id         = "<GITHUB_VAULT_SECRET_UUID>"
+aws_integration_name     = "cloud-aws"
+runner_aws_env_secret_id = "<AWS_VAULT_SECRET_UUID>"
+remote_runner_name       = "nile-staging-runner"
 ```
 
 ## Phase 2 apply (StackGen team)
@@ -68,6 +71,7 @@ tofu output discovery_workflow_name
 - [ ] `dangerous-ops` policy exists (phase 1)
 - [ ] GitHub + AWS integrations enabled
 - [ ] Remote runner online
+- [ ] Runner typed `github` slot bound to `github_secret_id` (`tofu output runner_github_attached` is true)
 - [ ] Agent `aws-migrator-architect` attached to integrations + runner (phase 2)
 - [ ] Workflows `aws-cloud-discovery`, `azure-migration-pr`, `gcp-migration-pr` visible (names may match module outputs)
 

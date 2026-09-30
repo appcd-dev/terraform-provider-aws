@@ -60,6 +60,11 @@ output "governance_codify_agent_name" {
   value       = try(module.governance_codify[0].agent_name, null)
 }
 
+output "runner_github_attached" {
+  description = "True when nile-runner typed github slot is bound to the existing GitHub integration vault secret."
+  value       = var.enable_agent_stack ? local.runner_github_attached : false
+}
+
 output "runner_gcp_env_secret_id" {
   description = "Vault secret UUID bound to nile-runner typed gcp slot (empty when no GCP secret is wired)."
   value       = var.enable_agent_stack ? local.runner_gcp_env_secret_id : ""
@@ -78,7 +83,7 @@ output "require_gcp_live_plan" {
 output "next_steps" {
   description = "Human-readable checklist for what to do after this apply."
   value = var.enable_agent_stack ? trimspace(<<-EOT
-    Phase 2 applied. Confirm the remote runner is online in StackGen UI and typed secrets sync (github/aws${local.runner_gcp_attached ? "/gcp" : ""}). Script pack version must match script_pack_version output. ${local.runner_gcp_attached ? "GCP typed slot is attached; the live tofu plan stays soft until a vault secret with GOOGLE_APPLICATION_CREDENTIALS_JSON metadata (service_account key) is bound to the runner instead of the vibe-gcp OAuth secret." : "To attach GCP to the runner, set runner_gcp_env_secret_id and re-apply."} Then start aws-migrator-discovery or gcp-migration-pr.
+    Phase 2 applied. Confirm the remote runner is online in StackGen UI and typed secrets sync (${local.runner_github_attached ? "github/" : ""}aws${local.runner_gcp_attached ? "/gcp" : ""}). ${local.runner_github_attached ? "GitHub integration vault secret is bound to the runner typed github slot." : "To attach GitHub credentials to the runner, set github_secret_id and re-apply."} Script pack version must match script_pack_version output. ${local.runner_gcp_attached ? "GCP typed slot is attached; the live tofu plan stays soft until a vault secret with GOOGLE_APPLICATION_CREDENTIALS_JSON metadata (service_account key) is bound to the runner instead of the vibe-gcp OAuth secret." : "To attach GCP to the runner, set runner_gcp_env_secret_id and re-apply."} Then start aws-migrator-discovery or gcp-migration-pr.
   EOT
     ) : (var.enable_governance_codify ? trimspace(<<-EOT
     Governance codify applied. In StackGen UI start workflow governance-rules-codify (passive intent: governance-rules-codify) to test markdown → Rego PR generation.
