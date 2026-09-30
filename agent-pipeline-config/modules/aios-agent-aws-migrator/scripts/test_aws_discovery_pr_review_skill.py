@@ -27,6 +27,7 @@ def _stage(source: str, stage_id: str) -> str:
 def main() -> None:
     main_tf = (MODULE / "main.tf").read_text(encoding="utf-8")
     discovery = (MODULE / "workflows_discovery.tf").read_text(encoding="utf-8")
+    assert 'planner_max_tool_iterations = 20' in (MODULE / "workflows_azure_only.tf").read_text(encoding="utf-8")
     azure = (MODULE / "workflows_azure_only.tf").read_text(encoding="utf-8")
     gcp = (MODULE / "workflows_gcp_only.tf").read_text(encoding="utf-8")
     gcp_workflow = gcp
@@ -76,7 +77,35 @@ def main() -> None:
     assert "is not an exhaustive answer" in mapping
     assert "mapping-research.md" in mapping
     assert "low-confidence AWS→GCP mappings using source evidence and Terraform Registry/provider docs" in gcp
-    assert "candidate URLs, evidence, fit/mismatches" in gcp
+    assert "Terraform Registry" in gcp
+    assert "Terraform Registry" in azure and "azure/artifacts/mapping-research.md" in azure
+    assert "Terraform Registry provider/resource documentation" in gcp
+    assert "use `web_search`" in gcp
+    assert "search Terraform Registry for AzureRM resource/data-source candidates and reusable modules" in azure
+    assert "pinned AzureRM docs" in azure or "provider version pinned in each generated root" in azure
+    assert "azure/artifacts/mapping-research.md" in azure
+    assert "hard evidence gate" in azure.lower()
+    assert "mapping_research_missing" in azure
+    assert "azure/artifacts/mapping-research.md" in azure
+    assert "create_files" in azure
+    assert "`web_search`" in azure
+    assert "hard evidence gate" in gcp.lower()
+    assert "mapping_research_missing" in gcp
+    assert "gcp/artifacts/mapping-research.md" in gcp
+    assert "create_files" in gcp
+    assert "`web_search`" in gcp
+    assert '"web_search"' in main_tf
+    runner = (MODULE / "scripts/stage-runner.sh").read_text()
+    assert "azure/artifacts/mapping-research.md || rc=$?" in runner
+    assert "gcp/artifacts/mapping-research.md || rc=$?" in runner
+    assert "azure/artifacts/mapping-research.md" in runner
+    assert "gcp/artifacts/mapping-research.md" in runner
+    assert "Do not stop on the first `source_coverage_below_90_percent`" in azure
+    assert "Continue until ≥90% or evidence proves that threshold cannot be safely met" in gcp
+    assert "bounded repair loop" in gcp
+    assert "search the **Terraform Registry**" in mapping
+    assert "search/modules?q=" in mapping
+    assert "hashicorp/azurerm/<pinned-version>" in mapping
     assert "completeness verdict" in review
     terraform = (template_dir / "terraform-diagnose-edit-verify.tmpl.md").read_text(encoding="utf-8")
     assert "successful write is not proof" in terraform

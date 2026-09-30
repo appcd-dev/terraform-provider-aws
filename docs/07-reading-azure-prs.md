@@ -49,7 +49,11 @@ Verify:
 - Placeholder groups have clear comments/notes  
 - Identity role definitions still say “replace permissions”  
 
-## 4. Do not equate metrics
+## 4. Source coverage gate
+
+Check `azure/artifacts/generation-summary.json` → `source_coverage_*`. A generated Azure PR must pass the **90% source-instance coverage gate**: converted applicable AWS instances / all applicable AWS instances. Identity/app-IAM instances are included; explicit non-applicable instances are reported separately; unsupported or unknown mappings count as uncovered. A `null` rate (no applicable instances) is not a pass. Infra-only and app-IAM conversion diagnostics have narrower denominators and must not be quoted as total migration coverage.
+
+## 5. Do not equate metrics
 
 | Metric | Safe interpretation |
 | --- | --- |
@@ -59,7 +63,7 @@ Verify:
 | `validation true` | Often “sampled validate/plan OK” — read the report |
 | PR opened | Workflow finished — not production-ready landing zone |
 
-## 5. Known honest gaps
+## 6. Known honest gaps
 
 Call these out in review comments instead of silently approving:
 
@@ -68,10 +72,10 @@ Call these out in review comments instead of silently approving:
 - Empty `attribute_mapping` for many identity rows  
 - Sampled live plan  
 
-## 6. After catalog / generator bumps
+## 7. After catalog / generator bumps
 
 Bump `script_pack_version` and **re-preload** the runner pack before expecting new confidence scores. Stale packs still emit old UAI-only / unsupported placeholders.
 
-## 7. Example review comment
+## 8. Example review comment
 
 > Validate report only plans 8/380 (`success:sample:8/380`). Identity groups emit UAI + placeholder RBAC (emission=`managed_identity_rbac_scaffold`); permissions still need translation. Networking group `…` looks review-candidate (TLS/NSG OK). **Not** apply-ready.

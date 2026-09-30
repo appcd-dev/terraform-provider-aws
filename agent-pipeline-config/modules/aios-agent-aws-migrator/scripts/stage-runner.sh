@@ -6482,7 +6482,8 @@ cmd_azure_pr() {
   git_commit_paths_if_changed \
     "azure: migration blueprint for ${workflow_run_id}" \
     azure/artifacts/migration-blueprint.json \
-    azure/artifacts/migration-profile.json || rc=$?
+    azure/artifacts/migration-profile.json \
+    azure/artifacts/mapping-research.md || rc=$?
   if [ "$rc" -eq 0 ]; then commits=$((commits + 1)); elif [ "$rc" -ne 2 ]; then
     mirror_note "$work_root" "stage_summary:azure-pr" "blocked:blueprint_commit_failed"
     return 1

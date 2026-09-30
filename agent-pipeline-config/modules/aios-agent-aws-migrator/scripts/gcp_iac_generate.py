@@ -77,7 +77,8 @@ FULL_SCAFFOLD_CATEGORIES = {
     "load_balancer",
 }
 
-# Categories counted toward infra conversion (≥80% gate). Identity is reported separately.
+# Conversion targets are source-instance weighted, not group-count weighted.
+SOURCE_COVERAGE_THRESHOLD = 0.90
 INFRA_CATEGORIES = FULL_SCAFFOLD_CATEGORIES | {"api", "key_management", "analytics", "cdn"}
 
 # google_* resource name prefixes that satisfy conversion for a category.
@@ -155,14 +156,33 @@ def write_file(path: Path, text: str):
     path.write_text(textwrap.dedent(text).lstrip() + "\n", encoding="utf-8")
 
 
-def _google_resource_types_in_main(main_lines: list[str]) -> set[str]:
-    found = set()
+def _google_resource_type_counts_in_main(main_lines: list[str]) -> dict[str, int]:
+    counts: dict[str, int] = {}
     for line in main_lines:
         m = re.search(r'resource\s+"(google_[^"]+)"\s+"', line)
         if m:
-            found.add(m.group(1))
-    return found
+            counts[m.group(1)] = counts.get(m.group(1), 0) + 1
+    return counts
 
+
+def _google_resource_types_in_main(main_lines: list[str]) -> set[str]:
+    return set(_google_resource_type_counts_in_main(main_lines))
+
+
+
+def _consume_mapped_target_instance(remaining: dict[str, int], decision: dict) -> str | None:
+    """Consume one actually-emitted target resource assigned by the catalog."""
+    candidates = []
+    default_target = decision.get("default_target")
+    targets = [default_target] if default_target else []
+    for target in targets:
+        if isinstance(target, str) and target.startswith("google_") and target not in candidates:
+            candidates.append(target)
+    for target in candidates:
+        if remaining.get(target, 0) > 0:
+            remaining[target] -= 1
+            return target
+    return None
 
 def _source_cloudwatch_log_groups(work: Path, raw_group_id: str, group_id: str) -> list[dict]:
     """Read managed CloudWatch log-group instances and their source settings."""
@@ -278,6 +298,16 @@ def _emit_cloud_logging_buckets(
     }
 
 
+def _coverage_rate(converted: int, applicable: int) -> float | None:
+    """Return source-instance coverage; non-applicable rows stay outside the denominator."""
+    return round(converted / applicable, 4) if applicable else None
+
+
+def _coverage_ok(converted: int, applicable: int) -> bool:
+    rate = _coverage_rate(converted, applicable)
+    return rate is not None and rate >= SOURCE_COVERAGE_THRESHOLD
+
+
 def _category_satisfied(category: str, google_types: set[str]) -> bool:
     markers = CATEGORY_GOOGLE_MARKERS.get(category) or ()
     if not markers:
@@ -355,6 +385,7 @@ def _compute_infra_conversion(
     work: Path,
     group_google_types: dict[str, set[str]],
     group_decisions: dict[str, list],
+    group_google_type_counts: dict[str, dict[str, int]] | None = None,
 ) -> dict:
     """Instance-weighted infra + app-IAM conversion metrics.
 
@@ -379,79 +410,97 @@ def _compute_infra_conversion(
     identity_instances = 0
     app_iam_eligible = 0
     app_iam_converted = 0
+    applicable = 0
+    applicable_converted = 0
+    non_applicable_instances = 0
+    unsupported_instances = 0
     gaps: list[dict] = []
     gap_keys: set[tuple[str, str]] = set()
     app_iam_types = {"aws_iam_role", "aws_iam_policy", "aws_iam_role_policy"}
 
-    def _append_gap(raw_group_id: str, source_type: str, count: int, category: str, reason: str) -> None:
+    def _append_gap(raw_group_id: str, source_type: str, count: int, category: str, reason: str, **extra) -> None:
         # Normalize so hyphen/underscore aliases of the same shard do not double-count.
         gid = safe_name(raw_group_id)
         key = (gid, source_type)
         if key in gap_keys:
             return
         gap_keys.add(key)
-        gaps.append(
-            {
-                "group_id": gid,
-                "source_type": source_type,
-                "count": count,
-                "category": category,
-                "reason": reason,
-            }
-        )
+        row = {
+            "group_id": gid,
+            "source_type": source_type,
+            "count": count,
+            "category": category,
+            "reason": reason,
+        }
+        row.update(extra)
+        gaps.append(row)
 
-    # Prefer tfstate instance counts; fall back to one-per-decision when state missing.
     group_ids = set(aws_by_group) | set(group_decisions)
     for group_id in sorted(group_ids):
-        google_types = group_google_types.get(safe_name(group_id), set())
+        gid = safe_name(group_id)
+        remaining = dict((group_google_type_counts or {}).get(gid, {}))
         decisions_by_type = {
             d.get("source_type"): d for d in (group_decisions.get(group_id) or []) if d.get("source_type")
         }
-        type_counts = aws_by_group.get(group_id) or {
-            src: 1 for src in decisions_by_type
-        }
-        for source_type, count in type_counts.items():
+        type_counts = aws_by_group.get(group_id) or {src: 1 for src in decisions_by_type}
+        for source_type, count in sorted(type_counts.items()):
             decision = decisions_by_type.get(source_type) or resolve(catalog, source_type)
             status = decision.get("status") or "unsupported"
-            emission = decision.get("emission") or "resource_group_only"
             category = decision.get("category") or "placeholder"
-            if source_type in app_iam_types and status == "mapped":
+            if status == "non_applicable" or category == "non_applicable":
+                non_applicable_instances += count
+                continue
+
+            applicable += count
+            eligible += count
+            identity_source = source_type in app_iam_types or category == "identity"
+            if identity_source:
                 identity_instances += count
                 app_iam_eligible += count
-                if _category_satisfied("identity", google_types):
-                    app_iam_converted += count
-                continue
-            if category == "identity":
-                identity_instances += count
-                continue
-            if status == "non_applicable" or emission == "none" or category == "non_applicable":
-                continue
-            if status != "mapped":
-                # unsupported/placeholder still count as eligible infra we failed to convert
-                if category in INFRA_CATEGORIES or status == "unsupported":
-                    eligible += count
-                    _append_gap(group_id, source_type, count, category, f"status={status}")
-                continue
-            if category not in INFRA_CATEGORIES and category not in FULL_SCAFFOLD_CATEGORIES:
-                continue
-            eligible += count
-            if _category_satisfied(category, google_types):
-                converted += count
-            else:
-                _append_gap(group_id, source_type, count, category, "missing_google_scaffold")
+            target = decision.get("default_target")
+            if source_type == "aws_iam_role":
+                target = "google_service_account"
+            elif source_type in {"aws_iam_policy", "aws_iam_role_policy"}:
+                target = "google_project_iam_custom_role"
 
-    rate = round(converted / eligible, 4) if eligible else 1.0
-    app_rate = round(app_iam_converted / app_iam_eligible, 4) if app_iam_eligible else 1.0
+            covered = 0
+            if status == "mapped" and isinstance(target, str) and target.startswith("google_"):
+                covered = min(count, remaining.get(target, 0))
+                remaining[target] = remaining.get(target, 0) - covered
+            converted += covered
+            applicable_converted += covered
+            if identity_source:
+                app_iam_converted += covered
+            if covered < count:
+                if status != "mapped" or not isinstance(target, str):
+                    unsupported_instances += count - covered
+                reason = "unmapped_source_type" if status != "mapped" else "target_resource_instance_missing"
+                _append_gap(group_id, source_type, count - covered, category, reason,
+                            target_resource_type=target, emission=decision.get("emission"), status=status)
+
+    rate = round(converted / eligible, 4) if eligible else 0.0
+    app_rate = round(app_iam_converted / app_iam_eligible, 4) if app_iam_eligible else None
+    source_coverage_rate = _coverage_rate(applicable_converted, applicable)
+    source_coverage_ok = _coverage_ok(applicable_converted, applicable)
     return {
         "infra_eligible_count": eligible,
         "infra_converted_count": converted,
         "infra_conversion_rate": rate,
-        "infra_conversion_ok": rate >= 0.80,
+        "infra_conversion_ok": eligible > 0 and rate >= SOURCE_COVERAGE_THRESHOLD,
+        "source_coverage_applicable_count": applicable,
+        "source_coverage_converted_count": applicable_converted,
+        "source_coverage_rate": source_coverage_rate,
+        "source_coverage_threshold": SOURCE_COVERAGE_THRESHOLD,
+        "source_coverage_ok": source_coverage_ok,
+        "source_non_applicable_count": non_applicable_instances,
+        "source_unsupported_count": unsupported_instances,
+        "source_instance_count": applicable + non_applicable_instances,
         "identity_scaffold_count": identity_instances,
         "app_iam_eligible_count": app_iam_eligible,
         "app_iam_converted_count": app_iam_converted,
         "app_iam_conversion_rate": app_rate,
-        "app_iam_conversion_ok": app_rate >= 0.80,
+        "app_iam_conversion_threshold": SOURCE_COVERAGE_THRESHOLD,
+        "app_iam_conversion_ok": app_iam_eligible > 0 and app_rate is not None and app_rate >= SOURCE_COVERAGE_THRESHOLD,
         "infra_conversion_gaps": gaps[:50],
     }
 
@@ -478,6 +527,7 @@ def generate(work: Path) -> dict:
     summary_groups = []
     emission_counts = {}
     group_google_types: dict[str, set[str]] = {}
+    group_google_type_counts: dict[str, dict[str, int]] = {}
     group_decisions_by_id: dict[str, list] = {}
 
     for group in blueprint["groups"]:
@@ -1074,8 +1124,10 @@ def generate(work: Path) -> dict:
                 ]
             )
 
-        google_types = _google_resource_types_in_main(main)
+        google_resource_counts = _google_resource_type_counts_in_main(main)
+        google_types = set(google_resource_counts)
         group_google_types[group_id] = google_types
+        group_google_type_counts[group_id] = google_resource_counts
         if not google_types:
             main.append("# No full GCP resource scaffold for this group's categories.")
             main.append("# See mapping-decisions.json emission fields and gcp/artifacts/review-needed.md.")
@@ -1172,7 +1224,7 @@ def generate(work: Path) -> dict:
     """,
     )
 
-    conversion = _compute_infra_conversion(work, group_google_types, group_decisions_by_id)
+    conversion = _compute_infra_conversion(work, group_google_types, group_decisions_by_id, group_google_type_counts)
 
     (artifacts / "mapping-decisions.json").write_text(
         json.dumps(mapping_decisions, indent=2, sort_keys=True) + "\n", encoding="utf-8"
@@ -1188,7 +1240,7 @@ def generate(work: Path) -> dict:
                     "private-by-default-storage",
                     "opentofu-hashicorp-root-layout",
                     "honest-emission-labels",
-                    "infra-conversion-gate-0.80",
+                    "source-instance-coverage-gate-0.90",
                 ],
                 "emission_counts": emission_counts,
                 "source_reconciliation": reconciliation,
@@ -1204,6 +1256,15 @@ def generate(work: Path) -> dict:
                     "app_iam_conversion_rate",
                     "app_iam_conversion_ok",
                     "infra_conversion_gaps",
+                    "source_coverage_applicable_count",
+                    "source_coverage_converted_count",
+                    "source_coverage_rate",
+                    "source_coverage_threshold",
+                    "source_coverage_ok",
+                    "source_non_applicable_count",
+                    "source_unsupported_count",
+                    "source_instance_count",
+                    "app_iam_conversion_threshold",
                 )},
             },
             indent=2,
@@ -1226,7 +1287,9 @@ def generate(work: Path) -> dict:
   - Private-by-default storage (uniform bucket-level access, public access prevention)
   - OpenTofu/HashiCorp root layout per group; runtime logs/plans gitignored
   - Catalog `emission` field tells you what was actually generated vs documented
-  - Infra conversion rate (non-identity mapped AWS instances → google_* scaffolds) targets ≥ 80%
+  - Source-instance coverage rate counts converted applicable AWS instances (infra + app-IAM) against all applicable source instances; target ≥ 90%.
+  - Coverage rate is `null` when no applicable instances exist; that is not a passing coverage gate.
+  - Explicit non-applicable instances are reported separately; unknown/unsupported instances remain in the denominator and count as uncovered.
   - App IAM conversion: workload roles/custom policies → SA + custom role + binding (acquisition path)
 
   ## Layout
@@ -1256,6 +1319,8 @@ def main(argv=None):
     print(f"gcp_infra_converted_count={result.get('infra_converted_count', 0)}")
     print(f"gcp_infra_conversion_rate={result.get('infra_conversion_rate', 0)}")
     print(f"gcp_infra_conversion_ok={str(result.get('infra_conversion_ok', False)).lower()}")
+    print(f"gcp_source_coverage_rate={result.get('source_coverage_rate', 0)}")
+    print(f"gcp_source_coverage_ok={str(result.get('source_coverage_ok', False)).lower()}")
     print(f"gcp_identity_scaffold_count={result.get('identity_scaffold_count', 0)}")
     print(f"gcp_app_iam_eligible_count={result.get('app_iam_eligible_count', 0)}")
     print(f"gcp_app_iam_converted_count={result.get('app_iam_converted_count', 0)}")

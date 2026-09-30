@@ -1,3 +1,9 @@
+variable "architect_persona_addendum" {
+  description = "Optional deployment-specific guidance appended to the AWS migrator architect persona, for example how to translate natural-language operator intent into workflow inputs."
+  type        = string
+  default     = ""
+}
+
 variable "model_names" {
   description = "Optional ordered list of registered model names exposed to this module's agent. Leave empty to use Guild's built-in default model provider. Efficiency/mini models (names matching mini|flash|nano|haiku) are filtered out unless non_trivial_model_names is set."
   type        = list(string)

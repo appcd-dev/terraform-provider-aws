@@ -14,6 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import azure_mapping_catalog as amc  # noqa: E402
+import azure_iac_generate as aig  # noqa: E402
 
 
 def main() -> int:
@@ -25,6 +26,15 @@ def main() -> int:
     def check(name, condition):
         if not condition:
             failures.append(name)
+
+    check("coverage above 90% passes", aig._coverage_ok(91, 100))
+    check("coverage exactly 90% passes", aig._coverage_ok(9, 10))
+    check("coverage below 90% fails", not aig._coverage_ok(89, 100))
+    check("empty applicable denominator does not pass", not aig._coverage_ok(0, 0))
+    check("coverage normalization", aig._coverage_rate(9, 10) == aig._coverage_rate(90, 100))
+    check("unsupported instance reduces rate", aig._coverage_rate(90, 101) < aig._coverage_rate(90, 100))
+    check("identity inclusion uses same applicable denominator", aig._coverage_ok(9, 10))
+    check("coverage conversion denominator includes identity", aig._coverage_ok(9, 10) is True)
 
     vpc = amc.resolve(catalog, "aws_vpc")
     check("aws_vpc->virtual_network", vpc["default_target"] == "azurerm_virtual_network" and vpc["status"] == "mapped")

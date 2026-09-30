@@ -452,8 +452,7 @@ locals {
   # the script path as an export name (`bad variable name`, session
   # 55e77bfd / trace 6abefb952b12). Discovery pack-entry invokes already put a
   # `;` after this prefix; destination one-liners append env + bash directly.
-  runner_git_env_prefix           = "GIT_TOKEN=\"$${GIT_TOKEN:-$${GITHUB_TOKEN:-$${GH_TOKEN:-$${token:-}}}}\"; export GIT_TOKEN; export GH_TOKEN=\"$${GH_TOKEN:-$${GIT_TOKEN}}\"; export GITHUB_TOKEN=\"$${GITHUB_TOKEN:-$${GIT_TOKEN}}\"; export GIT_TERMINAL_PROMPT=0;"
-  runner_git_credential_bootstrap = "mkdir -p \"$${HOME}/.aws-migrator/bin\"; echo IyEvYmluL3NoCmNhc2UgIiQxIiBpbgpnZXQpCiAgdG9rPSIke0dJVF9UT0tFTjotJHtHSVRIVUJfVE9LRU46LSR7R0hfVE9LRU46LSR7dG9rZW46LX19fX0iCiAgWyAtbiAiJHRvayIgXSB8fCBleGl0IDAKICBwcmludGYgInVzZXJuYW1lPXgtYWNjZXNzLXRva2VuXG5wYXNzd29yZD0lc1xuIiAiJHRvayIKICA7Owplc2FjCg== | base64 -d > \"$${HOME}/.aws-migrator/bin/git-credential-stackgen\"; chmod 0755 \"$${HOME}/.aws-migrator/bin/git-credential-stackgen\"; git config --global credential.helper \"$${HOME}/.aws-migrator/bin/git-credential-stackgen\""
+  runner_git_env_prefix = "GIT_TOKEN=\"$${GIT_TOKEN:-$${GITHUB_TOKEN:-$${GH_TOKEN:-$${token:-}}}}\"; export GIT_TOKEN; export GH_TOKEN=\"$${GH_TOKEN:-$${GIT_TOKEN}}\"; export GITHUB_TOKEN=\"$${GITHUB_TOKEN:-$${GIT_TOKEN}}\"; export GIT_TERMINAL_PROMPT=0;"
   # Walmart ACA bakes packs into the image and disables vault sync. When /opt lags
   # the module version, fetch the GitHub release tarball before pack scripts run.
   # OpenTofu only escapes $${…} → ${…}; bare $$( stays literal $$( and breaks mktemp.
@@ -486,7 +485,10 @@ locals {
   iac_pr_execute_series_body                      = "${local.runner_pack_entry_invoke} iac-pr '{{workflow_run_id}}'"
   converge_execute_series_body                    = "${local.runner_pack_entry_invoke} converge '{{workflow_run_id}}'"
 
-  rendered_persona = templatefile("${path.module}/personas/aws-migrator-architect.md.tftpl", local.template_vars)
+  rendered_persona = trimspace(join("\n\n", compact([
+    templatefile("${path.module}/personas/aws-migrator-architect.md.tftpl", local.template_vars),
+    trimspace(var.architect_persona_addendum),
+  ])))
 
   rendered_templates = {
     for filename in setunion(

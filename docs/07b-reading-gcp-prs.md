@@ -13,6 +13,10 @@ Same review discipline as [Azure PRs](07-reading-azure-prs.md), applied to the `
 | `gcp/artifacts/review-needed.md` | Honest gaps (IAM, landing-zone, unsupported types) |
 | Validation / plan notes | `gcp_plan_status` — prefer `success` or `success:sample:N/M`; reject silent “ok” without plan when `require_gcp_live_plan` is on |
 
+## Source coverage gate
+
+Check `gcp/artifacts/generation-summary.json` → `source_coverage_*`. A generated GCP PR must pass the **90% source-instance coverage gate**: converted applicable AWS instances / all applicable AWS instances. App-IAM instances are included; explicit non-applicable instances are reported separately; unsupported or unknown mappings count as uncovered. A `null` rate (no applicable instances) is not a pass. Infra-only and app-IAM conversion diagnostics have narrower denominators and are not total coverage.
+
 ## Emission honesty
 
 Do **not** treat every `google_*` resource block as a full AWS equivalent. Catalog rows carry `emission`:

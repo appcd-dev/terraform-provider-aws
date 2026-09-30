@@ -42,6 +42,7 @@ Full definitions below. Task navigation: [12. I want to…](12-i-want-to.md).
 | **AVM** | Azure Verified Modules — **not** fully composed by this generator today |
 | **Live plan** | `tofu plan` against a real Azure subscription (Reader SP) |
 | **Sample plan** | Live plan on only N groups (`AZURE_LIVE_PLAN_MAX_GROUPS`) — must be disclosed in the PR |
+| **source-instance coverage** | Destination scaffolded applicable AWS managed instances / all applicable AWS managed instances; 90% generation gate for Azure/GCP; non-applicable instances reported separately; unknown/unsupported remain uncovered |
 | **`require_azure_live_plan`** | If true, missing ARM_* credentials **fail** validate (no soft skip) |
 | **dangerous-ops policy** | Rego that forces HITL on destructive/off-hours shell |
 | **Evidence** | Checklist items the final stage must prove (`azure_pr_url_recorded`, …) |

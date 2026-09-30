@@ -56,6 +56,12 @@ See `mappings/README.md` and `mappings/README-gcp.md` for schema notes and versi
 | `mapped` + `resource_group_only` | Empty-ish RG / project placeholder | Thinking “done” |
 | `non_applicable` + `none` | Skip | Filing a bug for “missing” IAM users |
 
+## Source-instance coverage gate
+
+Azure and GCP generation report an instance-weighted `source_coverage_rate` with a **90% minimum**. The numerator is the applicable AWS managed-resource instances that received a matching destination scaffold; the denominator is all applicable AWS instances, including workload IAM instances. Intentional `non_applicable` source instances are reported separately and excluded from that denominator. Unknown/unsupported source types and mapped types without emitted destination resources remain in the denominator as uncovered. No applicable instances yields `null` coverage and fails the gate rather than passing vacuously. Below-threshold generation is blocked before validation/PR creation; the summary and gap list provide the counts to repair.
+
+`infra_conversion_rate` and `app_iam_conversion_rate` remain diagnostic sub-rates, not substitutes for the all-applicable-source gate. A source instance counts as covered only when the generator emits the category's required destination resource marker; evidence or catalog `status=mapped` alone does not count.
+
 ## Generator standards (today)
 
 Deterministic generators (no LLM inventing types):

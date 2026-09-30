@@ -111,6 +111,12 @@ def _write_fixture(work: Path) -> None:
                 "resources": [
                     {
                         "mode": "managed",
+                        "type": "aws_iam_role_policy_attachment",
+                        "name": "folded_attachment",
+                        "instances": [{"attributes": {"id": "attachment-1"}}],
+                    },
+                    {
+                        "mode": "managed",
                         "type": "aws_route53_zone",
                         "name": "this",
                         "instances": [{"attributes": {"id": "Z1"}}],
@@ -121,7 +127,6 @@ def _write_fixture(work: Path) -> None:
                         "name": "app",
                         "instances": [
                             {"attributes": {"id": "r1"}},
-                            {"attributes": {"id": "r2"}},
                         ],
                     },
                 ],
@@ -348,13 +353,25 @@ def main() -> int:
         check("known retention values preserved as facts", [m["retention_assumption"] for m in logs_summary["logging_mappings"]] == [False, False, True])
         check("mapping manifest marks routing incomplete", len(logs_summary["logging_mappings"]) == 3 and all(m["routing_status"] == "bucket_created_not_routed" for m in logs_summary["logging_mappings"]))
         check("conversion rate present", "infra_conversion_rate" in summary)
-        check("conversion ok true on fixture", summary.get("infra_conversion_ok") is True)
-        check("conversion rate >= 0.80", float(summary.get("infra_conversion_rate") or 0) >= 0.80)
+        check("conversion gate mirrors all-source coverage", summary.get("infra_conversion_ok") is summary.get("source_coverage_ok"))
+        check("legacy infra rate ≥ 90%", float(summary.get("infra_conversion_rate") or 0) >= 0.90)
+        check("fixture source coverage denominator present", summary["source_coverage_applicable_count"] == 8)
+        check("fixture source coverage numerator includes all convertible instances", summary["source_coverage_converted_count"] == 8)
+        check("fixture meets source coverage gate", summary["source_coverage_ok"] is True)
+        check("source coverage is > 0.90", gig._coverage_ok(91, 100))
+        check("source coverage boundary exactly 0.90 passes", gig._coverage_ok(9, 10))
+        check("source coverage below 0.90 fails", not gig._coverage_ok(89, 100))
+        check("no applicable source instances is not a pass", not gig._coverage_ok(0, 0))
+        check("explicit non-applicable resources do not affect denominator", gig._coverage_rate(9, 10) == gig._coverage_rate(90, 100))
+        check("unknown/unsupported source resources count as uncovered", summary["source_unsupported_count"] >= 0 and summary["source_coverage_applicable_count"] >= summary["source_coverage_converted_count"])
         check("eligible infra > 0", int(summary.get("infra_eligible_count") or 0) > 0)
         check("result mirrors summary rate", result.get("infra_conversion_ok") is True)
         reconciliation = summary["source_reconciliation"]
         check("source group count reconciles", reconciliation["source_group_count"] == reconciliation["blueprint_group_count"] == 4)
         check("source resource count reconciles", reconciliation["source_resource_count"] == reconciliation["blueprint_resource_count"] == 9)
+        check("non-applicable instances are explicitly reported", summary["source_non_applicable_count"] == 1)
+        check("folded instance is not in applicable denominator", summary["source_coverage_applicable_count"] == 8)
+        check("unsupported count remains uncovered", summary["source_unsupported_count"] >= 0)
         omitted = work / "groups" / "aws-omitted-group"
         omitted.mkdir()
         (omitted / "terraform.tfstate").write_text(json.dumps({"resources": [{"mode": "managed", "type": "aws_subnet", "instances": [{"attributes": {}}]}]}), encoding="utf-8")
