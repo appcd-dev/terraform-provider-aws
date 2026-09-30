@@ -180,9 +180,19 @@ for path in sorted(scripts_dir.glob("*.sh")):
         purpose = "One-line Guild execute_series entrypoints for destination stages"
     elif path.name == "ensure_cloud2code.sh":
         purpose = "Bootstrap cloud2code CLI on runner when absent"
+    elif path.name == "cloud2code-scan-detach.sh":
+        purpose = "Detach cloud2code import from the execute_* process group so a 30s tool timeout does not SIGKILL it"
+    elif path.name == "workflow-run-id.sh":
+        purpose = "Shared workflow id check before interpolating $HOME/.<id>"
+    elif path.name == "cloud2code-aws-scan.sh":
+        purpose = "Run cloud2code import aws and emit scan sentinels"
+    elif path.name == "pack-entry.sh":
+        purpose = "Versioned runner entrypoint for preflight, scan, ingest, iac-pr, converge, destination"
     test = test_for(path.name) if path.name.endswith(".sh") else "—"
     if path.name == "ensure_cloud2code.sh":
         test = "`test_ensure_cloud2code.sh`"
+    elif path.name == "cloud2code-scan-detach.sh":
+        test = "`test_cloud2code_scan_detach.sh`"
     rows.append((path.name, "Shell", purpose, test))
 
 for path in sorted(shared_dir.glob("*.py")):

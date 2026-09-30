@@ -9,23 +9,10 @@ set -euo pipefail
 WF_ID_ARG="${1:-}"
 AWS_REGION_ARG="${2:-}"
 
-resolve_workflow_run_id() {
-  local id="${1:-}"
-  case "$id" in
-    '' | *'{{'* | *'}}'* | *'{'* | *'}'*)
-      id="${WORKFLOW_RUN_ID:-}"
-      ;;
-  esac
-  case "$id" in
-    '' | *'{{'* | *'}}'* | *'{'* | *'}'*)
-      return 1
-      ;;
-  esac
-  printf '%s' "$id"
-}
-
 RUNNER_WORK_HOME="${RUNNER_WORK_HOME:-/home/runner}"
 SCRIPT_PACK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=workflow-run-id.sh
+. "${SCRIPT_PACK_DIR}/workflow-run-id.sh"
 
 export HOME="$RUNNER_WORK_HOME"
 

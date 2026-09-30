@@ -190,12 +190,14 @@ Loop stages: `gcp-iac-loop`, `gcp-iac-governance-loop`.
 | `governance_opa_check.py` | Python | Run Nile-Factory Rego packs against Terraform plan JSON for generated IaC. | `test_governance_opa_check.py` |
 | `hcl_sanity.py` | Python | HCL sanity gates for AWS hydrate and destination validate stages. | `test_hcl_sanity.py` |
 | `tfstate_monolith_decomposer.py` | Python | Layered three-tier tfstate → logical_group_manifest + per-group state shards. | — |
-| `cloud2code-aws-scan.sh` | Shell | (shell helper) | — |
+| `cloud2code-aws-scan.sh` | Shell | Run cloud2code import aws and emit scan sentinels | — |
+| `cloud2code-scan-detach.sh` | Shell | Detach cloud2code import from the execute_* process group so a 30s tool timeout does not SIGKILL it | `test_cloud2code_scan_detach.sh` |
 | `ensure_cloud2code.sh` | Shell | Bootstrap cloud2code CLI on runner when absent | `test_ensure_cloud2code.sh` |
-| `pack-entry.sh` | Shell | (shell helper) | — |
+| `pack-entry.sh` | Shell | Versioned runner entrypoint for preflight, scan, ingest, iac-pr, converge, destination | — |
 | `run-destination-stage.sh` | Shell | One-line Guild execute_series entrypoints for destination stages | — |
 | `runner-capability-preflight.sh` | Shell | (shell helper) | — |
 | `stage-runner.sh` | Shell | (shell orchestrator) | — |
+| `workflow-run-id.sh` | Shell | Shared workflow id check before interpolating $HOME/.<id> | — |
 | `agent-pipeline-config/scripts/render-ingest-bootstrap.py` | Python | Render ingest-bootstrap.sh from live module templates. | — |
 | `agent-pipeline-config/scripts/generate-script-catalog.sh` | Shell | (shared pipeline script) | — |
 | `agent-pipeline-config/scripts/preload-script-pack.sh` | Shell | Preload script pack onto aiden-runner | — |

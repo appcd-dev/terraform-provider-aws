@@ -10,7 +10,7 @@ PACK_URL="${PACK_URL:-https://github.com/${PACK_REPO}/releases/download/pack-${P
 
 usage() {
   echo "usage: pack-entry.sh preflight <workflow_run_id>" >&2
-  echo "       pack-entry.sh scan <workflow_run_id> <aws_region>" >&2
+  echo "       pack-entry.sh scan <workflow_run_id> <aws_region> [exclude_csv]" >&2
   echo "       pack-entry.sh ingest <workflow_run_id>" >&2
   echo "       pack-entry.sh iac-pr <workflow_run_id>" >&2
   echo "       pack-entry.sh converge <workflow_run_id>" >&2
@@ -107,12 +107,27 @@ case "$cmd" in
     ;;
   scan)
     export CLOUD2CODE_INCLUDE="${CLOUD2CODE_INCLUDE:-}"
+    # The scan one-liner passes requested excludes as argv 3. Ignoring it made
+    # "Exclude aws_glue_catalog_table" a no-op and the default catalog exclude
+    # ran instead.
+    _scan_exclude="${3:-}"
+    case "${_scan_exclude}" in
+      ''|CLOUD2CODE_EXCLUDE_PLACEHOLDER) ;;
+      *)
+        if [ -z "${CLOUD2CODE_EXCLUDE:-}" ]; then
+          export CLOUD2CODE_EXCLUDE="${_scan_exclude}"
+        fi
+        ;;
+    esac
     export CLOUD2CODE_EXCLUDE="${CLOUD2CODE_EXCLUDE:-}"
     export CLOUD2CODE_TAGS="${CLOUD2CODE_TAGS:-}"
     export CLOUD2CODE_ALLOW_PARTIAL="${CLOUD2CODE_ALLOW_PARTIAL:-}"
     export WORKFLOW_RUN_ID="${1:-${WORKFLOW_RUN_ID:-}}"
     export AWS_REGION="${2:-${AWS_REGION:-${AWS_DEFAULT_REGION:-}}}"
     export AWS_DEFAULT_REGION="${AWS_REGION}"
+    if [ -f "${PRELOAD_DIR}/cloud2code-scan-detach.sh" ]; then
+      exec bash "${PRELOAD_DIR}/cloud2code-scan-detach.sh" "${WORKFLOW_RUN_ID}" "${AWS_REGION}"
+    fi
     exec bash "${PRELOAD_DIR}/cloud2code-aws-scan.sh" "${WORKFLOW_RUN_ID}" "${AWS_REGION}"
     ;;
   ingest)

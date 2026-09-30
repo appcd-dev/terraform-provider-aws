@@ -2,22 +2,11 @@
 set -euo pipefail
 
 # Args: $1 = workflow_run_id
-# Refuse literal '{{workflow_run_id}}' (session b2177674); fall back to WORKFLOW_RUN_ID.
+# Refuse literal '{{workflow_run_id}}' and any non-id (session b2177674).
 WF_ID_ARG="${1:-}"
-resolve_workflow_run_id() {
-  local id="${1:-}"
-  case "$id" in
-    '' | *'{{'* | *'}}'* | *'{'* | *'}'*)
-      id="${WORKFLOW_RUN_ID:-}"
-      ;;
-  esac
-  case "$id" in
-    '' | *'{{'* | *'}}'* | *'{'* | *'}'*)
-      return 1
-      ;;
-  esac
-  printf '%s' "$id"
-}
+SCRIPT_PACK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=workflow-run-id.sh
+. "${SCRIPT_PACK_DIR}/workflow-run-id.sh"
 
 if ! WF_ID="$(resolve_workflow_run_id "$WF_ID_ARG")"; then
   echo 'blocked:remote_runner_workflow_run_id_unresolved: "true"'
@@ -28,7 +17,6 @@ fi
 export WORKFLOW_RUN_ID="$WF_ID"
 
 # Prefer the directory this script lives in (script pack), then env, then default.
-SCRIPT_PACK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUNNER_WORK_HOME="${RUNNER_WORK_HOME:-/home/runner}"
 
 export HOME="$RUNNER_WORK_HOME"

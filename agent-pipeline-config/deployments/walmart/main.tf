@@ -130,8 +130,13 @@ module "aws_migrator" {
   remote_runner_attach_to_agent = true
   # Pack is baked into the ACA nile-factory-runner image (Stackgen-Runner). Keep
   # SCRIPT_PACK_* generic vault sync off — Walmart Guild rejects Generic/env
-  # secrets for that path. Git credentials come from the existing GitHub
-  # integration vault secret (typed slot `github`). Without that binding,
+  # secrets for that path. A pack bump therefore requires a new
+  # ghcr.io/walmart-stackgen/nile-factory-runner:pack-<script_pack_version>
+  # revision; this root cannot raise the runner execute_* timeout (omitted
+  # timeout_seconds is 30s and SIGKILLs the process group). Scan imports detach
+  # out of that group so a killed tool call does not kill cloud2code.
+  # Git credentials come from the existing GitHub integration vault secret
+  # (typed slot `github`). Without that binding,
   # nile-runner_gh / pack-entry / gh pr create fail with "populate GH_TOKEN"
   # even when the cloud-github MCP integration works. SCM metadata exposes
   # `token`; runner preflight aliases it to GIT_TOKEN/GH_TOKEN.

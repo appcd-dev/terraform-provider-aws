@@ -91,6 +91,9 @@ def main() -> None:
     assert "do not create_agent" not in scan.lower()
     assert "prefer the pack command" in scan.lower()
     assert "cloud2code_scan_ok" in scan
+    assert "timeout_seconds" in scan
+    assert "signal: killed" in scan
+    assert "cloud2code_scan_running" in scan
     assert "echo the runner" in scan.lower() or "do not paraphrase" in scan.lower()
     assert "session " not in scan.lower()
     assert len(_heredoc_body(scan, "note")) <= MAX_BINDING_NOTE
@@ -124,6 +127,14 @@ def main() -> None:
     pack_entry = (MODULE / "scripts" / "pack-entry.sh").read_text()
     assert 'converge)' in pack_entry
     assert 'export WORKFLOW_RUN_ID="${1:-${WORKFLOW_RUN_ID:-}}"' in pack_entry
+    assert "cloud2code-scan-detach.sh" in pack_entry
+    assert 'export CLOUD2CODE_EXCLUDE="${_scan_exclude}"' in pack_entry
+    detach = (MODULE / "scripts" / "cloud2code-scan-detach.sh").read_text()
+    assert "setsid" in detach
+    assert 'cloud2code_scan_running: "true"' in detach
+    assert "cloud2code-scan-detach.sh" in (MODULE / ".." / ".." / ".." / "runner" / "embed-script-pack.sh").read_text()
+    assert "workflow-run-id.sh" in (MODULE / "scripts" / "cloud2code-scan-detach.sh").read_text()
+    assert "wf-[a-z0-9]" in (MODULE / "scripts" / "workflow-run-id.sh").read_text()
     assert "runner_pack_entry_invoke" in command
     assert " scan " in command
     assert "CLOUD2CODE_EXCLUDE_PLACEHOLDER" in command

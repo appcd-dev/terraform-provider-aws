@@ -21,6 +21,10 @@ test:
 	if [ -f "$(SCRIPTS_DIR)/test_ensure_cloud2code.sh" ]; then \
 		echo "==> bash $(SCRIPTS_DIR)/test_ensure_cloud2code.sh"; \
 		bash "$(SCRIPTS_DIR)/test_ensure_cloud2code.sh"; \
+	fi; \
+	if [ -f "$(SCRIPTS_DIR)/test_cloud2code_scan_detach.sh" ]; then \
+		echo "==> bash $(SCRIPTS_DIR)/test_cloud2code_scan_detach.sh"; \
+		bash "$(SCRIPTS_DIR)/test_cloud2code_scan_detach.sh"; \
 	fi
 
 catalog:
