@@ -97,11 +97,13 @@ def main() -> None:
     assert '"web_search"' in main_tf
     runner = (MODULE / "scripts/stage-runner.sh").read_text()
     assert "azure/artifacts/mapping-research.md || rc=$?" in runner
-    assert "gcp/artifacts/mapping-research.md || rc=$?" in runner
+    assert "gcp/artifacts/mapping-research.md" in runner
+    assert "gcp/artifacts/untransformed-resources.md" in runner
     assert "azure/artifacts/mapping-research.md" in runner
     assert "gcp/artifacts/mapping-research.md" in runner
     assert "Do not stop on the first `source_coverage_below_90_percent`" in azure
-    assert "Continue until ≥90% or evidence proves that threshold cannot be safely met" in gcp
+    assert "Do not block the workflow on IAM semantic coverage" in gcp
+    assert "Below 90% still records generated=true and continues" in gcp
     assert "bounded repair loop" in gcp
     assert "search the **Terraform Registry**" in mapping
     assert "search/modules?q=" in mapping

@@ -4,7 +4,7 @@
 # Usage: DBSPLIT_EMBEDDED=1 bash -s <command> [args...] << 'DBSPLIT_STAGE_RUNNER' ... DBSPLIT_STAGE_RUNNER
 set -euo pipefail
 
-SCRIPT_PACK_VERSION="20260930.06"
+SCRIPT_PACK_VERSION="20260930.07"
 DBSPLIT_DEFAULT_STRATEGY="${DBSPLIT_DEFAULT_STRATEGY:-tfstate_monolith_decomposer}"
 DBSPLIT_DEFAULT_CAP="${DBSPLIT_DEFAULT_CAP:-0}"
 REQUIRED_ALLOCATE_MARKER="def merge_small_by_seed"
@@ -2268,6 +2268,7 @@ write_destination_todo_md() {
     echo "5. **Shape spot-check** (\`${emission_full}\` full_scaffold) — CIDR/SKU/naming/wiring; catalog bumps cleared many of these from mandatory review."
     echo "6. **Defer stubs** (\`${emission_none}\` none / non_applicable) unless production depends on them."
     echo "7. **Use** [\`review-needed.md\`](./review-needed.md) for per-group why — do not treat conversion_rate=\`${infra_rate}\` as estate coverage."
+    echo "8. **Untransformed source types** — [\`untransformed-resources.md\`](./untransformed-resources.md) lists AWS types that did not receive a GCP resource. Review them before merge; a below-90% coverage rate does not block this PR."
     echo
     echo "## Run snapshot"
     echo
@@ -2286,6 +2287,8 @@ write_destination_todo_md() {
     echo "| emission profile_scaffold | \`${emission_profile}\` |"
     echo "| infra_conversion_rate (mapped eligible only) | \`${infra_rate}\` |"
     echo "| app_iam_conversion_rate | \`${app_iam_rate}\` |"
+    echo "| source_coverage_rate | \`$(jq -r '.source_coverage_rate // "unknown"' "$gen_src" 2>/dev/null || echo unknown)\` |"
+    echo "| source_coverage_ok | \`$(jq -r '.source_coverage_ok // "unknown"' "$gen_src" 2>/dev/null || echo unknown)\` |"
     echo
     echo "## Blockers and attention"
     echo
@@ -2343,6 +2346,19 @@ write_destination_todo_md() {
     echo "| P3 | Shape spot-check (\`${emission_full}\` full_scaffold, esp. platform/app) | \`${cloud}/groups/\` |"
     echo "| P4 | Defer stubs (\`${emission_none}\`) | accept or external |"
     echo
+    echo "## Untransformed source types"
+    echo
+    if [ -f "${work_root}/${cloud}/artifacts/untransformed-resources.md" ]; then
+      echo "Human review list: [\`untransformed-resources.md\`](./untransformed-resources.md)."
+      echo
+      echo "These types were not transformed. Do not apply identity scaffolds as if the AWS policy JSON was translated."
+      echo
+      sed -n '1,80p' "${work_root}/${cloud}/artifacts/untransformed-resources.md"
+      echo
+    else
+      echo "- No \`untransformed-resources.md\` was generated. Use \`generation-summary.json\` \`infra_conversion_gaps\` and [\`review-needed.md\`](./review-needed.md)."
+      echo
+    fi
     echo "## Review-needed index"
     echo
     if [ -f "$review_src" ]; then
@@ -7165,6 +7181,19 @@ cmd_gcp_iac_generate() {
   app_iam_ok="$(jq -r '.app_iam_conversion_ok // empty' "${work_root}/gcp/artifacts/generation-summary.json" 2>/dev/null || true)"
   app_iam_eligible="$(jq -r '.app_iam_eligible_count // empty' "${work_root}/gcp/artifacts/generation-summary.json" 2>/dev/null || true)"
   app_iam_converted="$(jq -r '.app_iam_converted_count // empty' "${work_root}/gcp/artifacts/generation-summary.json" 2>/dev/null || true)"
+  local source_coverage_rate source_coverage_ok
+  source_coverage_rate="$(jq -r '.source_coverage_rate // empty' "${work_root}/gcp/artifacts/generation-summary.json" 2>/dev/null || true)"
+  source_coverage_ok="$(jq -r '.source_coverage_ok // empty' "${work_root}/gcp/artifacts/generation-summary.json" 2>/dev/null || true)"
+  if [ -n "$source_coverage_rate" ]; then
+    mirror_note "$work_root" "gcp_source_coverage_rate" "$source_coverage_rate"
+    mirror_note "$work_root" "gcp_source_coverage_ok" "${source_coverage_ok:-false}"
+  fi
+  # Below 90% is review-needed, not a generation failure. The PR TODO carries
+  # gcp/artifacts/untransformed-resources.md for the types humans must review.
+  if [ "${source_coverage_ok}" != "true" ]; then
+    mirror_note "$work_root" "gcp_source_coverage_disposition" "review-needed:source_coverage_below_90_percent"
+    echo "gcp_source_coverage_disposition=review-needed:source_coverage_below_90_percent"
+  fi
   if [ -n "$conv_rate" ]; then
     mirror_note "$work_root" "gcp_infra_conversion_rate" "$conv_rate"
   fi
@@ -7188,6 +7217,10 @@ cmd_gcp_iac_generate() {
   fi
   echo 'gcp_iac_generated: "true"'
   echo "gcp_iac_group_count=${group_count}"
+  if [ -n "$source_coverage_rate" ]; then
+    echo "gcp_source_coverage_rate=${source_coverage_rate}"
+    echo "gcp_source_coverage_ok=${source_coverage_ok}"
+  fi
   if [ -n "$conv_rate" ]; then
     echo "gcp_infra_conversion_rate=${conv_rate}"
     echo "gcp_infra_conversion_ok=${conv_ok}"
@@ -7468,7 +7501,9 @@ cmd_gcp_pr() {
     "gcp: migration blueprint for ${workflow_run_id}" \
     gcp/artifacts/migration-blueprint.json \
     gcp/artifacts/migration-profile.json \
-    gcp/artifacts/mapping-research.md || rc=$?
+    gcp/artifacts/mapping-research.md \
+    gcp/artifacts/untransformed-resources.md \
+    gcp/artifacts/review-needed.md || rc=$?
   if [ "$rc" -eq 0 ]; then commits=$((commits + 1)); elif [ "$rc" -ne 2 ]; then
     mirror_note "$work_root" "stage_summary:gcp-pr" "blocked:blueprint_commit_failed"
     return 1

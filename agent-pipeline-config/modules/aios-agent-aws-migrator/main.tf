@@ -175,7 +175,7 @@ locals {
   ensure_cloud2code_script     = file("${path.module}/scripts/ensure_cloud2code.sh")
   # Keep in lockstep with scripts/stage-runner.sh SCRIPT_PACK_VERSION and a
   # published pack-* GitHub release. 20260911.28 was bumped without a release.
-  script_pack_version = "20260930.06"
+  script_pack_version = "20260930.07"
   script_pack_git_ref = "main"
   # Baked into the runner image under /opt, not under HOME. The ACA Azure Files
   # share mounts over /home/runner, so a pack under HOME depends on the

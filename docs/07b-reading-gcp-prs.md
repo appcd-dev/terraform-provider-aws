@@ -15,7 +15,7 @@ Same review discipline as [Azure PRs](07-reading-azure-prs.md), applied to the `
 
 ## Source coverage gate
 
-Check `gcp/artifacts/generation-summary.json` → `source_coverage_*`. A generated GCP PR must pass the **90% source-instance coverage gate**: converted applicable AWS instances / all applicable AWS instances. App-IAM instances are included; explicit non-applicable instances are reported separately; unsupported or unknown mappings count as uncovered. A `null` rate (no applicable instances) is not a pass. Infra-only and app-IAM conversion diagnostics have narrower denominators and are not total coverage.
+Check `gcp/artifacts/generation-summary.json` → `source_coverage_*`. The **90% source-instance coverage target** is converted applicable AWS instances / all applicable AWS instances. App-IAM instances are included; explicit non-applicable instances are reported separately; unsupported or unknown mappings count as uncovered. A `null` rate (no applicable instances) is not a pass. A rate under 90% does not by itself stop the workflow: IAM action/condition/trust translation stays in `review-needed.md`, and the PR is still a review candidate. Infra-only and app-IAM conversion diagnostics have narrower denominators and are not total coverage.
 
 ## Emission honesty
 

@@ -298,6 +298,74 @@ def _emit_cloud_logging_buckets(
     }
 
 
+def write_untransformed_review(artifacts: Path, conversion: dict) -> Path:
+    """Write the human-review list of source types that did not receive a GCP resource.
+
+    Coverage under 90% must not hide these types. The PR TODO links this file.
+    """
+    artifacts.mkdir(parents=True, exist_ok=True)
+    out = artifacts / "untransformed-resources.md"
+    gaps = conversion.get("infra_conversion_gaps") or []
+    by_type: dict[str, dict] = {}
+    for gap in gaps:
+        source_type = str(gap.get("source_type") or "unknown")
+        row = by_type.setdefault(
+            source_type,
+            {
+                "count": 0,
+                "groups": 0,
+                "category": gap.get("category") or "",
+                "reason": gap.get("reason") or "",
+                "target": gap.get("target_resource_type") or "",
+                "emission": gap.get("emission") or "",
+                "status": gap.get("status") or "",
+            },
+        )
+        row["count"] += int(gap.get("count") or 0)
+        row["groups"] += 1
+    rate = conversion.get("source_coverage_rate")
+    rate_text = "n/a" if rate is None else f"{float(rate):.2%}"
+    lines = [
+        "# Untransformed AWS resources (human review)",
+        "",
+        "These source instances did not receive a matching GCP resource.",
+        "They are review-needed, not a reason to block the migration PR.",
+        "Do not treat a service-account scaffold as a translated IAM policy.",
+        "",
+        f"- Source coverage: `{rate_text}` (target ≥ 90%; `source_coverage_ok={conversion.get('source_coverage_ok')}`)",
+        f"- Applicable instances: `{conversion.get('source_coverage_applicable_count', 0)}`",
+        f"- Converted instances: `{conversion.get('source_coverage_converted_count', 0)}`",
+        f"- Non-applicable (excluded from the rate, still listed in review-needed): `{conversion.get('source_non_applicable_count', 0)}`",
+        "",
+        "## Uncovered source types",
+        "",
+        "| AWS source type | Uncovered instances | Groups | Category | Emission | Expected GCP target | Why |",
+        "| --- | ---: | ---: | --- | --- | --- | --- |",
+    ]
+    if not by_type:
+        lines.append("| _(none in gap sample)_ | 0 | 0 | | | | |")
+    for source_type, row in sorted(by_type.items(), key=lambda item: (-item[1]["count"], item[0])):
+        lines.append(
+            f"| `{source_type}` | {row['count']} | {row['groups']} | `{row['category']}` | `{row['emission']}` | `{row['target'] or '-'}` | {row['reason']} |"
+        )
+    lines.extend(
+        [
+            "",
+            "## What a reviewer must decide",
+            "",
+            "- IAM policies and inline role policies need an action-to-permission translation before any `google_project_iam_custom_role` or binding is applied.",
+            "- Non-workload trusts (OIDC, cross-account, EMR, and similar) need Workload Identity Federation or an explicit service-account attachment decision. A baseline service account is not that decision.",
+            "- Attachments and instance profiles are catalogued non-applicable: they fold into the role or VM identity and must not be copied as standalone GCP resources.",
+            "- CloudFront, route tables, and internet gateways need a product/topology decision. Do not apply a profile scaffold as if it were the source service.",
+            "",
+            "Per-group detail remains in `review-needed.md`. This file is the type-level checklist for the PR.",
+            "",
+        ]
+    )
+    out.write_text("\n".join(lines), encoding="utf-8")
+    return out
+
+
 def _coverage_rate(converted: int, applicable: int) -> float | None:
     """Return source-instance coverage; non-applicable rows stay outside the denominator."""
     return round(converted / applicable, 4) if applicable else None
@@ -501,7 +569,7 @@ def _compute_infra_conversion(
         "app_iam_conversion_rate": app_rate,
         "app_iam_conversion_threshold": SOURCE_COVERAGE_THRESHOLD,
         "app_iam_conversion_ok": app_iam_eligible > 0 and app_rate is not None and app_rate >= SOURCE_COVERAGE_THRESHOLD,
-        "infra_conversion_gaps": gaps[:50],
+        "infra_conversion_gaps": gaps,
     }
 
 
@@ -1229,6 +1297,8 @@ def generate(work: Path) -> dict:
     (artifacts / "mapping-decisions.json").write_text(
         json.dumps(mapping_decisions, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
+    write_untransformed_review(artifacts, conversion)
+
     (artifacts / "generation-summary.json").write_text(
         json.dumps(
             {
