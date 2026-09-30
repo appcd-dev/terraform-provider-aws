@@ -25,7 +25,11 @@ install_git_cred_helper() {
   export GIT_TOKEN="$tok" GH_TOKEN="${GH_TOKEN:-$tok}" GITHUB_TOKEN="${GITHUB_TOKEN:-$tok}" GIT_TERMINAL_PROMPT=0
   cred_dir="${HOME:-/home/runner}/.aws-migrator/bin"
   mkdir -p "$cred_dir"
-  cat >"${cred_dir}/git-credential-stackgen" <<'GCEOF'
+  # Publish atomically: concurrent runner sessions share HOME, so readers must
+  # never observe a partial helper script. Do not mutate ~/.gitconfig here.
+  local helper_tmp
+  helper_tmp="$(mktemp "${cred_dir}/.git-credential-stackgen.XXXXXX")"
+  cat >"${helper_tmp}" <<'GCEOF'
 #!/bin/sh
 case "$1" in
 get)
@@ -35,8 +39,15 @@ get)
   ;;
 esac
 GCEOF
-  chmod 0755 "${cred_dir}/git-credential-stackgen"
-  git config --global credential.helper "${cred_dir}/git-credential-stackgen" 2>/dev/null || true
+  chmod 0755 "${helper_tmp}"
+  mv -f "${helper_tmp}" "${cred_dir}/git-credential-stackgen"
+  # GIT_CONFIG_COUNT scopes this setting to this process tree (git + gh's git
+  # subprocesses), avoiding the runner-wide .gitconfig lock shared by workflows.
+  local config_count="${GIT_CONFIG_COUNT:-0}"
+  case "$config_count" in ''|*[!0-9]*) config_count=0 ;; esac
+  export "GIT_CONFIG_KEY_${config_count}=credential.helper"
+  export "GIT_CONFIG_VALUE_${config_count}=${cred_dir}/git-credential-stackgen"
+  export GIT_CONFIG_COUNT="$((config_count + 1))"
 }
 
 ensure_pack() {

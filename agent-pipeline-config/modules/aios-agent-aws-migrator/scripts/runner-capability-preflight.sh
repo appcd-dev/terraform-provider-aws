@@ -82,8 +82,9 @@ if ! command -v git >/dev/null 2>&1; then
 fi
 
 # SCM github vault sync exposes `token`, not GIT_TOKEN (session 8da4f049).
-# Alias into git/gh env and install a durable credential helper so later
-# execute_series shells (including hand-rolled git clone) can authenticate.
+# Alias the SCM token and install the credential helper. The helper file is
+# durable under the runner home; its Git config is set per process below so
+# concurrent execute_series shells never contend over ~/.gitconfig.
 # Prefer $HOME/.aws-migrator/bin — $HOME/.local/bin is often not writable on ACA
 # (session 6dac05f9: Permission denied).
 _git_tok="${GIT_TOKEN:-${GITHUB_TOKEN:-${GH_TOKEN:-${token:-}}}}"
@@ -92,7 +93,10 @@ if [ -n "$_git_tok" ]; then
   export GIT_TERMINAL_PROMPT=0
   _cred_dir="${HOME}/.aws-migrator/bin"
   mkdir -p "$_cred_dir"
-  cat >"${_cred_dir}/git-credential-stackgen" <<'GCEOF'
+  # Atomically publish the helper because concurrent workflows share this
+  # directory. The helper reads the token from each process environment.
+  _helper_tmp="$(mktemp "${_cred_dir}/.git-credential-stackgen.XXXXXX")"
+  cat >"${_helper_tmp}" <<'GCEOF'
 #!/bin/sh
 case "$1" in
 get)
@@ -102,9 +106,16 @@ get)
   ;;
 esac
 GCEOF
-  chmod 0755 "${_cred_dir}/git-credential-stackgen"
-  git config --global credential.helper "${_cred_dir}/git-credential-stackgen"
-  unset _cred_dir
+  chmod 0755 "${_helper_tmp}"
+  mv -f "${_helper_tmp}" "${_cred_dir}/git-credential-stackgen"
+  # Keep helper configuration scoped to this process tree. Multiple workflows
+  # share $HOME on the remote runner, so git config --global races on ~/.gitconfig.
+  _git_config_count="${GIT_CONFIG_COUNT:-0}"
+  case "$_git_config_count" in ''|*[!0-9]*) _git_config_count=0 ;; esac
+  export "GIT_CONFIG_KEY_${_git_config_count}=credential.helper"
+  export "GIT_CONFIG_VALUE_${_git_config_count}=${_cred_dir}/git-credential-stackgen"
+  export GIT_CONFIG_COUNT="$((_git_config_count + 1))"
+  unset _cred_dir _git_config_count _helper_tmp
 fi
 unset _git_tok
 

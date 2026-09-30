@@ -27,7 +27,7 @@ EOT
 
   aws_migrator_spawn_context_cloud2code = <<-EOT
 ${local.dbsplit_spawn_context_base}
-substitute: AWS_REGION_PLACEHOLDER → region; {{workflow_run_id}} → real id
+substitute: AWS_REGION_PLACEHOLDER → region; CLOUD2CODE_EXCLUDE_PLACEHOLDER → comma-separated requested aws_* resource types (or empty); {{workflow_run_id}} → real id
 working_dir: omit or /
 timeout_seconds: ${local.subagent_budgets.script_runner_timeout_seconds}
 

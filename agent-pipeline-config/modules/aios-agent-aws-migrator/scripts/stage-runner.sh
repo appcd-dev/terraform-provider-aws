@@ -4,7 +4,7 @@
 # Usage: DBSPLIT_EMBEDDED=1 bash -s <command> [args...] << 'DBSPLIT_STAGE_RUNNER' ... DBSPLIT_STAGE_RUNNER
 set -euo pipefail
 
-SCRIPT_PACK_VERSION="20260930.04"
+SCRIPT_PACK_VERSION="20260930.05"
 DBSPLIT_DEFAULT_STRATEGY="${DBSPLIT_DEFAULT_STRATEGY:-tfstate_monolith_decomposer}"
 DBSPLIT_DEFAULT_CAP="${DBSPLIT_DEFAULT_CAP:-0}"
 REQUIRED_ALLOCATE_MARKER="def merge_small_by_seed"
@@ -2004,11 +2004,17 @@ bootstrap_gh() {
     return 1
   fi
   echo "gh_env_present=true"
-  if command -v gh >/dev/null 2>&1; then
-    gh auth setup-git 2>/dev/null || true
-  fi
-  git config --global user.name "stackgen-aws-migrator"
-  git config --global user.email "aws-migrator@stackgen.local"
+  # The runner HOME is shared by concurrent workflows. `gh auth setup-git`
+  # and `git config --global` both rewrite ~/.gitconfig and race on its lock.
+  # Use environment-scoped git config inherited by this process and its children.
+  local config_count="${GIT_CONFIG_COUNT:-0}"
+  case "$config_count" in ''|*[!0-9]*) config_count=0 ;; esac
+  export "GIT_CONFIG_KEY_${config_count}=user.name"
+  export "GIT_CONFIG_VALUE_${config_count}=stackgen-aws-migrator"
+  config_count=$((config_count + 1))
+  export "GIT_CONFIG_KEY_${config_count}=user.email"
+  export "GIT_CONFIG_VALUE_${config_count}=aws-migrator@stackgen.local"
+  export GIT_CONFIG_COUNT="$((config_count + 1))"
 }
 
 git_clone_url() {

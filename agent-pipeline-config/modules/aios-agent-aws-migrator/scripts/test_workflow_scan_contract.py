@@ -126,6 +126,7 @@ def main() -> None:
     assert 'export WORKFLOW_RUN_ID="${1:-${WORKFLOW_RUN_ID:-}}"' in pack_entry
     assert "runner_pack_entry_invoke" in command
     assert " scan " in command
+    assert "CLOUD2CODE_EXCLUDE_PLACEHOLDER" in command
     assert "cloud2code scan aws" not in command
     preflight_cmd = re.search(
         r"runner_capability_preflight_execute_series_body\s*=\s*\"(.*)\"\s*$",
