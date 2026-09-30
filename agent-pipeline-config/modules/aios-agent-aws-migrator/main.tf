@@ -486,7 +486,7 @@ locals {
   rendered_persona = templatefile("${path.module}/personas/aws-migrator-architect.md.tftpl", local.template_vars)
 
   rendered_templates = {
-    for filename in concat(
+    for filename in setunion(
       fileset("${path.module}/templates", "*.md.tftpl"),
       fileset("${path.module}/templates", "*.tmpl.md"),
     ) :
