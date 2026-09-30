@@ -205,7 +205,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
         Done when: the stage result includes `cloud2code_scan_ok: "true"`, a non-empty state path, and a positive resource count; include Cloud2Code scan output when emitted. The PR includes the scan report and source artifacts.
         How: Prefer the pack command: ONE `${local.shell_tool_prefix}_execute_series` with `commands[0].command` set to the exact body between `---BEGIN CLOUD2CODE_SCAN_EXECUTE_SERIES---` and `---END---` and `timeout_seconds` set to ${local.subagent_budgets.script_runner_timeout_seconds}. Swap the region, workflow ID, and third-arg exclusions. create_agent is fine with that same body. Omitting `timeout_seconds` uses the runner 30s default (`signal: killed`); the pack detaches the import, so re-paste resumes it.
         **FORBIDDEN:** using the marker label as the shell command (exit 127), or inventing another cloud2code invocation.
-        On `signal: killed` or `cloud2code_scan_running: "true"`, re-paste the same body. Do not start a second import and do not treat a killed call as finished. Echo runner lines; do not paraphrase. Proceed on partial reads only when the wrapper emits `cloud2code_scan_ok: "true"`.
+        On `signal: killed` or `cloud2code_scan_running: "true"`, re-paste the same body. Do not start a second import. On a fingerprint mismatch, re-paste that same body or stop the pid before a new workflow id. Echo runner lines; do not paraphrase or invent listed/imported/read_failed counts. Proceed on partial reads only when the wrapper emits `cloud2code_scan_ok: "true"`.
 
         ${local.aws_migrator_spawn_context_cloud2code}
       EOT
@@ -220,8 +220,10 @@ resource "sg_workflow" "aws_migrator_discovery" {
         max_iterations = 5
         exit_condition = "output_matches_regex"
         # Require scan_ok AND tfstate_path so "No `cloud2code_scan_ok: \"true\"`"
-        # prose cannot FINISH (session b506b854). Blocker names stay bare.
-        exit_match = "cloud2code_scan_ok:\\s*\\\"true\\\"[\\s\\S]{0,400}cloud2code_tfstate_path=|blocked:missing_aws_region|blocked:remote_runner_cloud2code_missing|blocked:remote_runner_awscli_missing|blocked:remote_runner_jq_missing|blocked:cloud2code_scan_failed|blocked:cloud2code_partial_scan|blocked:cloud2code_state_empty|blocked:remote_runner_cloud2code_version_unavailable|blocked:cloud2code_scan_detach_unavailable|blocked:cloud2code_scan_already_running|script_pack_error="
+        # prose cannot FINISH (session b506b854). A still-running import and a
+        # fingerprint mismatch are not exits: both need another paste of the
+        # same body (session 3b08e860 finished the loop and fell into converge).
+        exit_match = "cloud2code_scan_ok:\\s*\\\"true\\\"[\\s\\S]{0,400}cloud2code_tfstate_path=|blocked:missing_aws_region:\\s*\\\"true\\\"|blocked:remote_runner_cloud2code_missing:\\s*\\\"true\\\"|blocked:remote_runner_awscli_missing:\\s*\\\"true\\\"|blocked:remote_runner_jq_missing:\\s*\\\"true\\\"|blocked:cloud2code_scan_failed:\\s*\\\"true\\\"|blocked:cloud2code_partial_scan:\\s*\\\"true\\\"|blocked:cloud2code_state_empty:\\s*\\\"true\\\"|blocked:remote_runner_cloud2code_version_unavailable:\\s*\\\"true\\\"|blocked:cloud2code_scan_detach_unavailable:\\s*\\\"true\\\"|blocked:cloud2code_tfstate_missing:\\s*\\\"true\\\"|blocked:cloud2code_tfstate_invalid:\\s*\\\"true\\\"|blocked:cloud2code_workflow_run_id_unresolved:\\s*\\\"true\\\"|script_pack_error=[A-Za-z0-9_]"
       }
     },
     {
@@ -262,9 +264,10 @@ resource "sg_workflow" "aws_migrator_discovery" {
         loop_to        = "ingest-and-split"
         max_iterations = var.max_convergence_iterations
         exit_condition = "output_matches_regex"
-        # Quoted true only — prose "count_reconciliation_ok=true were not produced"
-        # false-FINISHed ingest (session c38ad01b) and skipped a real retry.
-        exit_match = "count_reconciliation_ok:\\s*\\\"true\\\"|blocked:missing_monolith_state_uri|blocked:three_runner_attempts_failed|blocked:ingest_script_pack_failed|blocked:split_lock_timeout|script_pack_verify_ok:\\s*\\\"false\\\"|script_pack_error="
+        # Quoted sentinels only. Bare blocker names false-FINISH when the stage
+        # note mentions them (session 3b08e860: scan incomplete fell through to
+        # registry and converge with no logical_group_manifest).
+        exit_match = "count_reconciliation_ok:\\s*\\\"true\\\"|blocked:missing_monolith_state_uri:\\s*\\\"true\\\"|blocked:cloud2code_scan_incomplete:\\s*\\\"true\\\"|blocked:three_runner_attempts_failed:\\s*\\\"true\\\"|blocked:ingest_script_pack_failed:\\s*\\\"true\\\"|blocked:split_lock_timeout:\\s*\\\"true\\\"|script_pack_verify_ok:\\s*\\\"false\\\"|script_pack_error=[A-Za-z0-9_]"
       }
     },
     {
@@ -278,7 +281,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
         # loop FINISH reasons paste the exit_match pattern text, and that substring
         # false-skipped a clean split (session cec82df8: count_reconciliation_ok=true,
         # 89 groups) straight to final-gate.
-        match   = "blocked:missing_monolith_state_uri:\\s*\\\"true\\\"|blocked:three_runner_attempts_failed:\\s*\\\"true\\\"|blocked:ingest_script_pack_failed:\\s*\\\"true\\\"|blocked:split_lock_timeout:\\s*\\\"true\\\"|stage_summary:ingest-and-split=blocked:|script_pack_verify_ok:\\s*\\\"false\\\"|script_pack_verify_ok=false|count_reconciliation_ok:\\s*\\\"false\\\"|count_reconciliation_ok=false|script_pack_error=[A-Za-z0-9_]"
+        match   = "blocked:missing_monolith_state_uri:\\s*\\\"true\\\"|blocked:cloud2code_scan_incomplete:\\s*\\\"true\\\"|blocked:three_runner_attempts_failed:\\s*\\\"true\\\"|blocked:ingest_script_pack_failed:\\s*\\\"true\\\"|blocked:split_lock_timeout:\\s*\\\"true\\\"|stage_summary:ingest-and-split=blocked:|script_pack_verify_ok:\\s*\\\"false\\\"|script_pack_verify_ok=false|count_reconciliation_ok:\\s*\\\"false\\\"|count_reconciliation_ok=false|script_pack_error=[A-Za-z0-9_]"
         skip_to = "final-gate-and-memory"
         reason  = "The scanned resources could not be split correctly, so Terraform generation cannot continue"
       }

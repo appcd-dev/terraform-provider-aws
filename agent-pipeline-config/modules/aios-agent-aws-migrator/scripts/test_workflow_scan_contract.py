@@ -219,6 +219,8 @@ def main() -> None:
     assert r'count_reconciliation_ok:\\s*\\\"true\\\"' in ingest_exit
     assert "count_reconciliation_ok[^\\\\n]{0,40}true" not in ingest_exit
     assert "blocked:split_lock_timeout" in ingest_exit
+    assert r'blocked:cloud2code_scan_incomplete:\\s*\\\"true\\\"' in ingest_exit
+    assert "blocked:cloud2code_scan_incomplete" in ingest_match
     gate_re = ingest_match.encode("utf-8").decode("unicode_escape")
     assert re.search(gate_re, "count_reconciliation_ok=false\n")
     assert re.search(gate_re, 'script_pack_verify_ok: "false"\n')
@@ -243,6 +245,15 @@ def main() -> None:
     _assert_gate_not_in_finish(scan_match, scan_exit, "scan")
     assert 'blocked:missing_aws_region:' in scan_match
     assert re.search(r"blocked:missing_aws_region:\\s*", scan_match)
+    # Session 3b08e860: a live import and a fingerprint mismatch must GO_BACK.
+    # Bare blocker names in the stage note must not FINISH the loop.
+    scan_exit_re = scan_exit.encode("utf-8").decode("unicode_escape")
+    assert not re.search(scan_exit_re, 'cloud2code_scan_running: "true"\n')
+    assert not re.search(
+        scan_exit_re, 'blocked:cloud2code_scan_already_running: "true"\n'
+    )
+    assert not re.search(scan_exit_re, "blocked:cloud2code_scan_failed")
+    assert re.search(scan_exit_re, 'blocked:cloud2code_scan_failed: "true"\n')
 
     # Registry: pack-backed, create_agent allowed, body once.
     registry = _binding(workflow, "registry-and-import-codegen")

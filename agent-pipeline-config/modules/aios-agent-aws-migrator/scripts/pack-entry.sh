@@ -122,6 +122,11 @@ case "$cmd" in
     export CLOUD2CODE_EXCLUDE="${CLOUD2CODE_EXCLUDE:-}"
     export CLOUD2CODE_TAGS="${CLOUD2CODE_TAGS:-}"
     export CLOUD2CODE_ALLOW_PARTIAL="${CLOUD2CODE_ALLOW_PARTIAL:-}"
+    # Stage paste sets timeout_seconds=3600. Wait for the detached import inside
+    # that call so the scan loop sees scan_ok or a real blocker, not "running".
+    if [ -z "${CLOUD2CODE_SCAN_CALL_BUDGET_SECONDS:-}" ]; then
+      export CLOUD2CODE_SCAN_CALL_BUDGET_SECONDS=3500
+    fi
     export WORKFLOW_RUN_ID="${1:-${WORKFLOW_RUN_ID:-}}"
     export AWS_REGION="${2:-${AWS_REGION:-${AWS_DEFAULT_REGION:-}}}"
     export AWS_DEFAULT_REGION="${AWS_REGION}"

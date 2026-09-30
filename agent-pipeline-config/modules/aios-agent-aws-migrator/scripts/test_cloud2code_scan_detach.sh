@@ -74,6 +74,9 @@ entry="$SCRIPT_DIR/pack-entry.sh"
 if ! grep -q 'export CLOUD2CODE_EXCLUDE="${_scan_exclude}"' "$entry"; then
   fail "pack-entry does not export the scan exclude argument"
 fi
+if ! grep -q 'CLOUD2CODE_SCAN_CALL_BUDGET_SECONDS=3500' "$entry"; then
+  fail "pack-entry does not wait out the stage timeout for a detached scan"
+fi
 
 bad="$(WORKFLOW_RUN_ID= bash "$TEST_ROOT/pack/cloud2code-scan-detach.sh" '/tmp/not-a-workflow' us-east-1 || true)"
 printf '%s\n' "$bad" | grep -q 'blocked:cloud2code_workflow_run_id_unresolved: "true"' || fail "path workflow id was accepted: $bad"

@@ -11,7 +11,6 @@ SCRIPTS = MODULE / "scripts"
 TEMPLATES = MODULE / "templates"
 MAIN_TF = MODULE / "main.tf"
 STAGE = SCRIPTS / "stage-runner.sh"
-PACK_VERSION = "20260930.06"
 
 
 def main() -> None:
@@ -38,8 +37,7 @@ def main() -> None:
     pack_vers = set(
         re.findall(r'script_pack_version\s*=\s*"([^"]+)"', main_tf)
     )
-    assert stage_ver == PACK_VERSION, stage_ver
-    assert pack_vers == {PACK_VERSION}, pack_vers
+    assert pack_vers == {stage_ver}, (stage_ver, pack_vers)
 
     for wf_name in ("workflows_gcp_only.tf", "workflows_azure_only.tf"):
         wf = (MODULE / wf_name).read_text()

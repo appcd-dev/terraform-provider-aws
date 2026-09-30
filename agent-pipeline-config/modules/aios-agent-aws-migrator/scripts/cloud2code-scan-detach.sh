@@ -17,8 +17,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCAN_SCRIPT="${SCRIPT_DIR}/cloud2code-aws-scan.sh"
 
 # Leave headroom under a 30s tool timeout so status is flushed before SIGKILL.
-# A caller that set timeout_seconds=3600 can raise this to block until the
-# import exits inside that longer call.
+# A caller that set timeout_seconds=3600 must block until the import exits
+# inside that call. Returning cloud2code_scan_running after 20s made the scan
+# loop finish on a live pid (session 3b08e860).
 CALL_BUDGET="${CLOUD2CODE_SCAN_CALL_BUDGET_SECONDS:-20}"
 case "$CALL_BUDGET" in
   ''|*[!0-9]*) CALL_BUDGET=20 ;;
