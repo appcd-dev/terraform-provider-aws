@@ -175,7 +175,7 @@ locals {
   ensure_cloud2code_script     = file("${path.module}/scripts/ensure_cloud2code.sh")
   # Keep in lockstep with scripts/stage-runner.sh SCRIPT_PACK_VERSION and a
   # published pack-* GitHub release. 20260911.28 was bumped without a release.
-  script_pack_version = "20260930.01"
+  script_pack_version = "20260930.02"
   script_pack_git_ref = "main"
   # Baked into the runner image under /opt, not under HOME. The ACA Azure Files
   # share mounts over /home/runner, so a pack under HOME depends on the
@@ -474,7 +474,10 @@ locals {
   # Drop stale Azure Files ~/.aws cache so SDK does not chase expired IMDS/SSO
   # before typed-secret env keys (session 3f867683 / ced6484d).
   runner_aws_cred_hygiene  = "unset AWS_PROFILE; rm -rf \"$${HOME}/.aws/cli/cache\" \"$${HOME}/.aws/sso\" 2>/dev/null || true; echo \"aws_env_keys=$(env | grep '^AWS_' | cut -d= -f1 | tr '\\n' ' ')\"; if [ -f \"$${HOME}/.aws/credentials\" ]; then echo aws_credentials_file=present; else echo aws_credentials_file=absent; fi;"
-  runner_pack_entry_invoke = "${local.runner_git_env_prefix} ${local.runner_aws_cred_hygiene} pack_entry(){ P='${local.script_pack_preload_dir}'; if [ -f \"$${P}/cloud2code-aws-scan.sh\" ] && [ -f \"$${P}/runner-capability-preflight.sh\" ] && [ -f \"$${P}/ingest-bootstrap.sh\" ] && [ -f \"$${P}/iac-pr-bootstrap.sh\" ] && [ -f \"$${P}/converge-bootstrap.sh\" ]; then case \"$${1}\" in preflight) shift; exec bash \"$${P}/runner-capability-preflight.sh\" \"$@\"; ;; scan) shift; exec bash \"$${P}/cloud2code-aws-scan.sh\" \"$@\"; ;; ingest) export WORKFLOW_RUN_ID=\"$${2}\"; shift; exec bash \"$${P}/ingest-bootstrap.sh\" \"$@\"; ;; iac-pr) export WORKFLOW_RUN_ID=\"$${2}\"; shift; exec bash \"$${P}/iac-pr-bootstrap.sh\" \"$@\"; ;; converge) export WORKFLOW_RUN_ID=\"$${2}\"; shift; exec bash \"$${P}/converge-bootstrap.sh\" \"$@\"; ;; destination) shift; exec bash \"$${P}/run-destination-stage.sh\" \"$@\"; ;; *) echo \"pack_entry_error=unknown_cmd cmd=$${1}\" >&2; exit 2; ;; esac; fi; D=$(mktemp -d); gh release download 'pack-${local.script_pack_version}' -R '${trimspace(var.script_pack_release_repo)}' -p pack-entry.sh -D \"$${D}\" && exec bash \"$${D}/pack-entry.sh\" \"$@\"; }; pack_entry"
+  # Delegate dispatch to the versioned pack entrypoint instead of pasting a
+  # hand-maintained shell case statement into every LLM tool call. pack-entry
+  # owns argv→WORKFLOW_RUN_ID mapping and pack self-heal.
+  runner_pack_entry_invoke = "${local.runner_git_env_prefix} ${local.runner_aws_cred_hygiene} pack_entry(){ P='${local.script_pack_preload_dir}'; if [ -x \"$${P}/pack-entry.sh\" ]; then exec bash \"$${P}/pack-entry.sh\" \"$@\"; fi; D=$(mktemp -d); gh release download 'pack-${local.script_pack_version}' -R '${trimspace(var.script_pack_release_repo)}' -p pack-entry.sh -D \"$${D}\" && exec bash \"$${D}/pack-entry.sh\" \"$@\"; }; pack_entry"
   # Self-heal pack fetch on every pack-path stage so a faked preflight (session
   # b506b854: printf runner_capability_preflight_ok) cannot leave /opt empty.
   runner_capability_preflight_execute_series_body = "${local.runner_pack_entry_invoke} preflight '{{workflow_run_id}}'"

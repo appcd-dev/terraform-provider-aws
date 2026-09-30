@@ -126,7 +126,7 @@ if ! ensure_cloud2code; then
   emit_blocked "blocked:remote_runner_cloud2code_missing" "cloud2code_install_failed"
 fi
 
-if [ ! -d "$SCRIPT_PACK_DIR" ] || [ ! -f "$SCRIPT_PACK_DIR/stage-runner.sh" ] || [ ! -f "$SCRIPT_PACK_DIR/ingest-bootstrap.sh" ] || [ ! -f "$SCRIPT_PACK_DIR/iac-pr-bootstrap.sh" ] || [ ! -f "$SCRIPT_PACK_DIR/converge-bootstrap.sh" ] || [ ! -f "$SCRIPT_PACK_DIR/cloud2code-aws-scan.sh" ] || [ ! -f "$SCRIPT_PACK_DIR/run-destination-stage.sh" ]; then
+if [ ! -d "$SCRIPT_PACK_DIR" ] || [ ! -f "$SCRIPT_PACK_DIR/stage-runner.sh" ] || [ ! -f "$SCRIPT_PACK_DIR/ingest-bootstrap.sh" ] || [ ! -f "$SCRIPT_PACK_DIR/iac-pr-bootstrap.sh" ] || [ ! -f "$SCRIPT_PACK_DIR/converge-bootstrap.sh" ] || [ ! -f "$SCRIPT_PACK_DIR/cloud2code-aws-scan.sh" ] || [ ! -f "$SCRIPT_PACK_DIR/run-destination-stage.sh" ] || [ ! -x "$SCRIPT_PACK_DIR/pack-entry.sh" ]; then
   emit_blocked "blocked:remote_runner_script_pack_missing" "script_pack_missing"
 fi
 

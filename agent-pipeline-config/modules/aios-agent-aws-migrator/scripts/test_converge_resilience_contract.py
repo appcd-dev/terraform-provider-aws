@@ -118,9 +118,9 @@ def test_converge_workflow_id_argv_fallback() -> None:
     # bootstrap with RUN_ID as argv[1]. Env remains preferred, argv is fallback.
     assert 'WORKFLOW_RUN_ID="$${WORKFLOW_RUN_ID:-$${1:-}}"' in CONVERGE_TPL
     assert 'error=WORKFLOW_RUN_ID_unset argv_count=$#' in CONVERGE_TPL
-    pack_entry = (MODULE / "main.tf").read_text(encoding="utf-8")
-    assert 'converge) export WORKFLOW_RUN_ID=' in pack_entry
-    assert 'converge-bootstrap.sh' in pack_entry
+    pack_entry = (MODULE / "scripts" / "pack-entry.sh").read_text(encoding="utf-8")
+    assert 'converge)' in pack_entry
+    assert 'export WORKFLOW_RUN_ID="${1:-${WORKFLOW_RUN_ID:-}}"' in pack_entry
 
 
 def test_converge_status_artifact_is_durable_and_synced() -> None:

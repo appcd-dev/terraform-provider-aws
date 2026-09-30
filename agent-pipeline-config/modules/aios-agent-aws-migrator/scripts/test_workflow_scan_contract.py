@@ -76,6 +76,9 @@ def main() -> None:
     assert "current stage note is the execution plan" in persona
     assert "Prescriptive Runbook Step" in persona
     assert "Prefer the pack command" in persona
+    assert "never memory" in persona or "from memory" in persona
+    assert "targeted read-only probe" in persona
+    assert "sync the discovery PR" in persona
     assert "blocked:remote_runner" not in persona
     assert "*.md.tftpl" in guard
 
@@ -116,6 +119,11 @@ def main() -> None:
     assert "pack-entry.sh" in entry_url
     assert "gh release download" in invoke
     assert "pack-entry.sh" in invoke
+    assert "runner_pack_entry_invoke" in main_tf
+    assert "case \"$${1}\" in" not in invoke
+    pack_entry = (MODULE / "scripts" / "pack-entry.sh").read_text()
+    assert 'converge)' in pack_entry
+    assert 'export WORKFLOW_RUN_ID="${1:-${WORKFLOW_RUN_ID:-}}"' in pack_entry
     assert "runner_pack_entry_invoke" in command
     assert " scan " in command
     assert "cloud2code scan aws" not in command
@@ -241,6 +249,10 @@ def main() -> None:
     assert "blank" in converge.lower() or "truncate" in converge.lower()
     assert "converge_batch_incomplete" in converge or "converge_retryable" in converge
     assert "signal: killed" in converge or "runner_killed" in converge
+    assert "never memory" in converge
+    assert "one safe idempotent retry" in converge
+    assert "even if an earlier retry was used" in converge
+    assert "Keep the discovery PR synced" in converge
     assert len(_heredoc_body(converge, "note")) <= MAX_BINDING_NOTE
 
     converge_loop = _binding(workflow, "shell-converge-loop")

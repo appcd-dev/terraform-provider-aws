@@ -136,13 +136,40 @@ def main() -> None:
     # Discovery entrypoint arguments must be promoted into the environment before
     # the generated bootstraps run. execute_series passes argv to pack_entry; it
     # does not export WORKFLOW_RUN_ID on behalf of the command.
-    for stage in ("ingest", "iac-pr", "converge"):
-        assert (
-            f';; {stage}) export WORKFLOW_RUN_ID="${{2}}"; shift; exec bash'
-            in invoke
-        ), f"{stage} dispatch must export the positional workflow run id"
-
+    # Discovery command dispatch is centralized in pack-entry.sh so the
+    # positional run id is always promoted to WORKFLOW_RUN_ID there.
     pack = PACK_ENTRY.read_text()
+    for stage in ("ingest", "iac-pr", "converge"):
+        assert f"  {stage})" in pack, f"pack-entry missing {stage} dispatch"
+    assert 'export WORKFLOW_RUN_ID="${1:-${WORKFLOW_RUN_ID:-}}"' in pack
+    assert 'if [ -x "${P}/pack-entry.sh" ]' in invoke
+    assert 'pack_entry(){' in invoke
+    assert 'case "${1}" in' not in invoke
+
+    # Exercise the dispatcher: run id comes from argv, even with an empty env.
+    import os
+    import tempfile
+    with tempfile.TemporaryDirectory() as temp_dir:
+        pack_dir = Path(temp_dir)
+        for filename in (
+            "runner-capability-preflight.sh",
+            "cloud2code-aws-scan.sh",
+            "ingest-bootstrap.sh",
+            "iac-pr-bootstrap.sh",
+            "converge-bootstrap.sh",
+            "run-destination-stage.sh",
+        ):
+            (pack_dir / filename).write_text("#!/bin/sh\necho WORKFLOW_RUN_ID=$WORKFLOW_RUN_ID\n")
+        got = subprocess.run(
+            ["bash", str(PACK_ENTRY), "converge", "wf-contract"],
+            env={**os.environ, "HOME": temp_dir, "PRELOAD_DIR": temp_dir, "PACK_VER": "test"},
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert got.returncode == 0, got.stderr
+        assert "WORKFLOW_RUN_ID=wf-contract" in got.stdout, got.stdout
+
     assert "destination)" in pack
     assert "run-destination-stage.sh" in pack
     assert "pack-entry.sh destination <stage>" in pack

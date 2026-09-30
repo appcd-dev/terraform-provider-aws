@@ -30,11 +30,14 @@ cp "$MODULE/scripts/governance_opa_check.py" "$DEST/"
 cp "$MODULE/scripts/run-destination-stage.sh" "$DEST/"
 cp "$MODULE/scripts/ensure_cloud2code.sh" "$DEST/"
 cp "$MODULE/scripts/runner-capability-preflight.sh" "$DEST/"
+cp "$MODULE/scripts/pack-entry.sh" "$DEST/pack-entry.sh"
+sed -i.bak "s/__SCRIPT_PACK_VERSION__/${VERSION}/g" "$DEST/pack-entry.sh"
+rm -f "$DEST/pack-entry.sh.bak"
 cp "$MODULE/scripts/cloud2code-aws-scan.sh" "$DEST/"
 cp "$MODULE/mappings/aws-to-azure.json" "$DEST/mappings/"
 cp "$MODULE/mappings/aws-to-gcp.json" "$DEST/mappings/"
 chmod +x "$DEST/stage-runner.sh" "$DEST/run-destination-stage.sh" \
-  "$DEST/runner-capability-preflight.sh" "$DEST/cloud2code-aws-scan.sh"
+  "$DEST/runner-capability-preflight.sh" "$DEST/cloud2code-aws-scan.sh" "$DEST/pack-entry.sh"
 
 # Agents keep renaming the scan script and the command dies with exit 127
 # before any scan runs: pack.sh (session 8478c357), cloud2code-scan (90cf9291),

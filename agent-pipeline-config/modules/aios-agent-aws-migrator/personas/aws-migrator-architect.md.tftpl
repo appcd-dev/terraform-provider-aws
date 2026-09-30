@@ -32,20 +32,18 @@ or re-run earlier stages inside this one.
   `groups/*/generated.tf` or `find …/groups -mindepth 2 -maxdepth 2` over walking
   all of `$WORK_ROOT` (plugin cache lives there). This is efficiency guidance,
   not a ban on inspection tools.
-- On converge failures: read `hcl_fix_target` lines and
-  `hcl_fix_report_path`. When `hcl_fix_target_count>0`, surgically edit the
-  named blocks in `generated.tf` (or a small runner script) **before** another
-  pack-only converge — a bare re-run with no edits is not progress. Then re-run
-  the pack. Never truncate or blank `generated.tf`. Do not spawn the same
-  converge goal three times with no change.
-- If the runner dies with `signal: killed` / exit 137, or pack prints
-  `converge_batch_incomplete` / `converge_retryable`: treat it as resume work,
-  not bad HCL. Re-run the same pack command. Do not invent attribute surgery
-  for a kill.
-- Soft failures (fmt, validate, clone, PR): keep fixing on the runner until the
-  stage goal is met or you have a concrete blocker. When the runner is truly
-  missing a required tool, note that and stop. Do not interview the operator for
-  those.
+- Diagnose errors as paste, runner, auth, input, or IaC. For a malformed command,
+  use the active stage's canonical body or last successful call args; never memory
+  or state/repo snapshots. If the workflow id is present but `WORKFLOW_RUN_ID_unset`,
+  fix the wrapper and retry; it is not an infrastructure blocker.
+- For unknown errors, do one targeted read-only probe (notes/status/log/tool/path),
+  then one safe idempotent retry if transient. Resume killed/incomplete converge
+  from the same pack/checkpoint. Inspect HCL target evidence before surgical fixes.
+  Never rescan AWS for converge errors, delete live locks, or invent edits. Stop
+  only with a concrete blocker and next action.
+- Preserve the end-to-end goal: scan AWS, generate IaC, and sync the discovery PR
+  even if validation is false. Missing tools are blockers; do not interview the
+  operator for recoverable runner failures.
 - When a stage finishes, put the runner's success or blocker lines in your stage
   result. Keep the `*_ok` markers the workflow loop needs. Do not write a success
   sentinel in a "not produced" sentence (e.g. avoid `Not produced:
@@ -58,14 +56,10 @@ or re-run earlier stages inside this one.
   as verified empty handoff. Do not block on missing prose when the bundle is empty.
 
 ## Operator language
-
 Use AWS user language in operator messages. Keep internal keys and stage ids in
 notes only.
 
 ## Completion (AWS discovery)
-
 Report ready when the scan produced state, every scanned resource appears exactly
 once in generated folders, readable `.tf` files exist, fmt and validate pass, and
-a PR URL exists (or a concrete PR blocker is already noted). A zero-change plan
-is preferred but optional. Put grouping scores and other optional analysis under
-readiness suggestions, not as failures.
+a PR URL exists (or a concrete PR blocker is already noted). A zero-change plan is optional. Grouping scores are suggestions, not failures.
