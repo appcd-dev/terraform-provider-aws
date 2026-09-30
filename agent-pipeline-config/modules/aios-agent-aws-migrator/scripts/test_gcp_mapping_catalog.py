@@ -19,6 +19,14 @@ import gcp_iac_generate as gig  # noqa: E402
 import gcp_mapping_catalog as gmc  # noqa: E402
 
 
+def _gcp_blueprint_preserves_source_ids() -> bool:
+    script = (Path(__file__).resolve().parent / "stage-runner.sh").read_text(encoding="utf-8")
+    start = script.index("cmd_gcp_migration_blueprint() {")
+    end = script.index("cmd_gcp_iac_generate() {", start)
+    code = script[start:end]
+    return 'group_id = str(entry.get("group_id") or entry.get("id") or gid)' in code and 'group_id = sanitize_group_id(str(entry.get("group_id") or entry.get("id") or gid))' not in code
+
+
 def _write_fixture(work: Path) -> None:
     groups = work / "groups"
     artifacts = work / "gcp" / "artifacts"
@@ -187,6 +195,13 @@ def _write_fixture(work: Path) -> None:
             },
         ],
     }
+    source_counts = {"aws-eip-only": 1, "aws-alb-group": 2, "aws-dns-group": 3, "aws-logs-group": 3}
+    for group in blueprint["groups"]:
+        group["source_resource_count"] = source_counts[group["group_id"]]
+    (work / "logical_group_manifest.json").write_text(
+        json.dumps({gid: {"resource_addresses": [f"{gid}.{i}" for i in range(count)]}
+                    for gid, count in source_counts.items()}), encoding="utf-8"
+    )
     artifacts.mkdir(parents=True)
     (artifacts / "migration-blueprint.json").write_text(json.dumps(blueprint, indent=2) + "\n", encoding="utf-8")
 
@@ -205,6 +220,7 @@ def main() -> int:
     vpc = gmc.resolve(catalog, "aws_vpc")
     check("aws_vpc->compute_network", vpc["default_target"] == "google_compute_network" and vpc["status"] == "mapped")
     check("aws_vpc category network", vpc["category"] == "network")
+    check("GCP blueprint preserves AWS shard IDs", _gcp_blueprint_preserves_source_ids())
 
     lam = gmc.resolve(catalog, "aws_lambda_function")
     check("aws_lambda_function->cloudfunctions2", lam["default_target"] == "google_cloudfunctions2_function")
@@ -336,6 +352,18 @@ def main() -> int:
         check("conversion rate >= 0.80", float(summary.get("infra_conversion_rate") or 0) >= 0.80)
         check("eligible infra > 0", int(summary.get("infra_eligible_count") or 0) > 0)
         check("result mirrors summary rate", result.get("infra_conversion_ok") is True)
+        reconciliation = summary["source_reconciliation"]
+        check("source group count reconciles", reconciliation["source_group_count"] == reconciliation["blueprint_group_count"] == 4)
+        check("source resource count reconciles", reconciliation["source_resource_count"] == reconciliation["blueprint_resource_count"] == 9)
+        omitted = work / "groups" / "aws-omitted-group"
+        omitted.mkdir()
+        (omitted / "terraform.tfstate").write_text(json.dumps({"resources": [{"mode": "managed", "type": "aws_subnet", "instances": [{"attributes": {}}]}]}), encoding="utf-8")
+        failed_closed = False
+        try:
+            gig._validate_source_reconciliation(work, json.loads((work / "gcp/artifacts/migration-blueprint.json").read_text()))
+        except ValueError as exc:
+            failed_closed = "aws-omitted-group" in str(exc)
+        check("omitted source group fails closed", failed_closed)
 
     if failures:
         print("FAIL: " + ", ".join(failures))

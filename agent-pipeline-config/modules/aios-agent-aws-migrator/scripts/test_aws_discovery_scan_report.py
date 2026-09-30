@@ -22,7 +22,10 @@ def main() -> None:
             {"mode": "managed", "type": "aws_iam_role", "instances": [{}]},
             {"mode": "data", "type": "aws_ignored", "instances": [{}]},
         ]}))
-        log = root / "cloud2code.log"
+        log_dir = root / ".work"
+        log_dir.mkdir()
+        log = log_dir / "cloud2code.log"
+        (root / "notes.json").write_text(json.dumps({"cloud2code_partial_failure_accepted": "true", "cloud2code_min_coverage_percent": "90"}))
         log.write_text("""permission skips: ImportState=1 Resources=0 Read=1 (search logs for permission_skipped); continuing with partial tfstate
 scan integrity: listed=5 imported=3 import_state_skipped=1 read_skipped=1 read_failed=0 throttled_types=0
 Scanning aws_iam_role [1/2] Done! (imported=1 skipped=1 permission_skipped=1 filtered=0 nil_state=0 read_failed=0)
@@ -37,6 +40,10 @@ Scanning aws_s3_bucket [2/3] Done! (imported=2 skipped=1 permission_skipped=1 fi
         assert report["state_path_available"] is True
         assert report["scan_integrity"]["read_skipped"] == 1
         assert report["scan_integrity"]["permission_skipped_import_state"] == 1
+        assert report["scan_partial"] is True
+        assert report["coverage_percent"] == 60.0
+        assert report["partial_scan_failure_accepted"] is True
+        assert report["partial_scan_min_coverage_percent"] == "90"
         assert "completeness" not in report
         assert report["verification_checks"]["state_imported_count_matches_aggregate"] == "pass"
         assert report["permission_warning_detail_coverage_percent"] == 100.0

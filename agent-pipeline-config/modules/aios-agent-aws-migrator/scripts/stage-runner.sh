@@ -4,7 +4,7 @@
 # Usage: DBSPLIT_EMBEDDED=1 bash -s <command> [args...] << 'DBSPLIT_STAGE_RUNNER' ... DBSPLIT_STAGE_RUNNER
 set -euo pipefail
 
-SCRIPT_PACK_VERSION="20260930.02"
+SCRIPT_PACK_VERSION="20260930.04"
 DBSPLIT_DEFAULT_STRATEGY="${DBSPLIT_DEFAULT_STRATEGY:-tfstate_monolith_decomposer}"
 DBSPLIT_DEFAULT_CAP="${DBSPLIT_DEFAULT_CAP:-0}"
 REQUIRED_ALLOCATE_MARKER="def merge_small_by_seed"
@@ -6876,7 +6876,8 @@ def load_manifest_groups():
         for gid, entry in iterator:
             if not isinstance(entry, dict):
                 entry = {}
-            group_id = sanitize_group_id(str(entry.get("group_id") or entry.get("id") or gid))
+            # Manifest keys are shard identity; normalizing here collapses source groups.
+            group_id = str(entry.get("group_id") or entry.get("id") or gid)
             resources = entry.get("resources") or entry.get("addresses") or entry.get("resource_addresses") or []
             resource_types = set(entry.get("resource_types") or entry.get("types") or [])
             if isinstance(resources, dict):
@@ -7363,6 +7364,7 @@ write_gcp_pr_body() {
     echo
     echo "## Mapping decisions"
     echo
+    echo "- Mapping research (Registry/provider evidence, candidate targets, and unresolved decisions): \`gcp/artifacts/mapping-research.md\` when gaps required research."
     echo "- Default profile: \`gcp/artifacts/migration-profile.json\`"
     echo "- Migration blueprint: \`gcp/artifacts/migration-blueprint.json\`"
     echo "- Generation summary (incl. conversion): \`gcp/artifacts/generation-summary.json\`"
@@ -7458,7 +7460,8 @@ cmd_gcp_pr() {
   git_commit_paths_if_changed \
     "gcp: migration blueprint for ${workflow_run_id}" \
     gcp/artifacts/migration-blueprint.json \
-    gcp/artifacts/migration-profile.json || rc=$?
+    gcp/artifacts/migration-profile.json \
+    gcp/artifacts/mapping-research.md || rc=$?
   if [ "$rc" -eq 0 ]; then commits=$((commits + 1)); elif [ "$rc" -ne 2 ]; then
     mirror_note "$work_root" "stage_summary:gcp-pr" "blocked:blueprint_commit_failed"
     return 1

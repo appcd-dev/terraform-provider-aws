@@ -177,6 +177,9 @@ def main() -> None:
     assert "continue ingest/split" in scan
     assert "GetRolePolicy" in scan
     assert "cloud2code_allow_partial=false" in scan
+    assert "cloud2code_min_coverage_percent" in scan
+    assert "read_failed>0" in scan
+    assert "throttled types" in scan
 
     # Ingest: skills empty, one bootstrap body, concrete false on blocked gate.
     ingest = _binding(workflow, "ingest-and-split")

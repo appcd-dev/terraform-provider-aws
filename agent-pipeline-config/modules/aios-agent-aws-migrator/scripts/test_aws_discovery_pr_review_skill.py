@@ -70,6 +70,13 @@ def main() -> None:
 
     review = (template_dir / "aws-discovery-pr-review.tmpl.md").read_text(encoding="utf-8")
     assert "not a template for conclusions" in review
+    mapping = (template_dir / "mapping-catalog-provider-schema.tmpl.md").read_text(encoding="utf-8")
+    assert "Terraform Registry" in mapping
+    assert "pinned-version" in mapping
+    assert "is not an exhaustive answer" in mapping
+    assert "mapping-research.md" in mapping
+    assert "low-confidence AWS→GCP mappings using source evidence and Terraform Registry/provider docs" in gcp
+    assert "candidate URLs, evidence, fit/mismatches" in gcp
     assert "completeness verdict" in review
     terraform = (template_dir / "terraform-diagnose-edit-verify.tmpl.md").read_text(encoding="utf-8")
     assert "successful write is not proof" in terraform

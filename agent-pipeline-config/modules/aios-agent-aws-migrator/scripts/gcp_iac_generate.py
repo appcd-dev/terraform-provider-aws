@@ -291,29 +291,64 @@ def _category_satisfied(category: str, google_types: set[str]) -> bool:
 
 
 def _count_aws_instances(work: Path) -> dict[str, dict[str, int]]:
-    """Return {group_id: {aws_type: instance_count}} from groups/*/terraform.tfstate."""
+    """Count managed AWS instances in each source shard; invalid states fail closed."""
     out: dict[str, dict[str, int]] = {}
     groups_dir = work / "groups"
     if not groups_dir.is_dir():
         return out
-    for state_path in groups_dir.glob("*/terraform.tfstate"):
-        group_id = state_path.parent.name
+    for state_path in sorted(groups_dir.glob("*/terraform.tfstate")):
         try:
             state = json.loads(state_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(f"cannot read AWS source state {state_path}: {exc}") from exc
         counts: dict[str, int] = {}
         for resource in state.get("resources") or []:
             if resource.get("mode") != "managed":
                 continue
             rtype = str(resource.get("type") or "")
-            if not rtype.startswith("aws_"):
-                continue
-            n = len(resource.get("instances") or [1])
-            counts[rtype] = counts.get(rtype, 0) + n
-        if counts:
-            out[group_id] = counts
+            if rtype.startswith("aws_"):
+                counts[rtype] = counts.get(rtype, 0) + len(resource.get("instances") or [1])
+        out[state_path.parent.name] = counts
     return out
+
+
+def _validate_source_reconciliation(work: Path, blueprint: dict) -> dict:
+    """Ensure every handed-off AWS shard and source instance reaches the blueprint."""
+    states = _count_aws_instances(work)
+    if not states:
+        raise ValueError("no AWS source terraform.tfstate files found under groups/")
+    source_ids = set(states)
+    groups = blueprint.get("groups") or []
+    blueprint_ids = [str(g.get("group_id") or "") for g in groups]
+    if any(not gid for gid in blueprint_ids) or len(set(blueprint_ids)) != len(blueprint_ids):
+        raise ValueError("GCP migration blueprint has missing or duplicate group IDs")
+    if source_ids != set(blueprint_ids):
+        raise ValueError(
+            "GCP blueprint does not cover the complete AWS source group set: "
+            f"source groups={len(source_ids)}, blueprint groups={len(blueprint_ids)}, "
+            f"missing blueprint groups={sorted(source_ids-set(blueprint_ids))[:20]}, "
+            f"unexpected blueprint groups={sorted(set(blueprint_ids)-source_ids)[:20]}"
+        )
+    state_counts = {gid: sum(types.values()) for gid, types in states.items()}
+    blueprint_counts = {str(g["group_id"]): int(g.get("source_resource_count") or 0) for g in groups}
+    mismatches = {gid: {"state": state_counts[gid], "blueprint": blueprint_counts[gid]}
+                  for gid in source_ids if state_counts[gid] != blueprint_counts[gid]}
+    if mismatches:
+        raise ValueError(f"GCP blueprint resource counts differ from source states: {dict(list(mismatches.items())[:20])}")
+    source_total = sum(state_counts.values())
+    return {
+        "source_group_count": len(source_ids),
+        "blueprint_group_count": len(blueprint_ids),
+        "source_resource_count": source_total,
+        "blueprint_resource_count": sum(blueprint_counts.values()),
+        "source_resource_counts_by_type": {
+            t: sum(group.get(t, 0) for group in states.values())
+            for t in sorted({t for group in states.values() for t in group})
+        },
+        "group_resource_counts": dict(sorted(state_counts.items())),
+        "group_reconciliation_ok": True,
+        "resource_reconciliation_ok": source_total == sum(blueprint_counts.values()),
+    }
 
 
 def _compute_infra_conversion(
@@ -426,6 +461,7 @@ def generate(work: Path) -> dict:
     groups_root = gcp_root / "groups"
     artifacts = gcp_root / "artifacts"
     blueprint = json.loads((artifacts / "migration-blueprint.json").read_text(encoding="utf-8"))
+    reconciliation = _validate_source_reconciliation(work, blueprint)
     profile = blueprint["profile"]
     defaults = profile.get("defaults") or {}
     networking = defaults.get("networking") or {}
@@ -1155,6 +1191,7 @@ def generate(work: Path) -> dict:
                     "infra-conversion-gate-0.80",
                 ],
                 "emission_counts": emission_counts,
+                "source_reconciliation": reconciliation,
                 "mapping_catalog": profile.get("mapping_catalog", {}),
                 **{k: conversion[k] for k in (
                     "infra_eligible_count",

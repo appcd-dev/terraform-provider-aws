@@ -134,6 +134,12 @@ if [ -n "$CLOUD2CODE_EXCLUDE" ] && command -v cloud2code >/dev/null 2>&1; then
 fi
 CLOUD2CODE_TAGS="$(coalesce_value cloud2code_tags CLOUD2CODE_TAGS)"
 CLOUD2CODE_ALLOW_PARTIAL="$(coalesce_value cloud2code_allow_partial CLOUD2CODE_ALLOW_PARTIAL)"
+CLOUD2CODE_MIN_COVERAGE_PERCENT="$(coalesce_value cloud2code_min_coverage_percent CLOUD2CODE_MIN_COVERAGE_PERCENT)"
+CLOUD2CODE_MIN_COVERAGE_PERCENT="${CLOUD2CODE_MIN_COVERAGE_PERCENT:-90}"
+if ! [[ "$CLOUD2CODE_MIN_COVERAGE_PERCENT" =~ ^[0-9]+$ ]] || [ "$CLOUD2CODE_MIN_COVERAGE_PERCENT" -lt 1 ] || [ "$CLOUD2CODE_MIN_COVERAGE_PERCENT" -gt 100 ]; then
+  echo "blocked:cloud2code_min_coverage_percent_invalid value=${CLOUD2CODE_MIN_COVERAGE_PERCENT}"
+  exit 1
+fi
 # Discovery should preserve accessible resources when individual reads are
 # denied. Cloud2Code marks these inventories partial; downstream stages must
 # retain that caveat rather than treating skipped reads as complete coverage.
@@ -257,6 +263,12 @@ run_cloud2code_import() {
   "${cmd[@]}" >"$WORK_ROOT/.work/cloud2code.log" 2>&1
 }
 
+scan_has_nonretryable_read_failures() {
+  grep -Eqi 'could not import from aws: scan incomplete' "$WORK_ROOT/.work/cloud2code.log" 2>/dev/null &&
+    grep -Eq 'scan integrity: listed=[0-9]+ imported=[0-9]+ import_state_skipped=[0-9]+ read_skipped=[0-9]+ read_failed=[1-9][0-9]* throttled_types=0([[:space:]]|$)' "$WORK_ROOT/.work/cloud2code.log" 2>/dev/null &&
+    ! grep -qiE 'ThrottlingException|Throttling: Rate exceeded|RequestLimitExceeded|provider API rate limited|scan aborted due to API rate limiting' "$WORK_ROOT/.work/cloud2code.log" 2>/dev/null
+}
+
 extract_read_failed_types() {
   # cloud2code: "type aws_alb listed=33 imported=0 ... read_failed=33"
   grep -Eo 'type aws_[a-z0-9_]+ listed=[0-9]+ imported=0[^[:space:]]* read_failed=[1-9][0-9]*' \
@@ -272,36 +284,42 @@ mirror_note "cloud2code_throttle_skipped" ""
 THROTTLE_SKIPPED=""
 run_cloud2code_import && CMD_OK=1 || CMD_OK=0
 if [ "$CMD_OK" -ne 1 ]; then
-  # Retry a throttled scan once after a cooling-off period. Never turn a
-  # repeated throttle or read failure into success by excluding the affected
-  # resource type: that silently converts a failed inventory into a partial one.
-  _throttle_type="$(grep -Eo 'scan aborted due to API rate limiting: error while reading the resources of type: [a-z0-9_]+' "$WORK_ROOT/.work/cloud2code.log" 2>/dev/null | grep -Eo 'aws_[a-z0-9_]+' | tail -1 || true)"
-  if [ -z "$_throttle_type" ]; then
-    _throttle_type="$(grep -iE 'ThrottlingException|Throttling: Rate exceeded|RequestLimitExceeded' "$WORK_ROOT/.work/cloud2code.log" 2>/dev/null | grep -Eo 'aws_[a-z0-9_]+' | tail -1 || true)"
-  fi
-  if [ -n "$_throttle_type" ]; then
-    echo "cloud2code_throttle_detected=${_throttle_type}"
-    mirror_note "cloud2code_throttle_detected" "${_throttle_type}"
-    _backoff="${CLOUD2CODE_THROTTLE_BACKOFF_SECONDS:-60}"
-    echo "cloud2code_throttle_backoff=${_backoff}s"
-    sleep "$_backoff"
-    run_cloud2code_import && CMD_OK=1 || CMD_OK=0
-    if [ "$CMD_OK" -ne 1 ] && grep -qiE 'ThrottlingException|Throttling: Rate exceeded|RequestLimitExceeded|provider API rate limited' "$WORK_ROOT/.work/cloud2code.log"; then
-      _retry_throttle_type="$(grep -Eo 'scan aborted due to API rate limiting: error while reading the resources of type: [a-z0-9_]+' "$WORK_ROOT/.work/cloud2code.log" 2>/dev/null | grep -Eo 'aws_[a-z0-9_]+' | tail -1 || true)"
-      [ -n "$_retry_throttle_type" ] && _throttle_type="$_retry_throttle_type"
-      THROTTLE_SKIPPED="${THROTTLE_SKIPPED:+${THROTTLE_SKIPPED},}${_throttle_type}"
-      mirror_note "cloud2code_throttle_skipped" "$THROTTLE_SKIPPED"
-      echo "cloud2code_throttle_softskip=${_throttle_type}"
-      if [ "$CLOUD2CODE_ALLOW_PARTIAL" = true ]; then
-        if [ -n "$CLOUD2CODE_EXCLUDE" ]; then
-          CLOUD2CODE_EXCLUDE="${CLOUD2CODE_EXCLUDE},${_throttle_type}"
-        else
-          CLOUD2CODE_EXCLUDE="${_throttle_type}"
+  # Cloud2Code can exit nonzero after writing a valid partial state for read
+  # failures. Only accept that artifact when its explicit counters satisfy the
+  # configured coverage floor; never infer partial success from a log alone.
+  if scan_has_nonretryable_read_failures; then
+    echo "cloud2code_nonzero_with_read_failures=true"
+  else
+    # Retry throttling once; other nonzero exits remain fatal. Repeated
+    # throttling is never treated as success or hidden by excluding a type.
+    _throttle_type="$(grep -Eo 'scan aborted due to API rate limiting: error while reading the resources of type: [a-z0-9_]+' "$WORK_ROOT/.work/cloud2code.log" 2>/dev/null | grep -Eo 'aws_[a-z0-9_]+' | tail -1 || true)"
+    if [ -z "$_throttle_type" ]; then
+      _throttle_type="$(grep -iE 'ThrottlingException|Throttling: Rate exceeded|RequestLimitExceeded' "$WORK_ROOT/.work/cloud2code.log" 2>/dev/null | grep -Eo 'aws_[a-z0-9_]+' | tail -1 || true)"
+    fi
+    if [ -n "$_throttle_type" ]; then
+      echo "cloud2code_throttle_detected=${_throttle_type}"
+      mirror_note "cloud2code_throttle_detected" "${_throttle_type}"
+      _backoff="${CLOUD2CODE_THROTTLE_BACKOFF_SECONDS:-60}"
+      echo "cloud2code_throttle_backoff=${_backoff}s"
+      sleep "$_backoff"
+      run_cloud2code_import && CMD_OK=1 || CMD_OK=0
+      if [ "$CMD_OK" -ne 1 ] && grep -qiE 'ThrottlingException|Throttling: Rate exceeded|RequestLimitExceeded|provider API rate limited' "$WORK_ROOT/.work/cloud2code.log"; then
+        _retry_throttle_type="$(grep -Eo 'scan aborted due to API rate limiting: error while reading the resources of type: [a-z0-9_]+' "$WORK_ROOT/.work/cloud2code.log" 2>/dev/null | grep -Eo 'aws_[a-z0-9_]+' | tail -1 || true)"
+        [ -n "$_retry_throttle_type" ] && _throttle_type="$_retry_throttle_type"
+        THROTTLE_SKIPPED="${THROTTLE_SKIPPED:+${THROTTLE_SKIPPED},}${_throttle_type}"
+        mirror_note "cloud2code_throttle_skipped" "$THROTTLE_SKIPPED"
+        echo "cloud2code_throttle_softskip=${_throttle_type}"
+        if [ "$CLOUD2CODE_ALLOW_PARTIAL" = true ]; then
+          if [ -n "$CLOUD2CODE_EXCLUDE" ]; then
+            CLOUD2CODE_EXCLUDE="${CLOUD2CODE_EXCLUDE},${_throttle_type}"
+          else
+            CLOUD2CODE_EXCLUDE="${_throttle_type}"
+          fi
+          CLOUD2CODE_EXCLUDE="$(printf '%s' "$CLOUD2CODE_EXCLUDE" | tr ',' '\n' | awk 'NF && !seen[$0]++' | paste -sd, -)"
+          echo "cloud2code_exclude_after_throttle=${CLOUD2CODE_EXCLUDE}"
+          mirror_note "cloud2code_exclude" "$CLOUD2CODE_EXCLUDE"
+          run_cloud2code_import && CMD_OK=1 || CMD_OK=0
         fi
-        CLOUD2CODE_EXCLUDE="$(printf '%s' "$CLOUD2CODE_EXCLUDE" | tr ',' '\n' | awk 'NF && !seen[$0]++' | paste -sd, -)"
-        echo "cloud2code_exclude_after_throttle=${CLOUD2CODE_EXCLUDE}"
-        mirror_note "cloud2code_exclude" "$CLOUD2CODE_EXCLUDE"
-        run_cloud2code_import && CMD_OK=1 || CMD_OK=0
       fi
     fi
   fi
@@ -311,6 +329,9 @@ mirror_note "cloud2code_command_path" "$WORK_ROOT/.work/cloud2code-command.txt"
 mirror_note "aws_region" "$AWS_REGION"
 mirror_note "cloud2code_auto_import" "$CLOUD2CODE_AUTO_IMPORT"
 mirror_note "cloud2code_output_dir" "$CLOUD2CODE_OUTPUT_DIR"
+mirror_note "cloud2code_min_coverage_percent" "$CLOUD2CODE_MIN_COVERAGE_PERCENT"
+mirror_note "cloud2code_partial_failure_accepted" "false"
+mirror_note "cloud2code_partial_coverage_percent" ""
 if [ -n "$CLOUD2CODE_INCLUDE" ]; then mirror_note "cloud2code_include" "$CLOUD2CODE_INCLUDE"; fi
 if [ -n "$CLOUD2CODE_EXCLUDE" ]; then mirror_note "cloud2code_exclude" "$CLOUD2CODE_EXCLUDE"; fi
 if [ -n "$CLOUD2CODE_TAGS" ]; then mirror_note "cloud2code_tags" "$CLOUD2CODE_TAGS"; fi
@@ -326,6 +347,27 @@ if [ -n "$TFSTATE_DECOMPOSER_OVERRIDES_JSON" ]; then mirror_note "tfstate_decomp
 if [ -n "$TFSTATE_DECOMPOSER_OVERRIDES_PATH" ]; then mirror_note "tfstate_decomposer_overrides_path" "$TFSTATE_DECOMPOSER_OVERRIDES_PATH"; fi
 if [ -n "$TFSTATE_DECOMPOSER_LAYER_TAXONOMY_JSON" ]; then mirror_note "tfstate_decomposer_layer_taxonomy_json" "$TFSTATE_DECOMPOSER_LAYER_TAXONOMY_JSON"; fi
 if [ -n "$TFSTATE_DECOMPOSER_MAX_TUNING_ITERATIONS" ]; then mirror_note "tfstate_decomposer_max_tuning_iterations" "$TFSTATE_DECOMPOSER_MAX_TUNING_ITERATIONS"; fi
+
+PARTIAL_FAILURE_ACCEPTED=false
+if [ "$CMD_OK" -ne 1 ] && [ "$CLOUD2CODE_ALLOW_PARTIAL" = true ] && scan_has_nonretryable_read_failures; then
+  _integrity="$(grep -Eo 'scan integrity: listed=[0-9]+ imported=[0-9]+ import_state_skipped=[0-9]+ read_skipped=[0-9]+ read_failed=[0-9]+ throttled_types=[0-9]+' "$WORK_ROOT/.work/cloud2code.log" 2>/dev/null | tail -1 || true)"
+  if [ -n "$_integrity" ]; then
+    read -r _listed _imported _state_skipped _read_skipped _read_failed _throttled <<<"$(printf '%s\n' "$_integrity" | sed -E 's/^scan integrity: listed=([0-9]+) imported=([0-9]+) import_state_skipped=([0-9]+) read_skipped=([0-9]+) read_failed=([0-9]+) throttled_types=([0-9]+)$/\1 \2 \3 \4 \5 \6/')"
+    STATE_PATH="$(find "$CLOUD2CODE_OUTPUT_DIR" -maxdepth 5 -type f \( -name 'terraform.tfstate' -o -name '*.tfstate' \) | sort | head -1)"
+    if [ "$_listed" -gt 0 ] && [ "$((_imported * 100 / _listed))" -ge "$CLOUD2CODE_MIN_COVERAGE_PERCENT" ] \
+      && [ "$_throttled" -eq 0 ] && [ -n "$STATE_PATH" ] && [ -s "$STATE_PATH" ] \
+      && jq -e '.resources' "$STATE_PATH" >/dev/null 2>&1; then
+      _state_count="$(jq '[.resources[]? | select(.mode=="managed") | .instances[]?] | length' "$STATE_PATH" 2>/dev/null || echo 0)"
+      if [ "$_state_count" -eq "$_imported" ] && [ "$_state_count" -gt 0 ]; then
+        CMD_OK=1
+        PARTIAL_FAILURE_ACCEPTED=true
+        echo "cloud2code_partial_failure_accepted=true coverage_percent=$((_imported * 100 / _listed)) minimum_percent=$CLOUD2CODE_MIN_COVERAGE_PERCENT"
+        mirror_note "cloud2code_partial_failure_accepted" "true"
+        mirror_note "cloud2code_partial_coverage_percent" "$((_imported * 100 / _listed))"
+      fi
+    fi
+  fi
+fi
 
 if [ "$CMD_OK" -ne 1 ]; then
   _failed_types="$(extract_read_failed_types || true)"
@@ -385,7 +427,7 @@ if [ -n "$SCAN_INTEGRITY" ]; then
   fi
 fi
 if [ -n "$THROTTLE_SKIPPED" ]; then SCAN_PARTIAL=true; fi
-if [ -n "$THROTTLE_SKIPPED" ] || { [ "$CLOUD2CODE_ALLOW_PARTIAL" != true ] && [ "$SCAN_PARTIAL" = true ]; }; then
+if [ -n "$THROTTLE_SKIPPED" ] || { [ "$CLOUD2CODE_ALLOW_PARTIAL" != true ] && [ "$SCAN_PARTIAL" = true ] && [ "$PARTIAL_FAILURE_ACCEPTED" != true ]; }; then
   mirror_note "blocked:cloud2code_partial_scan" "true"
   mirror_note "cloud2code_partial_resource_types" "$THROTTLE_SKIPPED"
   echo 'blocked:cloud2code_partial_scan: "true"'
@@ -400,6 +442,13 @@ if [ "$SCAN_PARTIAL" = true ]; then
   mirror_note "cloud2code_partial_scan" "true"
   mirror_note "cloud2code_scan_integrity" "$SCAN_INTEGRITY"
   echo 'cloud2code_partial_scan: "true"'
+  if [ "$PARTIAL_FAILURE_ACCEPTED" = true ]; then
+    echo "cloud2code_partial_failure_accepted: \"true\""
+    echo "cloud2code_partial_coverage_percent=$((_imported * 100 / _listed))"
+    echo "cloud2code_min_coverage_percent=$CLOUD2CODE_MIN_COVERAGE_PERCENT"
+    mirror_note "cloud2code_partial_failure_accepted" "true"
+    mirror_note "cloud2code_partial_coverage_percent" "$((_imported * 100 / _listed))"
+  fi
   if [ -n "$SCAN_INTEGRITY" ]; then echo "$SCAN_INTEGRITY"; fi
   if [ -n "$THROTTLE_SKIPPED" ]; then echo "cloud2code_throttle_skipped=${THROTTLE_SKIPPED}"; fi
 else

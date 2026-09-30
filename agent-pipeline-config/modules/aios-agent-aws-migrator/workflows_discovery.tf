@@ -35,6 +35,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
     "cloud2code_exclude",
     "cloud2code_tags",
     "cloud2code_allow_partial",
+    "cloud2code_min_coverage_percent",
     "cloud2code_output_dir",
     "cloud2code_discovery_name",
     "iac_repository_url",
@@ -200,11 +201,11 @@ resource "sg_workflow" "aws_migrator_discovery" {
       skill_refs       = []
       note             = <<-EOT
         Goal: scan the AWS region into Terraform state so later stages have a state file path. Do not ask the operator for that path.
-        By default, permission-denied reads use Cloud2Code `--allow-partial`; continue ingest/split from usable state and retain scan output, integrity counters, and denied action examples (e.g. `iam:GetRolePolicy`) in the handoff. No state or throttling/read failure remains blocking. Set `cloud2code_allow_partial=false` for strict scans.
+        By default, permission-denied reads use Cloud2Code `--allow-partial`; continue ingest/split from usable state and retain scan output, integrity counters, and denied action examples (e.g. `iam:GetRolePolicy`) in the handoff. Additionally, continue from a validated partial state when Cloud2Code exits nonzero specifically with `could not import from aws: scan incomplete`, `read_failed>0`, no throttled types, and imported/listed coverage is at least `cloud2code_min_coverage_percent` (default 90). Persist the partial marker and counters in the PR. Set `cloud2code_allow_partial=false` for strict scans. Missing/invalid state, low coverage, throttling, and other errors remain blocking.
         Done when: the stage result includes `cloud2code_scan_ok: "true"`, a non-empty state path, and a positive resource count; include Cloud2Code scan output when emitted. The PR includes the scan report and source artifacts.
         How: Prefer the pack command: use the exact one-line body between `---BEGIN CLOUD2CODE_SCAN_EXECUTE_SERIES---` and `---END---` below in ONE `${local.shell_tool_prefix}_execute_series`, setting `commands[0].command` to that body. It starts with `GIT_TOKEN=` / `gh release download` of `pack-entry.sh`, then `scan`. create_agent is fine with that same body.
         **FORBIDDEN:** `command="CLOUD2CODE_SCAN_EXECUTE_SERIES"` or any other use of the marker label as the shell command (exit 127). Swap only `AWS_REGION_PLACEHOLDER` and `{{workflow_run_id}}`. Do not invent pack-dir checks or alternate cloud2code invocations.
-        On mangled paste or exit 127, retry the same BEGIN/END body once. Echo the runner success/blocker lines; do not paraphrase. Permission omissions may proceed as partial; throttling/read failures or other blockers must not proceed to ingest.
+        On mangled paste or exit 127, retry the same BEGIN/END body once. Echo the runner success/blocker lines; do not paraphrase. A validated partial read-failure scan may proceed only if the wrapper emits `cloud2code_scan_ok: "true"`, partial-acceptance evidence, and echoes the runner success/blocker lines without paraphrasing. Missing/invalid state, low coverage, throttling, or other errors remain blocked.
 
         ${local.aws_migrator_spawn_context_cloud2code}
       EOT

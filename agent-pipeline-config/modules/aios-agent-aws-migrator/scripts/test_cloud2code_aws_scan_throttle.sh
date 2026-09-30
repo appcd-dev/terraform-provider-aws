@@ -36,9 +36,12 @@ elif [[ "$*" == *"--arg k cloud2code_allow_partial"* ]]; then
 elif [[ "$*" == *"--arg k"* ]]; then
   exit 0
 elif [[ "$*" == *"length"* ]]; then
-  echo "1"
+  echo "${MOCK_STATE_COUNT:-1}"
 elif [[ "$*" == *".resources"* ]]; then
-  echo '{"resources":[{"mode":"managed","type":"aws_vpc","instances":[{}]}]}'
+  count="${MOCK_STATE_COUNT:-1}"
+  printf '{"resources":[{"mode":"managed","type":"aws_vpc","instances":['
+  for ((i=0; i<count; i++)); do [ "$i" -gt 0 ] && printf ','; printf '{}'; done
+  printf ']}]}\n'
 elif [[ "$*" == *"--arg"* ]]; then
   echo "{}"
 else
@@ -83,8 +86,9 @@ if grep -q 'cloud2code_scan_ok: "true"' "$TEST_ROOT/scan.out"; then
 fi
 
 
-# Permission/read omissions should be a successful-but-explicitly-partial scan
-# by default so ingestion can continue with resources the runner could read.
+# A Cloud2Code nonzero exit caused only by non-throttled read failures may
+# continue when a validated state meets the default 90% imported/listed floor.
+export MOCK_STATE_COUNT=9
 cat > "$TEST_ROOT/bin/cloud2code" << 'MOCK'
 #!/usr/bin/env bash
 if [[ "$1" == "version" ]]; then echo "0.5.6"; exit 0; fi
@@ -101,10 +105,12 @@ if [[ "$*" != *"--log-type=json"* ]]; then
   exit 2
 fi
 mkdir -p "$CLOUD2CODE_OUTPUT_DIR"
-printf '{"resources":[{"mode":"managed","type":"aws_vpc","instances":[{}]}]}\n' > "$CLOUD2CODE_OUTPUT_DIR/terraform.tfstate"
-echo 'permission skips: ImportState=0 Resources=0 Read=1 (search logs for permission_skipped); continuing with partial tfstate' >&2
-echo 'scan integrity: listed=10 imported=9 import_state_skipped=0 read_skipped=1 read_failed=0 throttled_types=0' >&2
-exit 0
+mkdir -p "$CLOUD2CODE_OUTPUT_DIR"
+printf '{"resources":[{"mode":"managed","type":"aws_vpc","instances":[{},{},{},{},{},{},{},{},{}]}]}\n' > "$CLOUD2CODE_OUTPUT_DIR/terraform.tfstate"
+echo 'Error: could not import from aws: scan incomplete' >&2
+echo 'type aws_cloudwatch_log_group listed=10 imported=9 skipped=1 permission_skipped=0 filtered=0 nil_state=0 read_failed=1' >&2
+echo 'scan integrity: listed=10 imported=9 import_state_skipped=0 read_skipped=0 read_failed=1 throttled_types=0' >&2
+exit 1
 MOCK
 chmod +x "$TEST_ROOT/bin/cloud2code"
 rm -f "$TEST_ROOT/work/.wf-test/.work/cloud2code-inputs.json"
@@ -120,7 +126,7 @@ if ! grep -q 'cloud2code_partial_scan: "true"' "$TEST_ROOT/partial.out"; then
   cat "$TEST_ROOT/partial.out"
   fail "partial scan must be clearly identified"
 fi
-if ! grep -q 'read_skipped=1' "$TEST_ROOT/partial.out"; then
+if ! grep -q 'read_failed=1' "$TEST_ROOT/partial.out"; then
   cat "$TEST_ROOT/partial.out"
   fail "partial scan integrity counters were not emitted"
 fi
@@ -128,14 +134,25 @@ if ! grep -q -- '--allow-partial' "$TEST_ROOT/work/.wf-test/.work/cloud2code-com
   fail "allow-partial was not enabled by default"
 fi
 
-# Explicitly disabling partial mode retains fail-closed behavior.
+# Below-floor read failure must still block with the real Cloud2Code error.
+export MOCK_STATE_COUNT=8
+if bash "$SCAN_SCRIPT" "wf-test" "us-east-1" > "$TEST_ROOT/low-coverage.out" 2>&1; then
+  fail "scan below the 90% floor should block"
+fi
+if ! grep -q 'blocked:cloud2code_scan_failed: "true"' "$TEST_ROOT/low-coverage.out"; then
+  cat "$TEST_ROOT/low-coverage.out"
+  fail "low-coverage scan did not block"
+fi
+
+# Explicit strict mode blocks even a valid 90% partial state.
 printf '{"cloud2code_allow_partial":"false"}\n' > "$TEST_ROOT/work/.wf-test/.work/cloud2code-inputs.json"
+export MOCK_STATE_COUNT=9
 if bash "$SCAN_SCRIPT" "wf-test" "us-east-1" > "$TEST_ROOT/strict.out" 2>&1; then
-  fail "explicit strict scan should block permission omissions"
+  fail "explicit strict scan should block read failures"
 fi
 if ! grep -q 'blocked:cloud2code_scan_failed: "true"' "$TEST_ROOT/strict.out"; then
   cat "$TEST_ROOT/strict.out"
-  fail "explicit strict mode did not block a permission-skipped scan"
+  fail "explicit strict mode did not block the read failure"
 fi
 if grep -q -- '--allow-partial' "$TEST_ROOT/work/.wf-test/.work/cloud2code-command.txt"; then
   fail "explicit strict mode still enabled allow-partial"
