@@ -4,7 +4,7 @@
 # Usage: DBSPLIT_EMBEDDED=1 bash -s <command> [args...] << 'DBSPLIT_STAGE_RUNNER' ... DBSPLIT_STAGE_RUNNER
 set -euo pipefail
 
-SCRIPT_PACK_VERSION="20260925.42"
+SCRIPT_PACK_VERSION="20260929.03"
 DBSPLIT_DEFAULT_STRATEGY="${DBSPLIT_DEFAULT_STRATEGY:-tfstate_monolith_decomposer}"
 DBSPLIT_DEFAULT_CAP="${DBSPLIT_DEFAULT_CAP:-0}"
 REQUIRED_ALLOCATE_MARKER="def merge_small_by_seed"
@@ -7218,6 +7218,17 @@ write_gcp_pr_body() {
     echo "| Live plan sample | \`${planned_groups}\` of \`${static_groups}\` (limit \`${sample_limit}\`) |"
     echo "| GCP validation | \`${validation_ok}\` |"
     echo "| GCP plan status | \`${plan_status}\` |"
+    local wiring_summary="${work_root}/gcp/artifacts/generation-summary.json"
+    if [ -f "$wiring_summary" ]; then
+      local log_source_count log_target_count log_routing_status log_retention_assumptions
+      log_source_count="$(jq '[.groups[]?.source_resource_counts.aws_cloudwatch_log_group // 0] | add // 0' "$wiring_summary" 2>/dev/null || echo unknown)"
+      log_target_count="$(jq '[.groups[]?.generated_resource_counts.google_logging_project_bucket_config // 0] | add // 0' "$wiring_summary" 2>/dev/null || echo unknown)"
+      log_routing_status="$(jq -r '[.groups[]?.logging_routing_status // empty] | unique | join(", ")' "$wiring_summary" 2>/dev/null || echo unknown)"
+      log_retention_assumptions="$(jq '[.groups[]?.logging_retention_assumption_count // 0] | add // 0' "$wiring_summary" 2>/dev/null || echo unknown)"
+      echo "| CloudWatch log groups → GCP log buckets | \`${log_source_count} → ${log_target_count}\` |"
+      echo "| CloudWatch routing status | \`${log_routing_status:-not_applicable}\` |"
+      echo "| CloudWatch retention assumptions | \`${log_retention_assumptions}\` |"
+    fi
     echo "| Validation report complete | \`$([ "$validation_incomplete" = "true" ] && echo false || echo true)\` |"
     echo "| Harden autofixes | \`${harden_autofix}\` |"
     echo "| Harden residual findings | \`${harden_findings}\` |"

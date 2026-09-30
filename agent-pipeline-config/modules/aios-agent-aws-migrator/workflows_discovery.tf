@@ -200,9 +200,8 @@ resource "sg_workflow" "aws_migrator_discovery" {
       skill_refs       = []
       note             = <<-EOT
         Goal: scan the AWS region into Terraform state so later stages have a state file path. Do not ask the operator for that path.
-        By default, permission-denied reads use Cloud2Code `--allow-partial`; continue ingest/split from usable state and report counters and denied types/actions when the log proves them (e.g. `iam:GetRolePolicy`). Mark partial; never claim skipped resources migrated. No state or throttling/read failure remains blocking. Set `cloud2code_allow_partial=false` for strict scans.
-        Evidence discipline: separate aggregate/type counters, causes in individual warnings, and skips whose cause is not logged. Never extrapolate a sample AWS action to all skips. Say when identity/log/state/type details are missing; unknown is not zero or success. Cloud2Code success alone does not prove complete inventory.
-        Done when: your stage result includes `cloud2code_scan_ok: "true"`, a non-empty state path, resource count greater than zero, and the partial-scan/integrity lines when omissions occurred. The final PR report must retain the known/unknown distinction and any reconciliation mismatch.
+        By default, permission-denied reads use Cloud2Code `--allow-partial`; continue ingest/split from usable state and retain scan output, integrity counters, and denied action examples (e.g. `iam:GetRolePolicy`) in the handoff. No state or throttling/read failure remains blocking. Set `cloud2code_allow_partial=false` for strict scans.
+        Done when: the stage result includes `cloud2code_scan_ok: "true"`, a non-empty state path, and a positive resource count; include Cloud2Code scan output when emitted. The PR includes the scan report and source artifacts.
         How: Prefer the pack command: use the exact one-line body between `---BEGIN CLOUD2CODE_SCAN_EXECUTE_SERIES---` and `---END---` below in ONE `${local.shell_tool_prefix}_execute_series`, setting `commands[0].command` to that body. It starts with `GIT_TOKEN=` / `gh release download` of `pack-entry.sh`, then `scan`. create_agent is fine with that same body.
         **FORBIDDEN:** `command="CLOUD2CODE_SCAN_EXECUTE_SERIES"` or any other use of the marker label as the shell command (exit 127). Swap only `AWS_REGION_PLACEHOLDER` and `{{workflow_run_id}}`. Do not invent pack-dir checks or alternate cloud2code invocations.
         On mangled paste or exit 127, retry the same BEGIN/END body once. Echo the runner success/blocker lines; do not paraphrase. Permission omissions may proceed as partial; throttling/read failures or other blockers must not proceed to ingest.
@@ -288,8 +287,15 @@ resource "sg_workflow" "aws_migrator_discovery" {
       agent_ref        = sg_agent.aws_migrator_architect.name
       stage_depends_on = ["ingest-blocked-gate"]
       runbook_refs     = [sg_runbook_sop.discovery_stage_contract.name]
-      skill_refs       = try(var.workflow_skill_refs["aws-cloud-discovery::registry-and-import-codegen"], [])
-      note             = <<-EOT
+      skill_refs = concat(
+        [
+          sg_runbook_sop.aws_discovery_pr_review.name,
+          sg_runbook_sop.mapping_provider_schema_reasoning.name,
+          sg_runbook_sop.mapping_catalog_knowledge.name,
+        ],
+        try(var.workflow_skill_refs["aws-cloud-discovery::registry-and-import-codegen"], []),
+      )
+      note = <<-EOT
         Goal: open a PR with the generated AWS Terraform folders, or leave a concrete reason the PR could not open.
         Done when: your stage result includes the batch payloads path and either a PR URL or a real PR blocker from the runner.
         How: ONE `${local.shell_tool_prefix}_execute_series` with `commands[0].command` set to the **exact one-line body** between `---BEGIN IAC_PR_EXECUTE_SERIES---` and `---END---` below (starts with `GIT_TOKEN=` / `WORKFLOW_RUN_ID=` and runs `iac-pr-bootstrap.sh` on the pack). create_agent is fine with the same body.
@@ -305,6 +311,7 @@ resource "sg_workflow" "aws_migrator_discovery" {
       stage_depends_on = ["registry-and-import-codegen"]
       runbook_refs     = [sg_runbook_sop.discovery_stage_contract.name]
       skill_refs = concat(
+        [sg_runbook_sop.terraform_diagnose_edit_verify.name],
         try(var.workflow_skill_refs["aws-cloud-discovery::shell-converge-matrix"], []),
         try(var.workflow_skill_refs["aws-cloud-discovery::hcl-hydrate-per-group"], []),
       )
@@ -374,13 +381,14 @@ resource "sg_workflow" "aws_migrator_discovery" {
       stage_depends_on = ["orphans-secondary-pipeline"]
       runbook_refs     = [sg_runbook_sop.discovery_stage_contract.name]
       skill_refs = concat(
+        [sg_runbook_sop.aws_discovery_pr_review.name],
         try(var.workflow_skill_refs["aws-cloud-discovery::final-gate-and-memory"], []),
-        try(var.workflow_skill_refs["aws-migrator-discovery::final-gate-and-memory"], [])
+        try(var.workflow_skill_refs["aws-migrator-discovery::final-gate-and-memory"], []),
       )
       note = <<-EOT
         Goal: close this AWS discovery run for the operator.
         Done when: you reported ready, needs work, or could not generate Terraform, with Result, Checks, and Ways to improve readiness.
-        Ready means: scan done, every resource in exactly one folder, a PR URL (or concrete PR blocker), **all** selected groups hydrated (`hydrate_groups_remaining=0` and each has `generated.tf`), and stub-var `tofu plan` compile-ok (`compile_ok=true` / `terraform_compile_ok_groups` matches). If `hydrate_groups_remaining>0` or `terraform_validation_ok` is false, report **needs work** with the PR link and remaining `hcl_fix_target` lines — never label Result Ready while groups lack generated.tf. Review `aws/artifacts/cloud2code-scan-report.md`: state what is directly evidenced, what is only inferred, which skipped causes are unknown, and any counter mismatch. A partial/unknown scan cannot be summarized as a complete AWS inventory even when downstream split counts reconcile. Zero-change plan and split-quality reports are optional. Missing Azure or GCP evidence is not a failure here.
+        Ready means: scan done, every scanned resource accounted for in exactly one folder, a PR URL (or concrete PR blocker), **all** selected groups hydrated (`hydrate_groups_remaining=0` and each has `generated.tf`), and stub-var `tofu plan` compile-ok (`compile_ok=true` / `terraform_compile_ok_groups` matches). If `hydrate_groups_remaining>0` or `terraform_validation_ok` is false, report **needs work** with the PR link and remaining `hcl_fix_target` lines — never label Result Ready while groups lack generated.tf. Zero-change plan and split-quality reports are optional. Missing Azure or GCP evidence is not a failure here.
       EOT
     },
   ]

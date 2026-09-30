@@ -37,12 +37,12 @@ Scanning aws_s3_bucket [2/3] Done! (imported=2 skipped=1 permission_skipped=1 fi
         assert report["state_path_available"] is True
         assert report["scan_integrity"]["read_skipped"] == 1
         assert report["scan_integrity"]["permission_skipped_import_state"] == 1
-        assert report["completeness"].startswith("partial")
+        assert "completeness" not in report
         assert report["verification_checks"]["state_imported_count_matches_aggregate"] == "pass"
         assert report["permission_warning_detail_coverage_percent"] == 100.0
         assert report["verification_checks"]["individual_resources_denials_match_resources_counter"] == "pass"
         assert report["verification_checks"]["per_type_listed_outcomes_reconcile"] == "pass"
-        assert report["evidence_warnings"] == []
+        assert report["evidence_gaps"] == []
         assert report["resource_types_found"] == [
             {"resource_type": "aws_iam_role", "resource_count": 1},
             {"resource_type": "aws_s3_bucket", "resource_count": 2},
@@ -76,14 +76,16 @@ Scanning aws_iam_role [0/6] Done! (imported=0 skipped=0 permission_skipped=6 fil
         assert observed["count"] == 1 and observed["aws_api_operations"] == ["iam:GetRole"]
         assert unknown["count"] == 5 and "do not provide" in unknown["reason"]
         assert sparse_report["permission_warning_detail_coverage_percent"] == 16.7
-        assert sparse_report["completeness"].startswith("unresolved")
+        assert "completeness" not in sparse_report
         assert sparse_report["verification_checks"]["per_type_listed_outcomes_reconcile"] == "pass"
         assert sparse_report["verification_checks"]["individual_resources_denials_match_resources_counter"] == "mismatch"
-        assert any("Resources/list permission-denial warning records" in warning for warning in sparse_report["evidence_warnings"])
+        assert {item["code"] for item in sparse_report["evidence_gaps"]} >= {
+            "terraform_state_missing", "resources_phase_warning_counter_mismatch"
+        }
         sparse_markdown = render_markdown(sparse_report)
-        assert "unknown is not treated as zero or success" in sparse_markdown
-        assert "Terraform state is missing" in sparse_markdown
-        assert "5 have no specific action/reason" in sparse_markdown
+        assert "16.7%" in sparse_markdown
+        assert "warning records" in sparse_markdown
+        assert '"resources_phase_warning_counter_mismatch"' in sparse_markdown
 
         # An internally inconsistent counter set is called unresolved, not
         # rounded into success or hidden by downstream split reconciliation.
@@ -92,9 +94,11 @@ Scanning aws_iam_role [0/6] Done! (imported=0 skipped=0 permission_skipped=6 fil
 Scanning aws_iam_role [8/10] Done! (imported=8 skipped=0 permission_skipped=0 filtered=0 nil_state=0 read_failed=0)
 """)
         mismatch_report = build_report("us-east-1", None, None, str(mismatch))
-        assert mismatch_report["completeness"].startswith("unresolved")
+        assert "completeness" not in mismatch_report
         assert mismatch_report["verification_checks"]["per_type_listed_outcomes_reconcile"] == "mismatch"
-        assert any("Treat the inventory as unresolved" in warning for warning in mismatch_report["evidence_warnings"])
+        mismatch_gaps = {item["code"] for item in mismatch_report["evidence_gaps"]}
+        assert "evidence_counter_mismatch" in mismatch_gaps
+        assert "listed_imported_delta_unaccounted" in mismatch_gaps
     print("OK: AWS discovery scan report")
 
 

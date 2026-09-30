@@ -111,7 +111,13 @@ resource "sg_workflow" "aws_migrator_gcp_only" {
         sg_runbook_sop.aws_migrator_orchestration.name,
       ]
       skill_refs = concat(
-        [local.sop_azure_migration_name, local.sop_orchestration_name],
+        [
+          local.sop_azure_migration_name,
+          local.sop_orchestration_name,
+          sg_runbook_sop.destination_iac_wiring_readiness.name,
+          sg_runbook_sop.mapping_provider_schema_reasoning.name,
+          sg_runbook_sop.mapping_catalog_knowledge.name,
+        ],
         try(var.workflow_skill_refs["gcp-migration-pr::gcp-migration-blueprint"], [])
       )
       note = <<-EOT
@@ -135,13 +141,19 @@ resource "sg_workflow" "aws_migrator_gcp_only" {
         sg_runbook_sop.aws_migrator_orchestration.name,
       ]
       skill_refs = concat(
-        [local.sop_azure_migration_name, local.sop_orchestration_name],
+        [
+          local.sop_azure_migration_name,
+          local.sop_orchestration_name,
+          sg_runbook_sop.destination_iac_wiring_readiness.name,
+          sg_runbook_sop.mapping_provider_schema_reasoning.name,
+          sg_runbook_sop.mapping_catalog_knowledge.name,
+        ],
         try(var.workflow_skill_refs["gcp-migration-pr::gcp-iac-generate"], [])
       )
       note = <<-EOT
         **Upstream guard:** Prefer notes showing `gcp_migration_blueprint_ok=true` / `stage_summary:gcp-migration-blueprint=ok`. Guild `read_notes` may mask those keys when blueprint/generate overlap on the same runner — do **not** invent `skipped:blueprint_missing` from an incomplete note snapshot. If blueprint already ran this workflow (or workdir `gcp/artifacts/migration-blueprint.json` exists with `group_count` > 0), you MUST run execute_series.
         **Incremental bring-up execution (mandatory):** Your FIRST tool call must be ONE `${local.shell_tool_prefix}_execute_series` pasting the **exact** one-line body between `---BEGIN GCP_GENERATE_EXECUTE_SERIES---` and `---END---` (`pack-entry.sh` … `destination gcp-iac-generate`). **FORBIDDEN:** label-as-command or `$`/`$${` expansion. Spawn a one-shot subagent if needed; never return without runner evidence.
-        **Mapping rule:** make best-effort GCP equivalents using the default profile. Generate a valid scaffold when exact equivalence is uncertain and document it in `gcp/artifacts/review-needed.md`; never block on human approval. Generate HCL only under `$WORK_ROOT/gcp/groups/<group_id>/`.
+        **Mapping rule:** use the default profile without asking the operator for routine choices, but do not equate a valid scaffold with a completed migration. Follow `destination-iac-wiring-readiness`: trace source instances/attributes/relationships through catalog → resolver → emitted HCL → provider schema; reconcile each source to a destination, explicit fold/non-applicable reason, or documented unresolved decision. A category placeholder is not proof of per-instance wiring. Fix repeatable defects in catalog/generator and add source-state fixtures. Preserve distinctions between evidence, assumptions, and unknowns. Generate HCL only under `$WORK_ROOT/gcp/groups/<group_id>/`.
         **Hard evidence gate:** completion requires a successful runner result with `gcp_iac_generated=true` and `gcp_iac_group_count` greater than zero. Absent those, record `stage_summary:gcp-iac-generate=blocked:missing_runner_evidence` and return blocked.
         **Discrete session notes (mandatory):** `note()` keys `gcp_iac_generated`=`true`, `gcp_iac_group_count`=`<N>`, `stage_summary:gcp-iac-generate`=`ok`.
         **Outputs:** discrete notes above plus `gcp_generation_summary_path`, `gcp_mapping_decisions_path`.
@@ -161,14 +173,20 @@ resource "sg_workflow" "aws_migrator_gcp_only" {
         sg_runbook_sop.aws_migrator_orchestration.name,
       ]
       skill_refs = concat(
-        [local.sop_azure_migration_name, local.sop_substate_converge_name, local.sop_orchestration_name],
-        try(var.workflow_skill_refs["gcp-migration-pr::gcp-iac-validate"], [])
+        [
+          local.sop_azure_migration_name,
+          local.sop_substate_converge_name,
+          local.sop_orchestration_name,
+          sg_runbook_sop.destination_iac_wiring_readiness.name,
+          sg_runbook_sop.terraform_diagnose_edit_verify.name,
+        ],
+        try(var.workflow_skill_refs["gcp-migration-pr::gcp-iac-validate"], []),
       )
       note = <<-EOT
         **Upstream guard:** Prefer notes showing `gcp_iac_generated=true` / `stage_summary:gcp-iac-generate=ok`. Guild `read_notes` may mask those keys after busy generate stages — do **not** invent `skipped:generation_missing` from an incomplete note snapshot. If generate already ran this workflow (or workdir `gcp/groups/` exists), you MUST run execute_series; the runner emits `blocked:generation_missing` only when artifacts are truly absent.
         **Incremental bring-up execution (mandatory):** Your FIRST tool call must be ONE `${local.shell_tool_prefix}_execute_series` pasting the **exact** one-line body between `---BEGIN GCP_VALIDATE_EXECUTE_SERIES---` and `---END---` (`pack-entry.sh` … `destination gcp-iac-validate`). **FORBIDDEN:** label-as-command or `$`/`$${` expansion. Set `timeout_seconds=7200`. Spawn a one-shot subagent if needed.
         **Deadline resume:** if execute_series ends with `context deadline exceeded`, `signal: killed`, or incomplete `gcp_iac_validate_progress` without a conclusive `gcp_iac_validation_ok`, **re-paste the identical BEGIN/END body** (validate-groups resume skips finished groups). Do **not** invent `skipped:` from a partial run.
-        **Validation contract:** when `REQUIRE_GCP_LIVE_PLAN=1`, `gcp_plan_status` must start with `success` (exact `success` or `success:sample:N/M`); missing credentials is a hard fail. Never run `tofu apply` on migrated GCP resources.
+        **Apply-readiness is semantic, not fmt/validate:** run `destination-iac-wiring-readiness` against source state/inventory and generated HCL. Reconcile source instance counts, mapped attributes, settings (including log retention), and dependency edges against generated objects and explicit dispositions. Static validation cannot prove these semantics. Run a live plan when credentials exist; otherwise record `no_live_plan` distinctly and leave apply-readiness unproven. Never run `tofu apply` on migrated GCP resources.
         **Validation contract:** run `tofu fmt`, `tofu validate`, optional `tofu test`, optional `tflint`, and live `tofu plan` (never apply). The pack auto-heals known provider limits (e.g. GCP `name_prefix` ≤37) and retries validate once before reporting `gcp_iac_validation_ok=false`. When `REQUIRE_GCP_LIVE_PLAN=1`, missing credentials fail the stage.
         **Hard evidence gate:** completion requires a successful runner result carrying `gcp_iac_validation_ok` and a non-empty `gcp_iac_validation_report`. Absent those, record `stage_summary:gcp-iac-validate=blocked:missing_runner_evidence` and return blocked.
         **On static fails (remediate until useful):** if `gcp_iac_validation_ok=false` with `static_fail_count>0`, read `gcp/artifacts/validation-report.json` `groups[].validate_error` and `hcl_fix_targets.json` when present. Patch HCL under `gcp/groups/` (add required attrs, fix types, stub vars via `*.auto.tfvars` / `variables.tf` defaults). Prefer source-derived values; if missing, invent a migration assumption and append it to `gcp/artifacts/governance-assumptions.md`. Re-paste the validate BEGIN/END body. Do **not** accept `false` until the validate loop exits (ok=true, terminal blocked, or max iterations). Forbidden: inventing IAM action translations or network redesign.
@@ -188,8 +206,13 @@ resource "sg_workflow" "aws_migrator_gcp_only" {
         sg_runbook_sop.aws_migrator_orchestration.name,
       ]
       skill_refs = concat(
-        [local.sop_azure_migration_name, local.sop_orchestration_name],
-        try(var.workflow_skill_refs["gcp-migration-pr::gcp-iac-harden"], [])
+        [
+          local.sop_azure_migration_name,
+          local.sop_orchestration_name,
+          sg_runbook_sop.destination_iac_wiring_readiness.name,
+          sg_runbook_sop.terraform_diagnose_edit_verify.name,
+        ],
+        try(var.workflow_skill_refs["gcp-migration-pr::gcp-iac-harden"], []),
       )
       note = <<-EOT
         **Upstream guard:** Prefer notes showing `gcp_iac_generated=true` / `stage_summary:gcp-iac-generate=ok`. Guild `read_notes` may mask those keys after busy generate stages — do **not** invent `skipped:generation_missing` from an incomplete note snapshot. If generate already ran this workflow (or workdir `gcp/groups/` exists), you MUST run execute_series; the runner emits `blocked:generation_missing` only when artifacts are truly absent.
@@ -214,13 +237,20 @@ resource "sg_workflow" "aws_migrator_gcp_only" {
         sg_runbook_sop.aws_migrator_orchestration.name,
       ]
       skill_refs = concat(
-        [local.sop_governance_conform_name, local.sop_azure_migration_name, local.sop_orchestration_name],
+        [
+          local.sop_governance_conform_name,
+          local.sop_azure_migration_name,
+          local.sop_orchestration_name,
+          sg_runbook_sop.rego_plan_reasoning.name,
+          sg_runbook_sop.destination_iac_wiring_readiness.name,
+          sg_runbook_sop.terraform_diagnose_edit_verify.name,
+        ],
         try(var.workflow_skill_refs["gcp-migration-pr::gcp-iac-governance-conform"], [])
       )
       note = <<-EOT
         **Upstream guard:** Prefer notes showing `gcp_iac_generated=true` / `stage_summary:gcp-iac-generate=ok`. Guild `read_notes` may mask those keys after busy generate stages — do **not** invent `skipped:generation_missing` from an incomplete note snapshot. If generate already ran this workflow (or workdir `gcp/groups/` exists), you MUST run OPA governance via execute_series; the runner emits `blocked:generation_missing` only when artifacts are truly absent.
         **Serial after validate:** prior DAG fan-out completed harden/validate/governance in ~1–2s with zero tools (trace e861d081). You MUST call execute_series; never return without OPA runner evidence.
-        **Living docs + OPA:** first tool call is ONE `${local.shell_tool_prefix}_execute_series` pasting the **exact** one-line body between `---BEGIN GCP_GOVERNANCE_CONFORM_EXECUTE_SERIES---` and `---END---` (`pack-entry.sh` … `destination gcp-iac-governance-conform`, `timeout_seconds=3600`). **FORBIDDEN:** label-as-command or `$`/`$${` expansion. Harness refreshes Governance-and-Policy, inventories resources, runs OPA, groups repeated plan failures into root-cause `failure_classes`, emits structured Rego-authored remediation guidance; Python never edits generated HCL. Then **continue** (not paste-only): load `${local.sop_governance_conform_name}`, rebuild `gcp/artifacts/governance-decision-tree.json` from **this-run** docs, `${local.shell_tool_prefix}_create_files` the validator (drop `NILE_GOVERNANCE_VALIDATOR_SCAFFOLD`), inspect failure classes and full diagnostics, trace repeated errors to generator/catalog/policy source, make durable source-level corrections with regression tests when authorized, regenerate/fix HCL, and re-run. Prefer source AWS tags; document any assumed values in `governance-assumptions.md`. Do not repeat an ineffective edit, invent controls absent from refreshed docs, or interpret missing credentials as a passing plan. Validation evidence is not human approval.
+        **Living docs + OPA:** first tool call is ONE `${local.shell_tool_prefix}_execute_series` pasting the **exact** one-line body between `---BEGIN GCP_GOVERNANCE_CONFORM_EXECUTE_SERIES---` and `---END---` (`pack-entry.sh` … `destination gcp-iac-governance-conform`, `timeout_seconds=3600`). **FORBIDDEN:** label-as-command or `$`/`$${` expansion. Harness refreshes Governance-and-Policy, inventories resources, runs OPA, groups repeated plan failures into root-cause `failure_classes`, emits structured Rego-authored remediation guidance; Python never edits generated HCL. Then **continue** (not paste-only): load `${local.sop_governance_conform_name}`, rebuild `gcp/artifacts/governance-decision-tree.json` from **this-run** docs, `${local.shell_tool_prefix}_create_files` the validator (drop `NILE_GOVERNANCE_VALIDATOR_SCAFFOLD`), inspect failure classes and full diagnostics, trace repeated errors to generator/catalog/policy source, make durable source-level corrections with regression tests when authorized, regenerate/fix HCL, and re-run. Apply `destination-iac-wiring-readiness` to verify source-to-destination instances, attributes, relationships, provider schema, and explicit unresolved decisions. Prefer source AWS values; document assumptions in `governance-assumptions.md`. Do not repeat an ineffective edit, invent controls absent from refreshed docs, or interpret missing credentials as a passing plan. Validation evidence is not human approval.
         **Hard evidence gate:** require notes `gcp_iac_governance_ok` (`true` or `false`) plus `gcp_governance_commit_sha` / `gcp/artifacts/governance-source.json`. Docs-unavailable → `blocked:governance_docs_unavailable`. OPA/rules unavailable → `blocked:governance_opa_unavailable`. Nonconformant visits must remediate OPA/validator residuals and re-run until `gcp_iac_governance_ok=true` (loop exits on true or terminal blockers / max iterations). If residuals remain, `gcp-pr` still opens and documents them in `TODO.md` + PR body + assumptions.
         **Discrete session notes (mandatory):** `note()` keys `gcp_iac_governance_ok`, `gcp_iac_governance_report`, `gcp_iac_opa_report` (when present), `gcp_governance_commit_sha`, `stage_summary:gcp-iac-governance-conform`.
         **Outputs:** discrete notes above plus `gcp_iac_opa_fix_hints` when OPA denies.
@@ -275,7 +305,12 @@ resource "sg_workflow" "aws_migrator_gcp_only" {
         sg_runbook_sop.aws_migrator_orchestration.name,
       ]
       skill_refs = concat(
-        [local.sop_azure_migration_name, local.sop_orchestration_name],
+        [
+          local.sop_azure_migration_name,
+          local.sop_orchestration_name,
+          sg_runbook_sop.aws_discovery_pr_review.name,
+          sg_runbook_sop.destination_iac_wiring_readiness.name,
+        ],
         try(var.workflow_skill_refs["gcp-migration-pr::gcp-pr"], [])
       )
       note = <<-EOT
@@ -298,7 +333,11 @@ resource "sg_workflow" "aws_migrator_gcp_only" {
         sg_runbook_sop.aws_migrator_orchestration.name,
       ]
       skill_refs = concat(
-        [local.sop_azure_migration_name, local.sop_orchestration_name],
+        [
+          local.sop_azure_migration_name,
+          local.sop_orchestration_name,
+          sg_runbook_sop.aws_discovery_pr_review.name,
+        ],
         try(var.workflow_skill_refs["gcp-migration-pr::gcp-only-final"], [])
       )
       note = <<-EOT

@@ -14,6 +14,7 @@ landing-zone / Fabric / full IAM composition for every AWS service.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import shutil
@@ -161,6 +162,120 @@ def _google_resource_types_in_main(main_lines: list[str]) -> set[str]:
         if m:
             found.add(m.group(1))
     return found
+
+
+def _source_cloudwatch_log_groups(work: Path, raw_group_id: str, group_id: str) -> list[dict]:
+    """Read managed CloudWatch log-group instances and their source settings."""
+    candidates = [work / "groups" / raw_group_id / "terraform.tfstate"]
+    normalized = work / "groups" / group_id / "terraform.tfstate"
+    if normalized not in candidates:
+        candidates.append(normalized)
+    state_path = next((path for path in candidates if path.is_file()), None)
+    if state_path is None:
+        return []
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+
+    instances = []
+    for resource in state.get("resources") or []:
+        if resource.get("mode") != "managed" or resource.get("type") != "aws_cloudwatch_log_group":
+            continue
+        for instance in resource.get("instances") or []:
+            attrs = instance.get("attributes") or {}
+            instances.append({
+                "name": str(attrs.get("name") or "").strip(),
+                "retention_in_days": attrs.get("retention_in_days"),
+            })
+    return instances
+
+
+def _cloud_logging_bucket_id(source_name: str, stable: str, index: int, used: set[str]) -> str:
+    stem = safe_name(source_name, max_len=75) if source_name else f"log-{stable}-{index}"
+    bucket_id = f"migration-{stem}"[:100].rstrip("-")
+    if bucket_id in used:
+        suffix = hashlib.sha256(f"{source_name}:{index}".encode()).hexdigest()[:8]
+        bucket_id = f"{bucket_id[:91]}-{suffix}"
+    used.add(bucket_id)
+    return bucket_id
+
+
+def _emit_cloud_logging_buckets(
+    main: list[str], work: Path, raw_group_id: str, group_id: str, stable: str
+) -> dict:
+    """Emit one Cloud Logging bucket per source log group; never collapse silently."""
+    source_groups = _source_cloudwatch_log_groups(work, raw_group_id, group_id)
+    if not source_groups:
+        main.extend([
+            "# No AWS CloudWatch log-group state found: explicit placeholder, not a source-complete mapping.",
+            'resource "google_logging_project_bucket_config" "this" {',
+            "  project        = var.project_id",
+            '  location       = "global"',
+            f'  bucket_id      = "migration-{stable}"',
+            "  retention_days = 30 # Assumption: confirm policy and source retention before apply.",
+            "}",
+            "",
+        ])
+        return {
+            "source_count": 0,
+            "emitted_count": 1,
+            "assumption_count": 1,
+            "source_inventory_available": False,
+            "routing_status": "unwired_no_source_inventory",
+            "mappings": [],
+        }
+
+    used: set[str] = set()
+    assumptions = 0
+    mappings = []
+    for index, source in enumerate(source_groups, start=1):
+        raw_retention = source.get("retention_in_days")
+        retention_assumption = False
+        try:
+            retention = int(raw_retention)
+        except (TypeError, ValueError):
+            retention = 0
+            retention_assumption = True
+        if retention <= 0 or retention > 3650:
+            retention_assumption = True
+            # Provider v5.40 defaults zero to 30 days. AWS 0 means never expire.
+            # Preserve no false equivalence: document this as a required decision.
+            retention = 30
+            assumptions += 1
+        bucket_id = _cloud_logging_bucket_id(source["name"], stable, index, used)
+        resource_name = f"source_{index}"
+        if retention_assumption:
+            main.append("# TODO(apply-readiness): source retention is unset/never-expire; confirm the 30-day destination assumption.")
+        main.extend([
+            f"# Source log group: {json.dumps(source['name'] or '<missing>')}; source retention={raw_retention!r}.",
+            "# TODO(apply-readiness): Cloud Logging bucket created; CloudWatch-to-GCP log routing/sink permissions are not configured here.",
+            f'resource "google_logging_project_bucket_config" "{resource_name}" {{',
+            "  project        = var.project_id",
+            '  location       = "global"',
+            f"  bucket_id      = {hcl_string(bucket_id)}",
+            f"  retention_days = {retention}",
+            "}",
+            "",
+        ])
+        mappings.append({
+            "source_name": source["name"],
+            "source_retention_in_days": raw_retention,
+            "target_address": f"google_logging_project_bucket_config.{resource_name}",
+            "target_bucket_id": bucket_id,
+            "target_retention_days": retention,
+            "retention_assumption": retention_assumption,
+            "routing_status": "bucket_created_not_routed",
+            "note": "Creating a logging bucket does not route CloudWatch log entries; author/verify sinks or agents and destination permissions before claiming observability migration.",
+        })
+    return {
+        "source_count": len(source_groups),
+        "emitted_count": len(source_groups),
+        "assumption_count": assumptions,
+        "source_inventory_available": True,
+        "routing_status": "bucket_created_routing_not_configured",
+        "mappings": mappings,
+    }
 
 
 def _category_satisfied(category: str, google_types: set[str]) -> bool:
@@ -564,18 +679,10 @@ def generate(work: Path) -> dict:
                 ]
             )
 
+        logging_emission = {}
         if "observability" in categories:
-            main.extend(
-                [
-                    "# Logging bucket config is project-scoped; operators should align retention with org policy.",
-                    'resource "google_logging_project_bucket_config" "this" {',
-                    "  project        = var.project_id",
-                    '  location       = "global"',
-                    f'  bucket_id      = "migration-{stable}"',
-                    "  retention_days = 30",
-                    "}",
-                    "",
-                ]
+            logging_emission = _emit_cloud_logging_buckets(
+                main, work, raw_group_id, group_id, stable
             )
 
         if "containers" in categories:
@@ -989,6 +1096,17 @@ def generate(work: Path) -> dict:
         summary_groups.append(
             {
                 "group_id": group_id,
+                "source_resource_counts": {
+                    "aws_cloudwatch_log_group": logging_emission.get("source_count", 0)
+                } if "observability" in categories else {},
+                "generated_resource_counts": {
+                    "google_logging_project_bucket_config": logging_emission.get("emitted_count", 0)
+                } if "observability" in categories else {},
+                "logging_source_inventory_available": logging_emission.get("source_inventory_available") if "observability" in categories else None,
+                "logging_retention_assumption_count": logging_emission.get("assumption_count", 0),
+                "logging_routing_status": logging_emission.get("routing_status"),
+                "logging_mappings": logging_emission.get("mappings", []),
+
                 "root": f"gcp/groups/{group_id}",
                 "categories": sorted(categories),
                 "emissions": sorted(emissions),

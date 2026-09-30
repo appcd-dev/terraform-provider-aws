@@ -1098,13 +1098,10 @@
       "attribute_mapping": {
         "aws_cloudwatch_log_group": {
           "name": {
-            "google_logging_project_bucket_config": "name"
+            "google_logging_project_bucket_config": "bucket_id"
           },
           "retention_in_days": {
-            "google_logging_project_bucket_config": "retention_in_days"
-          },
-          "tags": {
-            "google_logging_project_bucket_config": "tags"
+            "google_logging_project_bucket_config": "retention_days"
           }
         }
       }

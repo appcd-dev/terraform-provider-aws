@@ -32,7 +32,7 @@ EMISSION_BY_CATEGORY = {
     "event": "full_scaffold",
     "dns": "full_scaffold",
     "cache": "full_scaffold",
-    "observability": "full_scaffold",
+    "observability": "profile_scaffold",
     "containers": "full_scaffold",
     "cdn": "profile_scaffold",
     "load_balancer": "full_scaffold",

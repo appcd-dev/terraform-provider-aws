@@ -73,6 +73,26 @@ def _write_fixture(work: Path) -> None:
         encoding="utf-8",
     )
 
+    # CloudWatch source state: multiple instances must not collapse into one bucket.
+    logs_dir = groups / "aws-logs-group"
+    logs_dir.mkdir(parents=True)
+    (logs_dir / "terraform.tfstate").write_text(
+        json.dumps({
+            "version": 4,
+            "resources": [{
+                "mode": "managed",
+                "type": "aws_cloudwatch_log_group",
+                "name": "logs",
+                "instances": [
+                    {"attributes": {"name": "/aws/lambda/app-one", "retention_in_days": 90}},
+                    {"attributes": {"name": "/aws/lambda/app-two", "retention_in_days": 180}},
+                    {"attributes": {"name": "/aws/lambda/no-expiry", "retention_in_days": 0}},
+                ],
+            }],
+        }),
+        encoding="utf-8",
+    )
+
     # DNS records
     dns_dir = groups / "aws-dns-group"
     dns_dir.mkdir(parents=True)
@@ -110,6 +130,7 @@ def _write_fixture(work: Path) -> None:
     eip_dec = decisions_for("aws_eip")
     alb_dec = decisions_for("aws_alb", "aws_vpc")
     dns_dec = decisions_for("aws_route53_zone", "aws_route53_record")
+    logs_dec = decisions_for("aws_cloudwatch_log_group")
 
     conf_eip, _ = gmc.group_confidence(eip_dec)
     conf_alb, _ = gmc.group_confidence(alb_dec)
@@ -154,6 +175,15 @@ def _write_fixture(work: Path) -> None:
                 "confidence": conf_dns or 0.0,
                 "review_needed": True,
                 "review_needed_reasons": ["fixture"],
+            },
+            {
+                "group_id": "aws-logs-group",
+                "stable_hash": "loghash01",
+                "target_categories": sorted({d["category"] for d in logs_dec}),
+                "mapping_decisions": logs_dec,
+                "confidence": conf_dns or 0.0,
+                "review_needed": True,
+                "review_needed_reasons": ["fixture: preserve each source log group"],
             },
         ],
     }
@@ -257,6 +287,10 @@ def main() -> int:
     check("aws_glue_catalog_database non_applicable", glue["status"] == "non_applicable")
     check("aws_glue defer lane", glue.get("hitl_lane") == "defer")
 
+    logging_decision = gmc.resolve(catalog, "aws_cloudwatch_log_group")
+    check("cloudwatch maps retention to provider schema attribute", logging_decision["attribute_mapping"].get("retention_in_days", {}).get("google_logging_project_bucket_config") == "retention_days")
+    check("cloudwatch maps source name to bucket id", logging_decision["attribute_mapping"].get("name", {}).get("google_logging_project_bucket_config") == "bucket_id")
+
     # Emission honesty: every full_scaffold category must be handled by generate.
     for category, emission in gmc.EMISSION_BY_CATEGORY.items():
         if emission != "full_scaffold":
@@ -283,7 +317,20 @@ def main() -> int:
         check("dns emits managed_zone", 'resource "google_dns_managed_zone" "this"' in dns_main)
         check("dns emits record_set", 'resource "google_dns_record_set" "primary"' in dns_main)
 
+        logs_main = (work / "gcp/groups/aws-logs-group/main.tf").read_text(encoding="utf-8")
+        check("one logging bucket per source group", logs_main.count('resource "google_logging_project_bucket_config"') == 3)
+        check("routing gap is visible in generated HCL", logs_main.count("CloudWatch-to-GCP log routing/sink permissions are not configured") == 3)
+        check("source logging names are present", '"/aws/lambda/app-one"' in logs_main and '"/aws/lambda/app-two"' in logs_main)
+        check("source retention copied", 'retention_days = 90' in logs_main and 'retention_days = 180' in logs_main)
+        check("zero retention assumption explicit", 'TODO(apply-readiness)' in logs_main and 'retention_days = 30' in logs_main)
+
         summary = json.loads((work / "gcp/artifacts/generation-summary.json").read_text(encoding="utf-8"))
+        logs_summary = next(g for g in summary["groups"] if g["group_id"] == "aws-logs-group")
+        check("logging source/output count reconciled", logs_summary["source_resource_counts"]["aws_cloudwatch_log_group"] == logs_summary["generated_resource_counts"]["google_logging_project_bucket_config"] == 3)
+        check("logging retention assumption counted", logs_summary["logging_retention_assumption_count"] == 1)
+        check("logging routing incompleteness explicit", logs_summary["logging_routing_status"] == "bucket_created_routing_not_configured")
+        check("known retention values preserved as facts", [m["retention_assumption"] for m in logs_summary["logging_mappings"]] == [False, False, True])
+        check("mapping manifest marks routing incomplete", len(logs_summary["logging_mappings"]) == 3 and all(m["routing_status"] == "bucket_created_not_routed" for m in logs_summary["logging_mappings"]))
         check("conversion rate present", "infra_conversion_rate" in summary)
         check("conversion ok true on fixture", summary.get("infra_conversion_ok") is True)
         check("conversion rate >= 0.80", float(summary.get("infra_conversion_rate") or 0) >= 0.80)

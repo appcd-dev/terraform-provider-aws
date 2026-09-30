@@ -26,18 +26,24 @@ locals {
   sop_cloud2code_scan_name           = "cloud2code-aws-region-scan-sop${local.suffix}"
   sop_discovery_stage_contract_name  = "aws-cloud-discovery-stage-contract-sop${local.suffix}"
   sop_orchestration_name             = "aws-migrator-orchestration-sop${local.suffix}"
-  sop_shard_extraction_name   = "aws-migrator-terraform-state-shard-extraction-sop${local.suffix}"
-  sop_tfstate_splitter_name   = "aws-migrator-tfstate-splitter-sop${local.suffix}"
-  sop_registry_reverse_name   = "aws-migrator-terraform-registry-reverse-iac-sop${local.suffix}"
-  sop_substate_converge_name  = "aws-migrator-terraform-substate-convergence-sop${local.suffix}"
-  sop_azure_migration_name    = "aws-migrator-azure-migration-profile-sop${local.suffix}"
-  sop_governance_conform_name = "nile-governance-learn-and-conform-sop${local.suffix}"
-  sop_orphan_bootstrap_name   = "aws-migrator-orphan-iac-module-bootstrap-sop${local.suffix}"
-  sop_cce_iac_alignment       = "aws-migrator-cce-iac-alignment-sop${local.suffix}"
-  evidence_primary_name       = "aws-cloud-discovery-evidence${local.suffix}"
-  evidence_azure_only_name    = "azure-migration-pr-evidence${local.suffix}"
-  evidence_gcp_only_name      = "gcp-migration-pr-evidence${local.suffix}"
-  evidence_orphan_name        = "aws-migrator-orphan-iac-module-authoring-evidence${local.suffix}"
+  sop_shard_extraction_name          = "aws-migrator-terraform-state-shard-extraction-sop${local.suffix}"
+  sop_tfstate_splitter_name          = "aws-migrator-tfstate-splitter-sop${local.suffix}"
+  sop_registry_reverse_name          = "aws-migrator-terraform-registry-reverse-iac-sop${local.suffix}"
+  sop_substate_converge_name         = "aws-migrator-terraform-substate-convergence-sop${local.suffix}"
+  sop_azure_migration_name           = "aws-migrator-azure-migration-profile-sop${local.suffix}"
+  sop_governance_conform_name        = "nile-governance-learn-and-conform-sop${local.suffix}"
+  sop_orphan_bootstrap_name          = "aws-migrator-orphan-iac-module-bootstrap-sop${local.suffix}"
+  sop_cce_iac_alignment              = "aws-migrator-cce-iac-alignment-sop${local.suffix}"
+  evidence_primary_name              = "aws-cloud-discovery-evidence${local.suffix}"
+  evidence_azure_only_name           = "azure-migration-pr-evidence${local.suffix}"
+  evidence_gcp_only_name             = "gcp-migration-pr-evidence${local.suffix}"
+  evidence_orphan_name               = "aws-migrator-orphan-iac-module-authoring-evidence${local.suffix}"
+  aws_discovery_pr_review_skill_name = "aws-discovery-pr-review${local.suffix}"
+  terraform_diagnose_skill_name      = "terraform-diagnose-edit-verify${local.suffix}"
+  rego_plan_reasoning_skill_name     = "rego-plan-reasoning${local.suffix}"
+  mapping_provider_schema_skill_name = "mapping-provider-schema-reasoning${local.suffix}"
+  mapping_catalog_knowledge_name     = "aws-migrator-mapping-catalog-reference${local.suffix}"
+  destination_iac_wiring_skill_name  = "destination-iac-wiring-readiness${local.suffix}"
   # Destination PR workflows fetch prior discovery IaC from these branches (deployment-supplied fallback).
   azure_only_source_branch        = trimspace(var.azure_only_source_branch)
   gcp_only_source_branch          = trimspace(var.gcp_only_source_branch)
@@ -169,8 +175,8 @@ locals {
   ensure_cloud2code_script     = file("${path.module}/scripts/ensure_cloud2code.sh")
   # Keep in lockstep with scripts/stage-runner.sh SCRIPT_PACK_VERSION and a
   # published pack-* GitHub release. 20260911.28 was bumped without a release.
-  script_pack_version          = "20260925.42"
-  script_pack_git_ref          = "main"
+  script_pack_version = "20260929.03"
+  script_pack_git_ref = "main"
   # Baked into the runner image under /opt, not under HOME. The ACA Azure Files
   # share mounts over /home/runner, so a pack under HOME depends on the
   # entrypoint copying it into the share on every revision. That copy failed
@@ -286,6 +292,7 @@ locals {
     sop_azure_migration_name            = local.sop_azure_migration_name
     sop_governance_conform_name         = local.sop_governance_conform_name
     sop_orphan_bootstrap_name           = local.sop_orphan_bootstrap_name
+    destination_iac_wiring_skill_name   = local.destination_iac_wiring_skill_name
     nile_governance_repo_url            = var.nile_governance_repo_url
     nile_governance_ref                 = var.nile_governance_ref
     nile_rules_repo_url                 = var.nile_rules_repo_url
@@ -445,8 +452,8 @@ locals {
   # the script path as an export name (`bad variable name`, session
   # 55e77bfd / trace 6abefb952b12). Discovery pack-entry invokes already put a
   # `;` after this prefix; destination one-liners append env + bash directly.
-  runner_git_env_prefix                           = "GIT_TOKEN=\"$${GIT_TOKEN:-$${GITHUB_TOKEN:-$${GH_TOKEN:-$${token:-}}}}\"; export GIT_TOKEN; export GH_TOKEN=\"$${GH_TOKEN:-$${GIT_TOKEN}}\"; export GITHUB_TOKEN=\"$${GITHUB_TOKEN:-$${GIT_TOKEN}}\"; export GIT_TERMINAL_PROMPT=0;"
-  runner_git_credential_bootstrap                 = "mkdir -p \"$${HOME}/.aws-migrator/bin\"; echo IyEvYmluL3NoCmNhc2UgIiQxIiBpbgpnZXQpCiAgdG9rPSIke0dJVF9UT0tFTjotJHtHSVRIVUJfVE9LRU46LSR7R0hfVE9LRU46LSR7dG9rZW46LX19fX0iCiAgWyAtbiAiJHRvayIgXSB8fCBleGl0IDAKICBwcmludGYgInVzZXJuYW1lPXgtYWNjZXNzLXRva2VuXG5wYXNzd29yZD0lc1xuIiAiJHRvayIKICA7Owplc2FjCg== | base64 -d > \"$${HOME}/.aws-migrator/bin/git-credential-stackgen\"; chmod 0755 \"$${HOME}/.aws-migrator/bin/git-credential-stackgen\"; git config --global credential.helper \"$${HOME}/.aws-migrator/bin/git-credential-stackgen\""
+  runner_git_env_prefix           = "GIT_TOKEN=\"$${GIT_TOKEN:-$${GITHUB_TOKEN:-$${GH_TOKEN:-$${token:-}}}}\"; export GIT_TOKEN; export GH_TOKEN=\"$${GH_TOKEN:-$${GIT_TOKEN}}\"; export GITHUB_TOKEN=\"$${GITHUB_TOKEN:-$${GIT_TOKEN}}\"; export GIT_TERMINAL_PROMPT=0;"
+  runner_git_credential_bootstrap = "mkdir -p \"$${HOME}/.aws-migrator/bin\"; echo IyEvYmluL3NoCmNhc2UgIiQxIiBpbgpnZXQpCiAgdG9rPSIke0dJVF9UT0tFTjotJHtHSVRIVUJfVE9LRU46LSR7R0hfVE9LRU46LSR7dG9rZW46LX19fX0iCiAgWyAtbiAiJHRvayIgXSB8fCBleGl0IDAKICBwcmludGYgInVzZXJuYW1lPXgtYWNjZXNzLXRva2VuXG5wYXNzd29yZD0lc1xuIiAiJHRvayIKICA7Owplc2FjCg== | base64 -d > \"$${HOME}/.aws-migrator/bin/git-credential-stackgen\"; chmod 0755 \"$${HOME}/.aws-migrator/bin/git-credential-stackgen\"; git config --global credential.helper \"$${HOME}/.aws-migrator/bin/git-credential-stackgen\""
   # Walmart ACA bakes packs into the image and disables vault sync. When /opt lags
   # the module version, fetch the GitHub release tarball before pack scripts run.
   # OpenTofu only escapes $${…} → ${…}; bare $$( stays literal $$( and breaks mktemp.
@@ -466,7 +473,7 @@ locals {
   # Use "$@"/$(mktemp) unescaped — $${@} corrupts under TF interpolation.
   # Drop stale Azure Files ~/.aws cache so SDK does not chase expired IMDS/SSO
   # before typed-secret env keys (session 3f867683 / ced6484d).
-  runner_aws_cred_hygiene = "unset AWS_PROFILE; rm -rf \"$${HOME}/.aws/cli/cache\" \"$${HOME}/.aws/sso\" 2>/dev/null || true; echo \"aws_env_keys=$(env | grep '^AWS_' | cut -d= -f1 | tr '\\n' ' ')\"; if [ -f \"$${HOME}/.aws/credentials\" ]; then echo aws_credentials_file=present; else echo aws_credentials_file=absent; fi;"
+  runner_aws_cred_hygiene  = "unset AWS_PROFILE; rm -rf \"$${HOME}/.aws/cli/cache\" \"$${HOME}/.aws/sso\" 2>/dev/null || true; echo \"aws_env_keys=$(env | grep '^AWS_' | cut -d= -f1 | tr '\\n' ' ')\"; if [ -f \"$${HOME}/.aws/credentials\" ]; then echo aws_credentials_file=present; else echo aws_credentials_file=absent; fi;"
   runner_pack_entry_invoke = "${local.runner_git_env_prefix} ${local.runner_aws_cred_hygiene} pack_entry(){ P='${local.script_pack_preload_dir}'; if [ -f \"$${P}/cloud2code-aws-scan.sh\" ] && [ -f \"$${P}/runner-capability-preflight.sh\" ] && [ -f \"$${P}/ingest-bootstrap.sh\" ] && [ -f \"$${P}/iac-pr-bootstrap.sh\" ] && [ -f \"$${P}/converge-bootstrap.sh\" ]; then case \"$${1}\" in preflight) shift; exec bash \"$${P}/runner-capability-preflight.sh\" \"$@\"; ;; scan) shift; exec bash \"$${P}/cloud2code-aws-scan.sh\" \"$@\"; ;; ingest) export WORKFLOW_RUN_ID=\"$${2}\"; shift; exec bash \"$${P}/ingest-bootstrap.sh\" \"$@\"; ;; iac-pr) export WORKFLOW_RUN_ID=\"$${2}\"; shift; exec bash \"$${P}/iac-pr-bootstrap.sh\" \"$@\"; ;; converge) export WORKFLOW_RUN_ID=\"$${2}\"; shift; exec bash \"$${P}/converge-bootstrap.sh\" \"$@\"; ;; destination) shift; exec bash \"$${P}/run-destination-stage.sh\" \"$@\"; ;; *) echo \"pack_entry_error=unknown_cmd cmd=$${1}\" >&2; exit 2; ;; esac; fi; D=$(mktemp -d); gh release download 'pack-${local.script_pack_version}' -R '${trimspace(var.script_pack_release_repo)}' -p pack-entry.sh -D \"$${D}\" && exec bash \"$${D}/pack-entry.sh\" \"$@\"; }; pack_entry"
   # Self-heal pack fetch on every pack-path stage so a faked preflight (session
   # b506b854: printf runner_capability_preflight_ok) cannot leave /opt empty.
@@ -479,8 +486,11 @@ locals {
   rendered_persona = templatefile("${path.module}/personas/aws-migrator-architect.md.tftpl", local.template_vars)
 
   rendered_templates = {
-    for filename in fileset("${path.module}/templates", "*.md.tftpl") :
-    replace(filename, ".tftpl", "") => templatefile("${path.module}/templates/${filename}", local.template_vars)
+    for filename in concat(
+      fileset("${path.module}/templates", "*.md.tftpl"),
+      fileset("${path.module}/templates", "*.tmpl.md"),
+    ) :
+    (endswith(filename, ".tmpl.md") ? replace(filename, ".tmpl.md", ".md") : replace(filename, ".tftpl", "")) => templatefile("${path.module}/templates/${filename}", local.template_vars)
   }
 
   remote_runner_block = trimspace(<<-RUNNER
@@ -779,6 +789,42 @@ resource "sg_runbook_sop" "discovery_stage_contract" {
   name        = local.sop_discovery_stage_contract_name
   approve     = true
   description = trimspace(local.rendered_templates["discovery-stage-contract.md"])
+}
+
+resource "sg_runbook_sop" "aws_discovery_pr_review" {
+  name        = local.aws_discovery_pr_review_skill_name
+  approve     = true
+  description = trimspace(local.rendered_templates["aws-discovery-pr-review.md"])
+}
+
+resource "sg_runbook_sop" "terraform_diagnose_edit_verify" {
+  name        = local.terraform_diagnose_skill_name
+  approve     = true
+  description = trimspace(local.rendered_templates["terraform-diagnose-edit-verify.md"])
+}
+
+resource "sg_runbook_sop" "rego_plan_reasoning" {
+  name        = local.rego_plan_reasoning_skill_name
+  approve     = true
+  description = trimspace(local.rendered_templates["rego-plan-reasoning.md"])
+}
+
+resource "sg_runbook_sop" "mapping_provider_schema_reasoning" {
+  name        = local.mapping_provider_schema_skill_name
+  approve     = true
+  description = trimspace(local.rendered_templates["mapping-catalog-provider-schema.md"])
+}
+
+resource "sg_runbook_sop" "mapping_catalog_knowledge" {
+  name        = local.mapping_catalog_knowledge_name
+  approve     = true
+  description = trimspace(local.rendered_templates["discovery-mapping-review-reference.md"])
+}
+
+resource "sg_runbook_sop" "destination_iac_wiring_readiness" {
+  name        = local.destination_iac_wiring_skill_name
+  approve     = true
+  description = trimspace(local.rendered_templates["destination-iac-wiring-readiness.md"])
 }
 
 resource "sg_runbook_sop" "aws_migrator_orchestration" {

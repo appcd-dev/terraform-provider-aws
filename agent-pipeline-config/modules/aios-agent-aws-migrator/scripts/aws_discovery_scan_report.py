@@ -252,46 +252,43 @@ def build_report(region: str, identity_path: str | None, state_path: str | None,
     else:
         checks["per_type_listed_outcomes_reconcile"] = "unknown"
     exact_warning_coverage = round(100 * individual_read_permission_events / aggregate_permission_skips, 1) if aggregate_permission_skips else None
-    evidence_warnings = []
+    evidence_gaps: list[dict[str, Any]] = []
     if not identity.get("Account"):
-        evidence_warnings.append("AWS account identity was not available; account is unknown.")
+        evidence_gaps.append({"code": "aws_account_identity_missing", "observed": None})
     if not region:
-        evidence_warnings.append("AWS region was not available; region is unknown.")
+        evidence_gaps.append({"code": "aws_region_missing", "observed": None})
     if not log_path or not Path(log_path).is_file():
-        evidence_warnings.append("Cloud2Code log is missing; skip reasons and type-level log summaries cannot be verified.")
+        evidence_gaps.append({"code": "cloud2code_log_missing", "observed": None})
     if not aggregate:
-        evidence_warnings.append("Cloud2Code aggregate integrity counters are missing; scan completeness is unknown, not complete.")
+        evidence_gaps.append({"code": "aggregate_integrity_counters_missing", "observed": None})
     if not type_stats:
-        evidence_warnings.append("Per-resource-type summary lines are missing; type-level inventory is unavailable.")
+        evidence_gaps.append({"code": "per_type_summaries_missing", "observed": None})
     if not state_path or not Path(state_path).is_file():
-        evidence_warnings.append("Terraform state is missing; found-resource counts are unknown.")
+        evidence_gaps.append({"code": "terraform_state_missing", "observed": None})
     elif not state_valid:
-        evidence_warnings.append("Terraform state could not be parsed as a resources inventory; found-resource counts are unknown.")
+        evidence_gaps.append({"code": "terraform_state_invalid", "observed": state_path})
     if aggregate_permission_skips and exact_warning_coverage is not None and exact_warning_coverage < 100:
-        evidence_warnings.append(
-            f"Individual Read/ImportState warning details cover {individual_read_permission_events} of {aggregate_permission_skips} aggregate permission skips "
-            f"({exact_warning_coverage}%). The remaining {aggregate_permission_skips - individual_read_permission_events} have no specific action/reason in the retained log."
-        )
+        evidence_gaps.append({
+            "code": "permission_warning_detail_incomplete",
+            "aggregate_read_importstate_skips": aggregate_permission_skips,
+            "individual_warning_records": individual_read_permission_events,
+            "warning_detail_coverage_percent": exact_warning_coverage,
+            "skips_without_individual_reason": aggregate_permission_skips - individual_read_permission_events,
+        })
     resources_phase_total = aggregate.get("permission_skipped_resources", 0)
     if aggregate and individual_resources_permission_events != resources_phase_total:
-        evidence_warnings.append(
-            f"Observed {individual_resources_permission_events} individual Resources/list permission-denial warning records, while Cloud2Code's permission summary reports "
-            f"Resources={resources_phase_total}; these counters do not reconcile and the list-phase impact is not fully quantified."
-        )
+        evidence_gaps.append({
+            "code": "resources_phase_warning_counter_mismatch",
+            "individual_warning_records": individual_resources_permission_events,
+            "cloud2code_summary_count": resources_phase_total,
+        })
     mismatches = [key for key, value in checks.items() if value == "mismatch"]
     if mismatches:
-        evidence_warnings.append("Evidence counters disagree: " + ", ".join(mismatches) + ". Treat the inventory as unresolved until reconciled.")
-    if not aggregate:
-        completeness = "unknown — aggregate scan counters unavailable"
-    elif mismatches:
-        completeness = "unresolved — evidence counters disagree"
-    elif any(aggregate.get(k, 0) for k in ("import_state_skipped", "read_skipped", "read_failed", "throttled_types")) or individual_read_permission_events or individual_resources_permission_events:
-        completeness = "partial — Cloud2Code reported omissions or permission-denial evidence"
-    elif aggregate.get("listed", 0) > aggregate.get("imported", 0):
-        completeness = "unresolved — listed/imported counts differ without omission details"
-        evidence_warnings.append("Listed resources exceed imported resources, but no skip/failure counter explains the difference. Do not assume complete coverage.")
-    else:
-        completeness = "no omissions reported by available Cloud2Code counters; not independently verified complete"
+        evidence_gaps.append({"code": "evidence_counter_mismatch", "checks": mismatches})
+    if aggregate and aggregate.get("listed", 0) > aggregate.get("imported", 0) and not any(
+        aggregate.get(k, 0) for k in ("import_state_skipped", "read_skipped", "read_failed")
+    ):
+        evidence_gaps.append({"code": "listed_imported_delta_unaccounted", "listed": aggregate["listed"], "imported": aggregate["imported"]})
 
     return {
         "schema_version": 1,
@@ -301,7 +298,6 @@ def build_report(region: str, identity_path: str | None, state_path: str | None,
         "aws_account_id": identity.get("Account", "unknown"),
         "aws_caller_arn": identity.get("Arn", "unknown"),
         "aws_region": region or "unknown",
-        "completeness": completeness,
         "scan_integrity": aggregate,
         "aggregate_permission_skips": aggregate_permission_skips,
         "per_type_totals": type_totals,
@@ -327,25 +323,24 @@ def build_report(region: str, identity_path: str | None, state_path: str | None,
             {"phase": phase, "count": count, "reason": reason, "aws_api_operations": list(actions)}
             for (phase, reason, actions), count in sorted(unattributed_events.items())
         ],
-        "evidence_warnings": evidence_warnings,
-        "limitations": [
-            "Resource types found are counted from imported managed resources in generated Terraform state; this is not a claim that AWS inventory is complete.",
-            "Exact skipped reasons/actions are reported only when present in retained Cloud2Code warning records; aggregate/type counters do not establish individual causes.",
-            "Resource IDs and raw error strings are intentionally omitted from this report.",
-        ],
+        "evidence_gaps": evidence_gaps,
+        "data_sources": {
+            "resource_types_found": "managed resources in the generated Terraform state",
+            "scan_integrity": "Cloud2Code aggregate log counter",
+            "resource_types_scanned": "Cloud2Code per-type progress summaries",
+            "permission_warning_events": "individual structured permission_skipped log records",
+        },
     }
 
 
 def render_markdown(report: dict[str, Any]) -> str:
     integrity = report.get("scan_integrity") or {}
-    completeness = report.get("completeness", "unknown")
     lines = [
         "## AWS scan inventory", "",
         f"- **Account:** `{report.get('aws_account_id', 'unknown')}`",
         f"- **Caller ARN:** `{report.get('aws_caller_arn', 'unknown')}`",
         f"- **Region:** `{report.get('aws_region', 'unknown')}`",
-        f"- **Completeness:** **{completeness}**",
-        "- **Evidence status:** Observed values below are from the retained Cloud2Code log and generated state; an unknown is not treated as zero or success.", "",
+        "",
         "### Scan totals (Cloud2Code aggregate log counters)", "",
         "| Listed | Imported | Import-state skipped | Read skipped | Read failed | Throttled types |",
         "| ---: | ---: | ---: | ---: | ---: | ---: |",
@@ -359,16 +354,14 @@ def render_markdown(report: dict[str, Any]) -> str:
         lines.append(f"| `{check}` | **{result}** |")
     lines.extend([
         "",
-        f"Individual Read/ImportState permission-warning detail: **{report.get('individual_read_permission_warning_events', 0)}** warning records for **{report.get('aggregate_permission_skips', 0)}** aggregate Read/ImportState skips; coverage **{report.get('permission_warning_detail_coverage_percent', 'unknown')}%**.",
-        f"Individual Resources/list permission-denial warnings: **{report.get('individual_resources_permission_warning_events', 0)}**; Cloud2Code phase summary: **{report.get('permission_skip_totals', {}).get('resources', 'unknown')}**.",
+        f"Read/ImportState permission-skip counters: {report.get('aggregate_permission_skips', 0)}; individual warning records: {report.get('individual_read_permission_warning_events', 0)}; warning-record/skip-counter ratio: {report.get('permission_warning_detail_coverage_percent', 'unknown')}%.",
+        f"Resources/list permission-warning records: {report.get('individual_resources_permission_warning_events', 0)}; Cloud2Code Resources phase counter: {report.get('permission_skip_totals', {}).get('resources', 'unknown')}.",
         "",
         "### Resource types found in Terraform state (observed)", "",
         "| Resource type | Imported resources |", "| --- | ---: |",
     ])
     found = report.get("resource_types_found") or []
     lines.extend([f"| `{item['resource_type']}` | {item['resource_count']} |" for item in found] or ["| _No resource counts available_ | unknown |"])
-    if not report.get("state_file_valid"):
-        lines.append("State is missing or invalid; the table above is not evidence of an empty AWS account.")
     lines.extend([
         "",
         "### Resource types scanned (Cloud2Code per-type summary)", "",
@@ -380,7 +373,7 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"| `{item['resource_type']}` | {item.get('listed', 'unknown')} | {item.get('imported', 'unknown')} | {item.get('permission_skipped', 'unknown')} | {item.get('skipped', 'unknown')} | {item.get('filtered', 'unknown')} | {item.get('nil_state', 'unknown')} | {item.get('read_failed', 'unknown')} |"
         for item in scanned
     ] or ["| _No per-type summary lines available_ | unknown | unknown | unknown | unknown | unknown | unknown | unknown |"])
-    lines.extend(["", "### Skips: observed causes vs. unknown causes", ""])
+    lines.extend(["", "### Permission warning records", ""])
     skipped = report.get("resource_types_skipped") or []
     if skipped:
         lines.extend(["| Resource type | Phase | Warning records observed (not total skipped count) | Evidence-based reason | AWS API action |", "| --- | --- | ---: | --- | --- |"])
@@ -388,22 +381,15 @@ def render_markdown(report: dict[str, Any]) -> str:
             for detail in item.get("reasons", []):
                 lines.append(f"| `{item['resource_type']}` | {detail.get('phase', 'unknown')} | {detail.get('count', 'unknown')} | {detail.get('reason', 'Unknown')} | {', '.join(f'`{a}`' for a in detail.get('aws_api_operations', [])) or 'Not present in retained log'} |")
     else:
-        lines.append("No per-type skips were identified in the retained log; this is not proof that none occurred unless aggregate counters are present and zero.")
-    if report.get("evidence_warnings"):
-        lines.extend(["", "### Transparency notes", ""])
-        lines.extend(f"- {warning}" for warning in report["evidence_warnings"])
+        lines.append("No per-type permission warning records were parsed from the retained log.")
+    if report.get("evidence_gaps"):
+        lines.extend(["", "### Evidence gaps / counter differences", "", "```json", json.dumps(report["evidence_gaps"], indent=2, sort_keys=True), "```"])
     if report.get("unattributed_skipped_events"):
         lines.extend(["", "Unattributed skip warning events:"])
         for detail in report["unattributed_skipped_events"]:
             actions = ", ".join(f"`{a}`" for a in detail["aws_api_operations"]) or "no action identified"
             lines.append(f"- {detail['count']} event(s), phase `{detail['phase']}`: {detail['reason']} ({actions})")
-    lines.extend([
-        "",
-        "> **Interpretation:** ‘Imported’ means present in this generated state, not all resources in AWS. ‘No omissions reported’ means only that the available Cloud2Code counters reported zero; it does not prove permissions or AWS inventory completeness. Mismatched or missing evidence requires human follow-up.",
-        "",
-        "Machine-readable evidence and limitations: [`cloud2code-scan-report.json`](cloud2code-scan-report.json).",
-        "",
-    ])
+    lines.extend(["", "Machine-readable report: [`cloud2code-scan-report.json`](cloud2code-scan-report.json).", ""])
     return "\n".join(lines)
 
 

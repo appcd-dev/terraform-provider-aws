@@ -108,7 +108,12 @@ resource "sg_workflow" "aws_migrator_azure_only" {
         sg_runbook_sop.aws_migrator_orchestration.name,
       ]
       skill_refs = concat(
-        [local.sop_azure_migration_name, local.sop_orchestration_name],
+        [
+          local.sop_azure_migration_name,
+          local.sop_orchestration_name,
+          sg_runbook_sop.mapping_provider_schema_reasoning.name,
+          sg_runbook_sop.mapping_catalog_knowledge.name,
+        ],
         try(var.workflow_skill_refs["azure-migration-pr::azure-migration-blueprint"], [])
       )
       note = <<-EOT
@@ -131,7 +136,12 @@ resource "sg_workflow" "aws_migrator_azure_only" {
         sg_runbook_sop.aws_migrator_orchestration.name,
       ]
       skill_refs = concat(
-        [local.sop_azure_migration_name, local.sop_orchestration_name],
+        [
+          local.sop_azure_migration_name,
+          local.sop_orchestration_name,
+          sg_runbook_sop.mapping_provider_schema_reasoning.name,
+          sg_runbook_sop.mapping_catalog_knowledge.name,
+        ],
         try(var.workflow_skill_refs["azure-migration-pr::azure-iac-generate"], [])
       )
       note = <<-EOT
@@ -155,8 +165,13 @@ resource "sg_workflow" "aws_migrator_azure_only" {
         sg_runbook_sop.aws_migrator_orchestration.name,
       ]
       skill_refs = concat(
-        [local.sop_azure_migration_name, local.sop_substate_converge_name, local.sop_orchestration_name],
-        try(var.workflow_skill_refs["azure-migration-pr::azure-iac-validate"], [])
+        [
+          local.sop_azure_migration_name,
+          local.sop_substate_converge_name,
+          local.sop_orchestration_name,
+          sg_runbook_sop.terraform_diagnose_edit_verify.name,
+        ],
+        try(var.workflow_skill_refs["azure-migration-pr::azure-iac-validate"], []),
       )
       note = <<-EOT
         **Upstream guard:** if `azure_iac_generated` is not `"true"`, record `stage_summary:azure-iac-validate=skipped:generation_missing` and return.
@@ -185,7 +200,11 @@ resource "sg_workflow" "aws_migrator_azure_only" {
         sg_runbook_sop.aws_migrator_orchestration.name,
       ]
       skill_refs = concat(
-        [local.sop_azure_migration_name, local.sop_orchestration_name],
+        [
+          local.sop_azure_migration_name,
+          local.sop_orchestration_name,
+          sg_runbook_sop.terraform_diagnose_edit_verify.name,
+        ],
         try(var.workflow_skill_refs["azure-migration-pr::azure-iac-harden"], [])
       )
       note = <<-EOT
@@ -212,7 +231,13 @@ resource "sg_workflow" "aws_migrator_azure_only" {
         sg_runbook_sop.aws_migrator_orchestration.name,
       ]
       skill_refs = concat(
-        [local.sop_governance_conform_name, local.sop_azure_migration_name, local.sop_orchestration_name],
+        [
+          local.sop_governance_conform_name,
+          local.sop_azure_migration_name,
+          local.sop_orchestration_name,
+          sg_runbook_sop.rego_plan_reasoning.name,
+          sg_runbook_sop.terraform_diagnose_edit_verify.name,
+        ],
         try(var.workflow_skill_refs["azure-migration-pr::azure-iac-governance-conform"], [])
       )
       note = <<-EOT
@@ -270,7 +295,11 @@ resource "sg_workflow" "aws_migrator_azure_only" {
         sg_runbook_sop.aws_migrator_orchestration.name,
       ]
       skill_refs = concat(
-        [local.sop_azure_migration_name, local.sop_orchestration_name],
+        [
+          local.sop_azure_migration_name,
+          local.sop_orchestration_name,
+          sg_runbook_sop.aws_discovery_pr_review.name,
+        ],
         try(var.workflow_skill_refs["azure-migration-pr::azure-pr"], [])
       )
       note = <<-EOT
@@ -293,7 +322,11 @@ resource "sg_workflow" "aws_migrator_azure_only" {
         sg_runbook_sop.aws_migrator_orchestration.name,
       ]
       skill_refs = concat(
-        [local.sop_azure_migration_name, local.sop_orchestration_name],
+        [
+          local.sop_azure_migration_name,
+          local.sop_orchestration_name,
+          sg_runbook_sop.aws_discovery_pr_review.name,
+        ],
         try(var.workflow_skill_refs["azure-migration-pr::azure-only-final"], [])
       )
       note = <<-EOT
