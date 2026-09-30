@@ -3,7 +3,7 @@
 
 Plans each destination group (tofu plan -refresh=false), evaluates every
 rules/*/policy.rego pack with OPA, and emits actionable findings for the
-governance-conform agent to fix HCL and re-run.
+governance-conform agent to reason about and fix HCL at the correct layer.
 """
 
 from __future__ import annotations
@@ -466,33 +466,53 @@ def plan_group(group_dir: Path, tofu_bin: str) -> tuple[dict[str, Any] | None, s
         return None, f"invalid plan json: {exc}"
 
 
-def eval_pack_denies(opa_bin: str, policy_file: Path, plan: dict[str, Any]) -> list[str]:
+def eval_pack_query(opa_bin: str, policy_file: Path, plan: dict[str, Any], rule: str) -> tuple[list[Any], str]:
+    """Evaluate one policy output; Rego owns both denies and remediation direction."""
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as handle:
         json.dump(plan, handle)
         plan_path = handle.name
     try:
         result = subprocess.run(
-            [opa_bin, "eval", "-f", "raw", "-i", plan_path, "-d", str(policy_file), "data.policy.deny"],
+            [opa_bin, "eval", "-f", "json", "-i", plan_path, "-d", str(policy_file), rule],
             capture_output=True,
             text=True,
         )
         if result.returncode != 0:
             err = (result.stderr or result.stdout or "opa eval failed").strip()
-            return [f"OPA_ERROR: {policy_file.parent.name}: {err[:300]}"]
-        raw = (result.stdout or "").strip()
-        if not raw or raw == "undefined":
-            return []
-        if raw == "[]":
-            return []
+            return [], f"OPA_ERROR: {policy_file.parent.name}: {err[:300]}"
         try:
-            parsed = json.loads(raw)
+            envelope = json.loads(result.stdout or "{}")
         except json.JSONDecodeError:
-            return [f"OPA_PARSE: {policy_file.parent.name}: {raw[:300]}"]
-        if isinstance(parsed, list):
-            return [str(item) for item in parsed]
-        return [str(parsed)]
+            return [], f"OPA_PARSE: {policy_file.parent.name}: {(result.stdout or '')[:300]}"
+        results = envelope.get("result") or []
+        if not results:
+            return [], ""
+        expressions = results[0].get("expressions") or []
+        if not expressions:
+            return [], ""
+        value = expressions[0].get("value")
+        if value is None:
+            return [], ""
+        if isinstance(value, (list, set)):
+            return list(value), ""
+        return [value], ""
     finally:
         Path(plan_path).unlink(missing_ok=True)
+
+
+def eval_pack_denies(opa_bin: str, policy_file: Path, plan: dict[str, Any]) -> list[str]:
+    values, error = eval_pack_query(opa_bin, policy_file, plan, "data.policy.deny")
+    if error:
+        return [error]
+    return [str(item) for item in values]
+
+
+def eval_pack_remediation(opa_bin: str, policy_file: Path, plan: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return remediation guidance authored by this policy pack; never synthesize fixes here."""
+    values, error = eval_pack_query(opa_bin, policy_file, plan, "data.policy.remediation")
+    if error:
+        return [{"evaluation_error": error, "policy_pack": policy_file.parent.name}]
+    return [item for item in values if isinstance(item, dict)]
 
 
 def parse_control_id(message: str) -> str:
@@ -540,113 +560,6 @@ def deny_to_finding(
         "message": message,
         "evidence_gap": False,
     }
-
-
-# TLS / private-by-default attrs the pack can set mechanically.
-_TLS_ATTR_HINTS = (
-    "enable_https_traffic_only",
-    "min_tls_version",
-    "https_only",
-    "uniform_bucket_level_access",
-    "public_network_access_enabled",
-    "can_ip_forward",
-)
-
-
-def finding_to_remediation(finding: dict[str, Any], *, cloud: str) -> dict[str, Any]:
-    """Map an OPA finding to a structured remediation the pack/agent can apply."""
-    message = str(finding.get("message") or "")
-    control_id = str(finding.get("control_id") or parse_control_id(message))
-    if control_id == "OPA_DENY":
-        # PRG-002 / NPC-002 / CM-001 / TAG-002 messages often omit the ':' after the id.
-        control_id = parse_control_id(message)
-    address = str(finding.get("resource_address") or "")
-    group_id = str(finding.get("group_id") or "")
-    key = ""
-    m = re.search(
-        r'missing required (?:GCP label|Azure tag|metadata) "([^"]+)"',
-        message,
-    )
-    if m:
-        key = m.group(1)
-    action = "unknown"
-    suggested = ""
-    assumption = False
-    assumption_reason = ""
-
-    resource_type = address.split(".", 1)[0] if address else ""
-    if cloud == "gcp" and resource_type in GCP_LABEL_INCAPABLE_TYPES and (
-        "label" in message.lower() or "metadata" in message.lower()
-    ):
-        action = "exempt_resource"
-        assumption_reason = f"{resource_type} has no labels attribute in the provider schema"
-    elif key and ("GCP label" in message or (cloud == "gcp" and "metadata" in message)):
-        # TAG-002, PRIO-001, PRG-002, NPC-002, CM-001 all reduce to label fill.
-        action = "set_label"
-        assumption = True
-        assumption_reason = "Fill from AWS tags when present; else migration placeholder"
-        # CM-001 uses Azure-style keys (apmid); map common aliases to GCP underscores.
-        if key == "apmid":
-            key = "apm_id"
-        elif key == "cost-center":
-            key = "cost_center"
-        elif key == "created-by":
-            key = "created_by"
-        elif key == "applicationname":
-            key = "application_name"
-        elif key == "notificationdistlist":
-            key = "notification_distlist"
-        elif key == "trproductid":
-            key = "tr_product_id"
-    elif key and ("Azure tag" in message or (cloud == "azure" and "metadata" in message)):
-        action = "set_tag"
-        assumption = True
-        assumption_reason = "Fill from AWS tags when present; else migration placeholder"
-    elif control_id.startswith("TLS") or any(a in message for a in _TLS_ATTR_HINTS):
-        action = "set_attr"
-        for candidate in _TLS_ATTR_HINTS:
-            if candidate in message:
-                key = candidate
-                break
-        suggested = "true"
-    elif "missing required argument" in message.lower() or "Missing required argument" in message:
-        action = "set_attr"
-        arg_m = re.search(r'(?:argument|attribute)\s+"?([A-Za-z0-9_]+)"?', message, re.I)
-        if arg_m:
-            key = arg_m.group(1)
-
-    return {
-        "control_id": control_id,
-        "resource_address": address,
-        "group_id": group_id,
-        "action": action,
-        "key": key,
-        "suggested_value": suggested,
-        "assumption": assumption,
-        "assumption_reason": assumption_reason,
-        "message": message,
-        "cloud": cloud,
-    }
-
-
-def write_remediations(
-    artifacts: Path,
-    *,
-    cloud: str,
-    findings: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    remediations = [finding_to_remediation(f, cloud=cloud) for f in findings]
-    write_json(
-        artifacts / "governance-opa-remediations.json",
-        {
-            "schema": "nile-governance-opa-remediations/v1",
-            "cloud": cloud,
-            "remediation_count": len(remediations),
-            "remediations": remediations,
-            "generated_at": utc_now(),
-        },
-    )
-    return remediations
 
 
 def merge_plan_resource_changes(plans: list[dict[str, Any]]) -> dict[str, Any]:
@@ -755,13 +668,26 @@ def run(argv: list[str] | None = None) -> int:
 
         merged_plans.append(plan)
         group_denies: list[str] = []
+        group_guidance: list[dict[str, Any]] = []
         for policy in packs:
             denies = eval_pack_denies(opa_bin, policy, plan)
+            policy_guidance = eval_pack_remediation(opa_bin, policy, plan)
+            for guidance in policy_guidance:
+                if guidance.get("evaluation_error"):
+                    continue
+                group_guidance.append({**guidance, "policy_pack": policy.parent.name})
             for msg in denies:
                 group_denies.append(msg)
-                findings.append(
-                    deny_to_finding(message=msg, pack_dir=policy.parent, group_id=group_id, plan=plan)
-                )
+                finding = deny_to_finding(message=msg, pack_dir=policy.parent, group_id=group_id, plan=plan)
+                control_id = finding["control_id"]
+                address = finding["resource_address"]
+                matching_guidance = [
+                    item for item in group_guidance
+                    if item.get("control_id") == control_id
+                    and item.get("resource_address") == address
+                ]
+                finding["remediation_guidance"] = matching_guidance
+                findings.append(finding)
 
         group_results.append(
             {
@@ -805,11 +731,30 @@ def run(argv: list[str] | None = None) -> int:
             "deny_count": len(findings),
         },
     )
-    write_remediations(artifacts, cloud=cloud, findings=findings)
+    # Guidance is emitted by Rego packs and merely collected here. Python does
+    # not infer values, choose edits, or mutate generated Terraform.
+    rego_guidance = [
+        {**item, "policy_pack": finding.get("pack_dir", "")}
+        for finding in findings
+        for item in finding.get("remediation_guidance", [])
+    ]
+    write_json(
+        artifacts / "governance-opa-guidance.json",
+        {
+            "schema": "nile-governance-opa-guidance/v1",
+            "cloud": cloud,
+            "guidance_source": "rules/*/policy.rego:data.policy.remediation",
+            "guidance_count": len(rego_guidance),
+            "guidance": rego_guidance,
+            "generated_at": utc_now(),
+        },
+    )
 
-    # Human-readable fix hints for the agent
+    # Human-readable guidance for the agent
     lines = [
-        "# OPA governance denies (fix HCL, then re-run gcp-iac-governance-conform)",
+        "# OPA governance findings and Rego-authored remediation direction",
+        "",
+        "Rego guidance describes desired direction and provider-schema path. The migration agent owns diagnosis, source-value selection, HCL edits, assumptions, and re-verification; this checker never patches Terraform.",
         "",
         f"Rules SHA: `{source.get('commit_sha')}`",
         "",
@@ -822,8 +767,7 @@ def run(argv: list[str] | None = None) -> int:
         ),
         "" if failure_classes else "- None.",
         "",
-        "Structured remediations: `governance-opa-remediations.json` "
-        "(pack applies mechanical set_label/set_tag/set_attr; agent owns residuals).",
+        "Structured Rego-authored guidance: `governance-opa-guidance.json`.",
         "",
     ]
     if not findings:
@@ -832,6 +776,14 @@ def run(argv: list[str] | None = None) -> int:
         for item in findings[:200]:
             gid = item.get("group_id") or "?"
             lines.append(f"- **{gid}** `{item.get('control_id')}`: {item.get('message')}")
+            if item.get("guidance_gap"):
+                lines.append(f"  - **Policy authoring gap:** {item['guidance_gap']}")
+            for direction in item.get("remediation_guidance") or []:
+                lines.append(
+                    f"  - Rego direction: `{direction.get('operation')}` at `"
+                    f"{direction.get('target_path')}`; desired: {direction.get('desired_state')}. "
+                    f"Value source: {direction.get('value_source')}"
+                )
         if len(findings) > 200:
             lines.append(f"- … and {len(findings) - 200} more")
     lines.append("")

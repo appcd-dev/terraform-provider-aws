@@ -27,7 +27,7 @@
       "severity": "blocker",
       "obligation": "All Nile-managed GCP resources must contain the required GCP labels defined by the standard.",
       "enforce": true,
-      "iac_check": "For google_* create/update resources, require change.after.labels to include owner, created_by, cost_center, environment, function, service, repo, application_name, name, notification_distlist, ssp, tr_product_id, and apm_id with non-empty values."
+      "iac_check": "For google_* create/update resources, require change.after.labels, google_container_cluster.after.resource_labels, google_container_node_pool.after.node_config[].labels, and google_sql_database_instance.after.settings[].user_labels to include owner, created_by, cost_center, environment, function, service, repo, application_name, name, notification_distlist, ssp, tr_product_id, and apm_id with non-empty values."
     },
     {
       "id": "TAG-003",

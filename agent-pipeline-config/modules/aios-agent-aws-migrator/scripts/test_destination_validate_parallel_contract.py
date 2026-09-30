@@ -11,7 +11,7 @@ SCRIPTS = MODULE / "scripts"
 TEMPLATES = MODULE / "templates"
 MAIN_TF = MODULE / "main.tf"
 STAGE = SCRIPTS / "stage-runner.sh"
-PACK_VERSION = "20260925.41"
+PACK_VERSION = "20260925.42"
 
 
 def main() -> None:

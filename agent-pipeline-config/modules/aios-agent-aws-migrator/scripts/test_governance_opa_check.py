@@ -116,6 +116,27 @@ class GovernanceOpaCheckTest(unittest.TestCase):
         self.assertEqual(finding["group_id"], "g1")
         self.assertTrue(finding["blocks_commit"])
 
+    def test_rego_guidance_targets_gke_provider_schema_path(self) -> None:
+        if shutil.which("opa") is None:
+            self.skipTest("opa not installed")
+        policy = Path(__file__).resolve().parents[4] / "rules" / "governance" / "policy-catalog" / "policy.rego"
+        if not policy.is_file():
+            self.skipTest("Nile policy-catalog Rego not in source checkout")
+        plan = {
+            "resource_changes": [{
+                "address": "google_container_cluster.this",
+                "mode": "managed",
+                "type": "google_container_cluster",
+                "name": "this",
+                "change": {"actions": ["create"], "after": {"resource_labels": {}}},
+            }],
+        }
+        guidance = goc.eval_pack_remediation(shutil.which("opa") or "opa", policy, plan)
+        self.assertTrue(guidance)
+        self.assertTrue(all(item["control_id"] == "NPC-002" for item in guidance))
+        self.assertTrue(all(item["target_path"].startswith("resource_labels.") for item in guidance))
+        self.assertTrue(all("value_source" in item and "rationale" in item for item in guidance))
+
     def test_synthesize_plan_from_hcl_resolves_var_labels(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             group = Path(tmp) / "compute-web"
@@ -201,23 +222,6 @@ resource "google_compute_instance" "this" {
         result = goc.diagnose_plan_failure("Error: arbitrary provider failure")
         self.assertEqual(result["kind"], "unclassified_plan_error")
         self.assertEqual(result["recommended_action"], "inspect_full_plan_error_before_editing")
-
-    def test_known_gcp_label_incapable_provider_types(self) -> None:
-        for resource_type in (
-            "google_logging_project_bucket_config",
-            "google_bigtable_table",
-        ):
-            with self.subTest(resource_type=resource_type):
-                self.assertIn(resource_type, goc.GCP_LABEL_INCAPABLE_TYPES)
-                finding = {
-                    "control_id": "TAG-002",
-                    "resource_address": f"{resource_type}.this",
-                    "message": f'{resource_type}.this missing required GCP label "owner"',
-                }
-                self.assertEqual(
-                    goc.finding_to_remediation(finding, cloud="gcp")["action"],
-                    "exempt_resource",
-                )
 
     def test_is_credential_plan_error(self) -> None:
         self.assertTrue(goc.is_credential_plan_error("Error: Could not find default credentials"))

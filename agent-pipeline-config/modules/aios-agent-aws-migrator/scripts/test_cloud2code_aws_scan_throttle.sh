@@ -96,6 +96,10 @@ if [[ "$*" != *"--allow-partial"* ]]; then
   echo "allow-partial was not enabled by default" >&2
   exit 2
 fi
+if [[ "$*" != *"--log-type=json"* ]]; then
+  echo "structured JSON logging was not enabled" >&2
+  exit 2
+fi
 mkdir -p "$CLOUD2CODE_OUTPUT_DIR"
 printf '{"resources":[{"mode":"managed","type":"aws_vpc","instances":[{}]}]}\n' > "$CLOUD2CODE_OUTPUT_DIR/terraform.tfstate"
 echo 'permission skips: ImportState=0 Resources=0 Read=1 (search logs for permission_skipped); continuing with partial tfstate' >&2

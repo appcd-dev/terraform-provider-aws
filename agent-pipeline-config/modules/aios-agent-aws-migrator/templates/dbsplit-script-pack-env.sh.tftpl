@@ -9,6 +9,7 @@ dbsplit_fetch_script_pack_tarball() {
   local preload_dir="${script_pack_preload_dir}"
   local version="${script_pack_version}"
   if [ -f "$preload_dir/stage-runner.sh" ] \
+    && [ -f "$preload_dir/aws_discovery_scan_report.py" ] \
     && [ -f "$preload_dir/allocate_manifest.py" ] \
     && [ -f "$preload_dir/runner-capability-preflight.sh" ] \
     && [ -f "$preload_dir/cloud2code-aws-scan.sh" ] \
@@ -61,14 +62,14 @@ dbsplit_fetch_script_pack_tarball() {
 dbsplit_copy_preloaded_script_pack() {
   local pack_dest="$${1:?PACK_DEST}"
   local preload_dir="${script_pack_preload_dir}"
-  if [ ! -d "$preload_dir" ] || [ ! -f "$preload_dir/stage-runner.sh" ]; then
+  if [ ! -d "$preload_dir" ] || [ ! -f "$preload_dir/stage-runner.sh" ] || [ ! -f "$preload_dir/aws_discovery_scan_report.py" ]; then
     dbsplit_fetch_script_pack_tarball || return 1
   fi
   if [ ! -d "$preload_dir" ]; then
     echo "script_pack_error=preload_missing path=$preload_dir" >&2
     return 1
   fi
-  if [ ! -f "$preload_dir/allocate_manifest.py" ] || [ ! -f "$preload_dir/tfstate_monolith_decomposer.py" ] || [ ! -f "$preload_dir/stage-runner.sh" ]; then
+  if [ ! -f "$preload_dir/allocate_manifest.py" ] || [ ! -f "$preload_dir/tfstate_monolith_decomposer.py" ] || [ ! -f "$preload_dir/stage-runner.sh" ] || [ ! -f "$preload_dir/aws_discovery_scan_report.py" ]; then
     echo "script_pack_error=preload_incomplete path=$preload_dir" >&2
     return 1
   fi
@@ -109,6 +110,7 @@ dbsplit_copy_preloaded_script_pack() {
   cp "$preload_dir/allocate_manifest.py" "$pack_dest/scripts/allocate_manifest.py"
   cp "$preload_dir/tfstate_monolith_decomposer.py" "$pack_dest/scripts/tfstate_monolith_decomposer.py"
   cp "$preload_dir/stage-runner.sh" "$pack_dest/scripts/stage-runner.sh"
+  cp "$preload_dir/aws_discovery_scan_report.py" "$pack_dest/scripts/aws_discovery_scan_report.py"
   cp "$preload_dir/azure_mapping_catalog.py" "$pack_dest/scripts/azure_mapping_catalog.py"
   cp "$preload_dir/azure_iac_generate.py" "$pack_dest/scripts/azure_iac_generate.py"
   cp "$preload_dir/gcp_mapping_catalog.py" "$pack_dest/scripts/gcp_mapping_catalog.py"
@@ -173,7 +175,7 @@ dbsplit_run_stage() {
 
 dbsplit_ensure_script_pack() {
   local pack_dest="$${1:?PACK_DEST}"
-  if [ -f "$pack_dest/scripts/allocate_manifest.py" ] && [ -f "$pack_dest/scripts/tfstate_monolith_decomposer.py" ] && [ -f "$pack_dest/scripts/stage-runner.sh" ] && [ -f "$pack_dest/scripts/azure_mapping_catalog.py" ] && [ -f "$pack_dest/scripts/mappings/aws-to-azure.json" ] && [ -f "$pack_dest/scripts/gcp_mapping_catalog.py" ] && [ -f "$pack_dest/scripts/mappings/aws-to-gcp.json" ] && [ -f "$pack_dest/scripts/gcp_iac_generate.py" ] && [ -f "$pack_dest/scripts/app_iam.py" ] && [ -f "$pack_dest/scripts/hcl_sanity.py" ] && [ -f "$pack_dest/scripts/destination_iac_harden.py" ] && [ -f "$pack_dest/scripts/governance_conform.py" ] && [ -f "$pack_dest/scripts/governance_opa_check.py" ]; then
+  if [ -f "$pack_dest/scripts/allocate_manifest.py" ] && [ -f "$pack_dest/scripts/tfstate_monolith_decomposer.py" ] && [ -f "$pack_dest/scripts/stage-runner.sh" ] && [ -f "$pack_dest/scripts/aws_discovery_scan_report.py" ] && [ -f "$pack_dest/scripts/azure_mapping_catalog.py" ] && [ -f "$pack_dest/scripts/mappings/aws-to-azure.json" ] && [ -f "$pack_dest/scripts/gcp_mapping_catalog.py" ] && [ -f "$pack_dest/scripts/mappings/aws-to-gcp.json" ] && [ -f "$pack_dest/scripts/gcp_iac_generate.py" ] && [ -f "$pack_dest/scripts/app_iam.py" ] && [ -f "$pack_dest/scripts/hcl_sanity.py" ] && [ -f "$pack_dest/scripts/destination_iac_harden.py" ] && [ -f "$pack_dest/scripts/governance_conform.py" ] && [ -f "$pack_dest/scripts/governance_opa_check.py" ]; then
     local actual decomposer_actual runner_actual catalog_py_actual catalog_json_actual gcp_catalog_py_actual gcp_catalog_json_actual
     actual="$(sha256sum "$pack_dest/scripts/allocate_manifest.py" | awk '{print $1}')"
     decomposer_actual="$(sha256sum "$pack_dest/scripts/tfstate_monolith_decomposer.py" | awk '{print $1}')"

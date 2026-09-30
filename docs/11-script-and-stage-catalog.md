@@ -180,7 +180,7 @@ Loop stages: `gcp-iac-loop`, `gcp-iac-governance-loop`.
 | --- | --- | --- | --- |
 | `allocate_manifest.py` | Python | Deterministic monolith tfstate → logical_group_manifest + per-group state shards. | — |
 | `app_iam.py` | Python | Application IAM helpers for acquisition-style AWS → destination migration. | `test_app_iam.py` |
-| `apply_opa_mechanical_fixes.py` | Python | Apply mechanical OPA remediations to destination group HCL. | `test_apply_opa_mechanical_fixes.py` |
+| `aws_discovery_scan_report.py` | Python | Build a durable AWS discovery report from Cloud2Code's scan log and tfstate. | `test_aws_discovery_scan_report.py` |
 | `azure_iac_generate.py` | Python | Generate review-candidate Azure Terraform roots from the migration blueprint. | — |
 | `azure_mapping_catalog.py` | Python | AWS -> Azure migration mapping catalog resolver. | `test_azure_mapping_catalog.py` |
 | `destination_iac_harden.py` | Python | Deterministic lint/security autofix for destination Azure/GCP review-candidate roots. | `test_destination_iac_harden.py` |

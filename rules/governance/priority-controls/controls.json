@@ -18,7 +18,7 @@
       "severity": "blocker",
       "obligation": "Production-priority metadata controls require Nile-managed resources to carry the required Azure tags or GCP labels defined in the Tagging and Labeling Standard.",
       "enforce": true,
-      "iac_check": "For azurerm_* create/update resources, require all mandatory tags in change.after.tags. For google_* create/update resources, require all mandatory labels in change.after.labels."
+      "iac_check": "For azurerm_* create/update resources, require all mandatory tags in change.after.tags. For google_* create/update resources, require all mandatory labels in change.after.labels, google_container_cluster.after.resource_labels, google_container_node_pool.after.node_config[].labels, and google_sql_database_instance.after.settings[].user_labels."
     },
     {
       "id": "PRIO-002",

@@ -43,6 +43,7 @@ docker run --rm \
     # runner user while the share covers HOME, which is what preflight checks.
     pack="$(echo /opt/aws-migrator/script-pack/*)"
     test -r "$pack/stage-runner.sh"
+    test -r "$pack/aws_discovery_scan_report.py"
     test -r "$pack/ingest-bootstrap.sh"
     test -r "$pack/runner-capability-preflight.sh"
     test -r "$pack/run-destination-stage.sh"

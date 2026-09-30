@@ -23,7 +23,7 @@
       "severity": "blocker",
       "obligation": "Nile-managed GCP resources must include the required metadata labels and must not use placeholder values.",
       "enforce": true,
-      "iac_check": "For google_* resource_changes on create/update, require non-empty after.labels values for owner, created_by, cost_center, environment, function, service, repo, application_name, name, notification_distlist, ssp, tr_product_id, and apm_id; reject placeholder values."
+      "iac_check": "For google_* resource_changes on create/update, require non-empty after.labels, google_container_cluster.after.resource_labels, google_container_node_pool.after.node_config[].labels, and google_sql_database_instance.after.settings[].user_labels values for owner, created_by, cost_center, environment, function, service, repo, application_name, name, notification_distlist, ssp, tr_product_id, and apm_id; reject placeholder values."
     },
     {
       "id": "PRG-003",

@@ -69,6 +69,17 @@ has_supported_metadata_map(after) if {
 	is_object(object.get(settings[0], "user_labels", null))
 }
 
+has_supported_metadata_map(after) if {
+	is_object(object.get(after, "resource_labels", null))
+}
+
+has_supported_metadata_map(after) if {
+	node_config := object.get(after, "node_config", [])
+	is_array(node_config)
+	some node in node_config
+	is_object(object.get(node, "labels", null))
+}
+
 # Azure tags use hyphens (apmid, cost-center); GCP labels use underscores (apm_id, cost_center).
 # "apmid" ↔ "apm_id" needs an explicit remap (no hyphen to rewrite).
 extra_metadata_aliases := {
@@ -97,6 +108,50 @@ has_metadata(after, key) if {
 	is_array(settings)
 	count(settings) > 0
 	map_has_metadata(object.get(settings[0], "user_labels", null), key)
+}
+
+has_metadata(after, key) if {
+	map_has_metadata(object.get(after, "resource_labels", null), key)
+}
+
+has_metadata(after, key) if {
+	node_config := object.get(after, "node_config", [])
+	is_array(node_config)
+	some node in node_config
+	map_has_metadata(object.get(node, "labels", null), key)
+}
+
+
+gcp_metadata_path(rc) := "resource_labels" if rc.type == "google_container_cluster"
+gcp_metadata_path(rc) := "node_config[].labels" if rc.type == "google_container_node_pool"
+gcp_metadata_path(rc) := "settings[].user_labels" if rc.type == "google_sql_database_instance"
+gcp_metadata_path(rc) := "labels" if {
+	rc.type != "google_container_cluster"
+	rc.type != "google_container_node_pool"
+	rc.type != "google_sql_database_instance"
+	startswith(rc.type, "google_")
+}
+
+cloud_metadata_path(rc) := "tags" if startswith(rc.type, "azurerm_")
+cloud_metadata_path(rc) := gcp_metadata_path(rc) if startswith(rc.type, "google_")
+
+remediation contains guidance if {
+	some rc in input.resource_changes
+	rc.change.actions[_] in {"create", "update"}
+	not gcp_label_incapable_types[rc.type]
+	after := object.get(rc.change, "after", {})
+	has_supported_metadata_map(after)
+	some required in required_metadata_keys
+	not has_metadata(after, required)
+	guidance := {
+		"control_id": "CM-001",
+		"resource_address": rc.address,
+		"operation": "add_or_correct_required_metadata",
+		"target_path": sprintf("%s.%s", [cloud_metadata_path(rc), required]),
+		"desired_state": "non-empty owner, cost, repository, service, and APM metadata using the provider-supported path",
+		"value_source": "source AWS tags/inventory first; otherwise obtain owner approval and document the migration assumption",
+		"rationale": "The planned resource exposes a metadata map but lacks a required control-matrix key.",
+	}
 }
 
 deny contains msg if {

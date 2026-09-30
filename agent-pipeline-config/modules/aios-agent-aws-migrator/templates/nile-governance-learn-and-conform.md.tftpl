@@ -51,17 +51,13 @@ python3 $WORK_ROOT/scripts/governance_conform.py --work-root $WORK_ROOT --cloud 
 
 Or re-run the stage harness (`run-destination-stage.sh azure-iac-governance-conform` or `gcp-iac-governance-conform`).
 
-The harness also runs **OPA Rego** from Nile-Factory `rules/` against `tofu plan` JSON for each group, emits `governance-opa-remediations.json`, and applies **mechanical** label/tag/TLS fixes. It groups repeated plan failures into `failure_classes` in `governance-opa-report.json`; diagnose/fix the shared cause once rather than editing every duplicate finding. For explicit provider-schema diagnostics (for example, `An argument named "labels" is not expected here`), the runner removes only that exact attribute from the named resource, then re-plans automatically. It never guesses fixes for unclassified diagnostics. Read residuals in:
-
-- `azure|gcp/artifacts/governance-opa-remediations.json`
-- `azure|gcp/artifacts/governance-opa-fix-hints.md`
-- `azure|gcp/artifacts/governance-opa-findings.json`
+The harness runs **OPA Rego** from Nile-Factory `rules/` against each group's `tofu plan` JSON. Each policy pack owns both its deny predicate and structured, resource-specific remediation direction (`data.policy.remediation`); the checker only transports that guidance to `governance-opa-guidance.json` and fix hints. **Python does not patch generated HCL.** Read `failure_classes` in `governance-opa-report.json`, `governance-opa-guidance.json`, `governance-opa-fix-hints.md`, and `governance-opa-findings.json`. For provider-schema/plan failures, diagnose the exact failure and edit the generator, catalog, or HCL as appropriate; never let a generic fixer guess.
 
 when `*_iac_governance_ok` is false after the pack pass.
 
 ## Remediate and iterate (agent owns residuals)
 
-For each residual remediation / deny:
+For each residual Rego direction / deny:
 
 1. Prefer values from AWS inventory / source tags / blueprint metadata.
 2. If the source has no value, **make a migration assumption**: pick a Nile-safe placeholder (not TAG-003 banned tokens like `tbd`/`test`/`unknown`), write the HCL or `variables.tf` / `*.auto.tfvars` change, and append a row to `azure|gcp/artifacts/governance-assumptions.md` (what, why, how to replace for prod).
@@ -69,6 +65,12 @@ For each residual remediation / deny:
 4. Re-run the execute series after edits.
 
 For a plan failure, use `failure_classes` and the full diagnostic before editing. Find the generator/catalog/policy source that produced the failure, make the durable correction when you own that layer, add a focused regression test, regenerate or fix the generated HCL, and rerun validation. A repair that does not change the next report requires a new diagnosis—not repeating the same edit. Distinguish provider schema errors, missing credentials, invalid values/dependencies, and OPA policy defects; do not mislabel an unavailable plan as an IaC pass.
+
+### Reason from the cloud resource model, not generic Terraform vocabulary
+
+For each deny, trace the chain **source evidence → intended target behavior → destination resource type → provider-supported HCL/plan field → policy field lookup**. Do not assume a field named `labels` exists, or that every resource exposes metadata at the same path. Confirm the target provider's schema/documentation and the resource's effective planned value (including nested blocks) before editing. If valid HCL puts the value in a provider-specific location but the policy only inspects a generic field, classify it as a policy/schema mismatch and fix the policy plus a plan-shaped regression test; do not distort correct IaC to satisfy a bad predicate. If the field is truly absent from HCL and supported by the provider, fix the generator or generated HCL at the right layer. Preserve the distinction between verified source values and migration assumptions.
+
+After every repair, compare the new structured findings and the exact plan/evaluation input with the previous iteration. If the same denies remain, or the evidence fingerprint is unchanged, stop automatic retries and explain why (repair did not reach the evaluator, stale plan, policy path mismatch, unsupported field, or no semantic change). Never report a fix as applied merely because a write was attempted; prove it changed HCL and then prove the evaluator saw the changed value. A timeout, missing harness, empty inventory, missing governance SHA, or conflicting validator/OPA result is **inconclusive/blocked**, not a clean conformance report.
 
 Do **not** invent IAM action translations or network redesigns.
 

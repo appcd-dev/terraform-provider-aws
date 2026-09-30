@@ -4,7 +4,7 @@
 # Usage: DBSPLIT_EMBEDDED=1 bash -s <command> [args...] << 'DBSPLIT_STAGE_RUNNER' ... DBSPLIT_STAGE_RUNNER
 set -euo pipefail
 
-SCRIPT_PACK_VERSION="20260925.41"
+SCRIPT_PACK_VERSION="20260925.42"
 DBSPLIT_DEFAULT_STRATEGY="${DBSPLIT_DEFAULT_STRATEGY:-tfstate_monolith_decomposer}"
 DBSPLIT_DEFAULT_CAP="${DBSPLIT_DEFAULT_CAP:-0}"
 REQUIRED_ALLOCATE_MARKER="def merge_small_by_seed"
@@ -2493,12 +2493,13 @@ write_aws_discovery_todo_md() {
     echo
     echo "## Start here"
     echo
-    echo "1. Confirm region/account in \`discovery-report.md\`."
-    echo "2. Confirm \`count_reconciliation_ok=true\` and group count looks right (\`${group_count}\` groups / \`${resource_count}\` resources)."
-    echo "3. If present, review \`split_quality_report.json\` for optional grouping suggestions."
-    echo "4. Review high-impact items (\`${high_impact}\`) in \`review_items.json\`."
-    echo "5. Spot-check a few \`aws/groups/*\` roots (foundation, platform, one app)."
-    echo "6. Only then trigger \`azure-migration-pr\` / \`gcp-migration-pr\` with \`source_pr=<this PR number>\`."
+    echo "1. Confirm region/account and scan completeness in \`discovery-report.md\`."
+    echo "2. Review \`cloud2code-scan-report.md\` for resource types, observed skip reasons, unknowns, and reconciliation checks; do not treat unknown as zero or infer a cause from a sample warning."
+    echo "3. Confirm \`count_reconciliation_ok=true\` and group count looks right (\`${group_count}\` groups / \`${resource_count}\` resources)."
+    echo "4. If present, review \`split_quality_report.json\` for optional grouping suggestions."
+    echo "5. Review high-impact items (\`${high_impact}\`) in \`review_items.json\`."
+    echo "6. Spot-check a few \`aws/groups/*\` roots (foundation, platform, one app)."
+    echo "7. Only then trigger \`azure-migration-pr\` / \`gcp-migration-pr\` with \`source_pr=<this PR number>\`."
     echo
     echo "## Run snapshot"
     echo
@@ -2552,7 +2553,9 @@ write_aws_discovery_todo_md() {
     echo "| Path | Use |"
     echo "| --- | --- |"
     echo "| \`aws/artifacts/TODO.md\` | This checklist |"
-    echo "| \`aws/artifacts/discovery-report.md\` | Region/account/group summary |"
+    echo "| \`aws/artifacts/discovery-report.md\` | Discovery summary and AWS scan inventory overview |"
+    echo "| \`aws/artifacts/cloud2code-scan-report.md\` | Human-readable inventory, evidence checks, observed causes, and unknowns |"
+    echo "| \`aws/artifacts/cloud2code-scan-report.json\` | Machine-readable per-type scan report |"
     echo "| \`aws/artifacts/split_quality_report.json\` | Score, metrics, residual issues |"
     echo "| \`aws/artifacts/review_items.json\` | High-impact review list |"
     echo "| \`aws/artifacts/logical_group_manifest.json\` | Group → addresses |"
@@ -2575,11 +2578,36 @@ prepare_aws_discovery_pr_artifacts() {
   local work_root="${1:?WORK_ROOT}"
   local artifacts_dir="${2:?ARTIFACTS_DIR}"
   mkdir -p "$artifacts_dir"
-  local region account group_count orphan_count
+  local region account group_count orphan_count identity_path state_path scan_log
   region="$(read_note "$work_root" "aws_region" 2>/dev/null || read_note "$work_root" "cloud2code_region" 2>/dev/null || echo unknown)"
-  account="$(read_note "$work_root" "aws_account_id" 2>/dev/null || echo unknown)"
+  identity_path="${work_root}/.work/aws-caller-identity.json"
+  account="$(read_note "$work_root" "aws_account_id" 2>/dev/null || true)"
+  if [ -z "$account" ] && [ -s "$identity_path" ] && command -v jq >/dev/null 2>&1; then
+    account="$(jq -r '.Account // empty' "$identity_path" 2>/dev/null || true)"
+  fi
+  account="${account:-unknown}"
   group_count="$(read_note "$work_root" "logical_group_count" 2>/dev/null || echo unknown)"
   orphan_count="$(read_note "$work_root" "tfstate_decomposer_orphan_count" 2>/dev/null || echo unknown)"
+  state_path="$(read_note "$work_root" "cloud2code_tfstate_path" 2>/dev/null || read_note "$work_root" "monolith_state_uri" 2>/dev/null || true)"
+  if [ -z "$state_path" ]; then
+    state_path="$(read_note "$work_root" "cloud2code_output_dir" 2>/dev/null || true)"
+  fi
+  if [ -z "$state_path" ] && [ -f "${work_root}/.work/cloud2code-inputs.json" ] && command -v jq >/dev/null 2>&1; then
+    state_path="$(jq -r '.cloud2code_output_dir // empty' "${work_root}/.work/cloud2code-inputs.json" 2>/dev/null || true)"
+  fi
+  if [ -z "$state_path" ] && [ -d "${work_root}/cloud2code" ]; then
+    state_path="${work_root}/cloud2code"
+  fi
+  scan_log="${work_root}/.work/cloud2code.log"
+  if [ -x "${work_root}/scripts/aws_discovery_scan_report.py" ] || [ -f "${work_root}/scripts/aws_discovery_scan_report.py" ]; then
+    python3 "${work_root}/scripts/aws_discovery_scan_report.py" \
+      --region "$region" --identity "$identity_path" --state "$state_path" --log "$scan_log" \
+      --json-out "${artifacts_dir}/cloud2code-scan-report.json" \
+      --markdown-out "${artifacts_dir}/cloud2code-scan-report.md"
+  else
+    echo "aws_discovery_report_error=scan_report_generator_missing path=${work_root}/scripts/aws_discovery_scan_report.py" >&2
+    return 1
+  fi
   {
     echo "# AWS cloud discovery report"
     echo
@@ -2592,8 +2620,16 @@ prepare_aws_discovery_pr_artifacts() {
     echo "- split_quality_pass: \`$(read_note "$work_root" "split_quality_pass" 2>/dev/null || echo unknown)\`"
     echo "- orphan_count: \`${orphan_count}\`"
     echo
-    echo "Cloud2Code scan output (when present) lives under \`aws/artifacts/cloud2code/\`."
+    echo "The detailed scan inventory (account, region, found types, skipped types, and reasons) is in \`cloud2code-scan-report.md\`; machine-readable data is in \`cloud2code-scan-report.json\`."
+    echo
+    echo "Cloud2Code raw scan log (when present) lives under \`aws/artifacts/cloud2code.log\`."
   } >"${artifacts_dir}/discovery-report.md"
+  if [ -s "${artifacts_dir}/cloud2code-scan-report.md" ]; then
+    {
+      echo
+      cat "${artifacts_dir}/cloud2code-scan-report.md"
+    } >>"${artifacts_dir}/discovery-report.md"
+  fi
 
   if command -v jq >/dev/null 2>&1; then
     jq -n \
@@ -2975,7 +3011,7 @@ cmd_sync_groups_to_repo() {
       cp "${work_root}/${artifact}" "${artifacts_dir}/${artifact}"
     fi
   done
-  for script_artifact in allocate_manifest.py tfstate_monolith_decomposer.py stage-runner.sh; do
+  for script_artifact in allocate_manifest.py tfstate_monolith_decomposer.py stage-runner.sh aws_discovery_scan_report.py; do
     if [ -f "${work_root}/scripts/${script_artifact}" ]; then
       cp "${work_root}/scripts/${script_artifact}" "${artifacts_dir}/${script_artifact}"
     fi
@@ -5410,12 +5446,6 @@ cmd_destination_iac_governance_conform() {
       return 1
     fi
   fi
-  local fix_harness="${work_root}/scripts/apply_opa_mechanical_fixes.py"
-  if [ ! -f "$fix_harness" ] && [ -f "${script_dir}/apply_opa_mechanical_fixes.py" ]; then
-    mkdir -p "${work_root}/scripts"
-    cp "${script_dir}/apply_opa_mechanical_fixes.py" "$fix_harness"
-  fi
-
   local rc=0
   python3 "$harness" --work-root "$work_root" --cloud "$cloud" --all \
     >"${artifacts_dir}/governance-conform.out" 2>"${artifacts_dir}/governance-conform.err" || rc=$?
@@ -5429,30 +5459,23 @@ cmd_destination_iac_governance_conform() {
       opa_ok="$(jq -r 'if .opa_ok == true then "true" else "false" end' "$opa_report" 2>/dev/null || echo false)"
       opa_blocked="$(jq -r '.blocked // empty' "$opa_report" 2>/dev/null || true)"
     fi
-    # Schema-aware repair loop: trust explicit provider diagnostics, apply only
-    # deterministic fixes, then re-plan/re-evaluate. Stop when clean, blocked, or
-    # no safe fix changed files; the agent then owns semantic residuals.
-    local repair_round=0 repair_limit=4 fixes_json fixes_applied
-    while [ "$opa_ok" != "true" ] && [ "$opa_rc" -ne 2 ] && [ -f "$fix_harness" ] && [ "$repair_round" -lt "$repair_limit" ]; do
-      repair_round=$((repair_round + 1))
-      python3 "$fix_harness" --work-root "$work_root" --cloud "$cloud" \
-        >"${artifacts_dir}/governance-opa-mechanical-fixes-${repair_round}.out" \
-        2>"${artifacts_dir}/governance-opa-mechanical-fixes-${repair_round}.err" || true
-      fixes_json="${artifacts_dir}/governance-opa-mechanical-fixes.json"
-      mirror_note "$work_root" "${cloud}_iac_opa_mechanical_fixes" "$fixes_json"
-      fixes_applied="$(jq -r '.applied // 0' "$fixes_json" 2>/dev/null || echo 0)"
-      if ! [[ "$fixes_applied" =~ ^[0-9]+$ ]] || [ "$fixes_applied" -eq 0 ]; then
-        break
+    # Never apply HCL fixes in Python. Rego emits remediation direction and
+    # the migration agent decides, edits the correct source/HCL layer, and reruns.
+    local opa_findings="${artifacts_dir}/governance-opa-findings.json"
+    local current_findings_fingerprint="" previous_findings_fingerprint=""
+    local findings_note_key="${cloud}_iac_opa_findings_sha256"
+    if [ -f "$opa_findings" ]; then
+      current_findings_fingerprint="$(sha256sum "$opa_findings" 2>/dev/null | awk '{print $1}')"
+      previous_findings_fingerprint="$(read_note "$work_root" "$findings_note_key" 2>/dev/null || true)"
+      mirror_note "$work_root" "$findings_note_key" "$current_findings_fingerprint"
+      if [ "$opa_ok" != "true" ] && [ -n "$previous_findings_fingerprint" ] \
+        && [ "$current_findings_fingerprint" = "$previous_findings_fingerprint" ]; then
+        printf '{"schema":"nile-opa-no-progress/v1","cloud":"%s","findings_sha256":"%s","reason":"same_opa_findings_across_agent_visits"}\n' \
+          "$cloud" "$current_findings_fingerprint" >"${artifacts_dir}/governance-opa-no-progress.json"
+        opa_blocked="governance_no_progress"
+        echo "governance_opa_status=nonconformant:no_progress_same_findings_across_visits"
       fi
-      opa_rc=0
-      python3 "$opa_harness" --work-root "$work_root" --cloud "$cloud" \
-        >"${artifacts_dir}/governance-opa-check-retry-${repair_round}.out" \
-        2>"${artifacts_dir}/governance-opa-check-retry-${repair_round}.err" || opa_rc=$?
-      if [ -f "$opa_report" ] && command -v jq >/dev/null 2>&1; then
-        opa_ok="$(jq -r 'if .opa_ok == true then "true" else "false" end' "$opa_report" 2>/dev/null || echo false)"
-        opa_blocked="$(jq -r '.blocked // empty' "$opa_report" 2>/dev/null || true)"
-      fi
-    done
+    fi
     if [ "$opa_rc" -eq 2 ]; then
       mirror_note "$work_root" "$ok_key" "false"
       mirror_note "$work_root" "${cloud}_iac_governance_report" "$report"
@@ -5465,16 +5488,57 @@ cmd_destination_iac_governance_conform() {
     fi
   fi
 
-  local sha="" ok="false" blocked="" iteration="0"
+  if [ "$opa_blocked" = "governance_no_progress" ]; then
+    mirror_note "$work_root" "$ok_key" "false"
+    mirror_note "$work_root" "${cloud}_iac_governance_report" "$report"
+    mirror_note "$work_root" "${cloud}_iac_opa_report" "$opa_report"
+    mirror_note "$work_root" "${cloud}_iac_opa_findings" "${artifacts_dir}/governance-opa-findings.json"
+    mirror_note "$work_root" "stage_summary:${stage_id}" "blocked:governance_no_progress"
+    echo "${ok_key}: \"false\""
+    echo "stage_summary:${stage_id}=blocked:governance_no_progress"
+    return 0
+  fi
+
+  local sha="" source_sha="" ok="false" blocked="" iteration="0" report_resources="0" inventory_resources="0"
   if [ -f "$report" ] && command -v jq >/dev/null 2>&1; then
     sha="$(jq -r '.governance_commit_sha // empty' "$report" 2>/dev/null || true)"
     ok="$(jq -r 'if .conformance_ok == true then "true" else "false" end' "$report" 2>/dev/null || echo false)"
     blocked="$(jq -r '.blocked // empty' "$report" 2>/dev/null || true)"
     iteration="$(jq -r '.iteration // 0' "$report" 2>/dev/null || echo 0)"
+    report_resources="$(jq -r '.resource_count // 0' "$report" 2>/dev/null || echo 0)"
+  fi
+  local source_manifest="${artifacts_dir}/governance-source.json" resource_inventory="${artifacts_dir}/resource-inventory.json"
+  if [ -f "$source_manifest" ] && command -v jq >/dev/null 2>&1; then
+    source_sha="$(jq -r '.commit_sha // empty' "$source_manifest" 2>/dev/null || true)"
+  fi
+  if [ -f "$resource_inventory" ] && command -v jq >/dev/null 2>&1; then
+    inventory_resources="$(jq -r '.resource_count // (.resources | length) // 0' "$resource_inventory" 2>/dev/null || echo 0)"
+  fi
+  if [ "$blocked" != "governance_docs_unavailable" ] && [ "$rc" -ne 2 ] \
+    && { [ -z "$sha" ] || [ -z "$source_sha" ] || [ "$sha" != "$source_sha" ] \
+      || ! [[ "$report_resources" =~ ^[0-9]+$ ]] || ! [[ "$inventory_resources" =~ ^[0-9]+$ ]] \
+      || [ "$report_resources" -eq 0 ] || [ "$inventory_resources" -eq 0 ] \
+      || [ "$report_resources" -lt "$inventory_resources" ]; }; then
+    ok="false"
+    blocked="governance_evidence_incomplete"
+    printf '{"schema":"nile-governance-evidence-check/v1","cloud":"%s","report_sha":"%s","source_sha":"%s","report_resource_count":%s,"inventory_resource_count":%s,"blocked":"%s"}\n' \
+      "$cloud" "$sha" "$source_sha" "$report_resources" "$inventory_resources" "$blocked" \
+      >"${artifacts_dir}/governance-evidence-check.json"
+    echo "governance_evidence_check=blocked:incomplete_or_mismatched_sha_or_resource_coverage"
   fi
 
   if [ "$cloud" = "azure" ] || [ "$cloud" = "gcp" ]; then
     write_destination_todo_md "$work_root" "$cloud" 2>/dev/null || true
+  fi
+
+  if [ "$blocked" = "governance_evidence_incomplete" ]; then
+    mirror_note "$work_root" "$ok_key" "false"
+    mirror_note "$work_root" "${cloud}_iac_governance_report" "$report"
+    mirror_note "$work_root" "${cloud}_governance_commit_sha" "$sha"
+    mirror_note "$work_root" "stage_summary:${stage_id}" "blocked:governance_evidence_incomplete"
+    echo "${ok_key}: \"false\""
+    echo "stage_summary:${stage_id}=blocked:governance_evidence_incomplete"
+    return 0
   fi
 
   if [ "$blocked" = "governance_docs_unavailable" ] || [ "$rc" -eq 2 ]; then
@@ -5554,7 +5618,7 @@ emit_governance_residual_md() {
   local opa_hints="${work_root}/${cloud}/artifacts/governance-opa-fix-hints.md"
   local exceptions="${work_root}/${cloud}/artifacts/governance-exceptions.md"
   local assumptions="${work_root}/${cloud}/artifacts/governance-assumptions.md"
-  local remediations="${work_root}/${cloud}/artifacts/governance-opa-remediations.json"
+  local opa_guidance="${work_root}/${cloud}/artifacts/governance-opa-guidance.json"
   local gov_ok opa_ok deny_count blocking_count
 
   gov_ok="$(read_note "$work_root" "${cloud}_iac_governance_ok" 2>/dev/null || true)"
@@ -5588,11 +5652,11 @@ emit_governance_residual_md() {
     echo "Governance gate cleared for this run. Spot-check artifacts below before apply."
     echo
   else
-    echo "> **Residual governance/OPA findings remain.** Agents should have patched mechanical HCL from OPA hints before opening this PR. Treat the items below as merge blockers until cleared or explicitly accepted."
+    echo "> **Residual governance/OPA findings remain.** The migration agent must reason from the Rego-authored direction and remediate before this PR is considered complete. Treat the items below as merge blockers until cleared or explicitly accepted."
     echo
     echo "### TODO — clear residuals"
     echo
-    echo "1. Open [\`governance-opa-remediations.json\`](./governance-opa-remediations.json) and [\`governance-opa-fix-hints.md\`](./governance-opa-fix-hints.md); apply named label/tag/flag/var fixes under \`${cloud}/groups/\`."
+    echo "1. Read [\`governance-opa-guidance.json\`](./governance-opa-guidance.json) and [\`governance-opa-fix-hints.md\`](./governance-opa-fix-hints.md); trace source evidence → provider schema → plan path → Rego direction, then make the appropriate HCL/generator/policy change and verify it."
     echo "2. Record any migration placeholders in [\`governance-assumptions.md\`](./governance-assumptions.md)."
     echo "3. Clear validator blockers in [\`governance-exceptions.md\`](./governance-exceptions.md)."
     echo "4. Re-run \`${cloud}-iac-governance-conform\` until \`${cloud}_iac_governance_ok=true\`."
@@ -5607,8 +5671,8 @@ emit_governance_residual_md() {
     echo "- Full list: [\`governance-assumptions.md\`](./governance-assumptions.md)"
     echo
   fi
-  if [ -f "$remediations" ]; then
-    echo "- Structured remediations: [\`governance-opa-remediations.json\`](./governance-opa-remediations.json)"
+  if [ -f "$opa_guidance" ]; then
+    echo "- Rego-authored guidance: [\`governance-opa-guidance.json\`](./governance-opa-guidance.json)"
     echo
   fi
   if [ -f "$opa_findings" ] && command -v jq >/dev/null 2>&1; then
@@ -6204,7 +6268,7 @@ write_azure_pr_body() {
     echo
     echo "- Static validation runs \`tofu fmt\`, \`tofu validate\`, optional \`tofu test\`, and optional \`tflint\` on validated groups."
     echo "- Parallel \`azure-iac-harden\` applies mechanical security/lint autofixes into the same PR; see \`azure/artifacts/harden-findings.md\`."
-    echo "- \`azure-iac-governance-conform\` refreshes living Nile docs, derives a per-resource tree, and re-verifies Priority-1 + OPA. Agents must remediate mechanical denies (see \`governance-opa-fix-hints.md\`) across governance-loop iterations. If residuals remain after max iterations, this PR still opens with TODOs — clear them before apply. Pin SHA from \`azure/artifacts/governance-source.json\`. Validation evidence is not human approval."
+    echo "- \`azure-iac-governance-conform\` refreshes living Nile docs, derives a per-resource tree, and re-verifies Priority-1 + OPA. Agents must follow Rego-authored directions in \`governance-opa-guidance.json\`, reason about source values/provider schema, edit the appropriate layer, and re-run verification. If residuals remain after max iterations, this PR still opens with TODOs — clear them before apply. Pin SHA from \`azure/artifacts/governance-source.json\`. Validation evidence is not human approval."
     echo "- Live Azure plan runs only when Azure credentials are present on the runner (sampled when \`AZURE_LIVE_PLAN_MAX_GROUPS\` is set)."
     echo "- Live plan status is recorded as \`azure_plan_status\`. When credentials are required, missing ARM_* fails validate; this PR never applies Azure resources."
     echo "- When a live plan runs, sampled success requires expected creates and no deletes or replacements."
@@ -7175,7 +7239,7 @@ write_gcp_pr_body() {
     echo
     echo "- Static validation runs \`tofu fmt\`, \`tofu validate\`, optional \`tofu test\`, and optional \`tflint\` on validated groups."
     echo "- Parallel \`gcp-iac-harden\` applies mechanical security/lint autofixes into the same PR; see \`gcp/artifacts/harden-findings.md\`."
-    echo "- \`gcp-iac-governance-conform\` refreshes living Nile docs, derives a per-resource tree, and re-verifies Priority-1 + OPA. Agents must remediate mechanical denies (see \`governance-opa-fix-hints.md\`) across governance-loop iterations. If residuals remain after max iterations, this PR still opens with TODOs — clear them before apply. Pin SHA from \`gcp/artifacts/governance-source.json\`. Validation evidence is not human approval."
+    echo "- \`gcp-iac-governance-conform\` refreshes living Nile docs, derives a per-resource tree, and re-verifies Priority-1 + OPA. Agents must follow Rego-authored directions in \`governance-opa-guidance.json\`, reason about source values/provider schema, edit the appropriate layer, and re-run verification. If residuals remain after max iterations, this PR still opens with TODOs — clear them before apply. Pin SHA from \`gcp/artifacts/governance-source.json\`. Validation evidence is not human approval."
     echo "- Live GCP plan runs only when GCP credentials are present on the runner (sampled when \`GCP_LIVE_PLAN_MAX_GROUPS\` is set)."
     echo "- Live plan status is recorded as \`gcp_plan_status\`. When credentials are required, missing GOOGLE_*/GCP_* fails validate; this PR never applies GCP resources."
     echo "- When a live plan runs, sampled success requires expected creates and no deletes or replacements."
@@ -7517,6 +7581,8 @@ cmd_commit_pr() {
   git_commit_paths_if_changed \
     "aws: cloud discovery report for ${workflow_run_id}" \
     aws/artifacts/discovery-report.md \
+    aws/artifacts/cloud2code-scan-report.md \
+    aws/artifacts/cloud2code-scan-report.json \
     aws/artifacts/cloud2code \
     aws/artifacts/cloud2code.log \
     aws/artifacts/cloud2code-command.txt \

@@ -18,7 +18,7 @@
       "severity": "blocker",
       "obligation": "Ownership, cost, repo, service, and APM metadata must be present and validated on governed resources.",
       "enforce": true,
-      "iac_check": "For create/update resource_changes, require non-empty after.tags or after.labels keys owner, cost-center, repo, service, apmid when tag/label maps exist."
+      "iac_check": "For create/update resource_changes, require non-empty after.tags or GCP after.labels/resource_labels/node_config[].labels/settings[].user_labels keys owner, cost-center, repo, service, apmid when tag/label maps exist."
     },
     {
       "id": "CM-002",

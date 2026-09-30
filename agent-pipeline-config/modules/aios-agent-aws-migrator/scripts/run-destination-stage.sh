@@ -13,7 +13,7 @@ PACK_DIR="$(cd "$(dirname "$0")" && pwd)"
 mkdir -p "$WORK_ROOT/scripts/mappings" "$WORK_ROOT/.work" "$WORK_ROOT/gcp/artifacts" "$WORK_ROOT/azure/artifacts"
 for f in allocate_manifest.py tfstate_monolith_decomposer.py stage-runner.sh \
   azure_mapping_catalog.py azure_iac_generate.py gcp_mapping_catalog.py gcp_iac_generate.py \
-  app_iam.py hcl_sanity.py destination_iac_harden.py governance_conform.py governance_opa_check.py apply_opa_mechanical_fixes.py; do
+  app_iam.py hcl_sanity.py destination_iac_harden.py governance_conform.py governance_opa_check.py; do
   cp -f "${PACK_DIR}/${f}" "${WORK_ROOT}/scripts/${f}"
 done
 if ! compgen -G "${PACK_DIR}/mappings/"*.json >/dev/null; then

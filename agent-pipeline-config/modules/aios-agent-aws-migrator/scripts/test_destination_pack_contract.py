@@ -61,6 +61,14 @@ def _expand_pack_invoke(
 
 
 def main() -> None:
+    destination_runner = (MODULE / "scripts" / "run-destination-stage.sh").read_text()
+    assert "apply_opa_mechanical_fixes.py" not in destination_runner
+    repo_root = MODULE.parents[2]
+    for pack_builder in (repo_root / "runner" / "embed-script-pack.sh", repo_root / "runner" / "package-script-pack.sh"):
+        builder_text = pack_builder.read_text()
+        assert "apply_opa_mechanical_fixes.py" not in builder_text, (
+            f"{pack_builder.name} must not package the removed Terraform mutator"
+        )
     prefix = _tf_string("runner_git_env_prefix")
     hygiene = _tf_string("runner_aws_cred_hygiene")
     invoke = _tf_string("runner_pack_entry_invoke")

@@ -217,6 +217,8 @@ mkdir -p "$CLOUD2CODE_OUTPUT_DIR"
 aws sts get-caller-identity >"$WORK_ROOT/.work/aws-caller-identity.json" 2>"$WORK_ROOT/.work/aws-sts.err" \
   && {
     mirror_note "aws_caller_identity_path" "$WORK_ROOT/.work/aws-caller-identity.json"
+    _account_id="$(jq -r '.Account // empty' "$WORK_ROOT/.work/aws-caller-identity.json" 2>/dev/null || true)"
+    [ -n "$_account_id" ] && mirror_note "aws_account_id" "$_account_id"
     echo "aws_caller_identity=$(tr -d '\n' <"$WORK_ROOT/.work/aws-caller-identity.json")"
   } \
   || {
@@ -232,7 +234,7 @@ aws sts get-caller-identity >"$WORK_ROOT/.work/aws-caller-identity.json" 2>"$WOR
 run_cloud2code_import() {
   rm -f "$CLOUD2CODE_OUTPUT_DIR/terraform.tfstate"
   export CLOUD2CODE_OUTPUT_DIR
-  local -a cmd=(cloud2code import aws --region "$AWS_REGION" --output-dir "$CLOUD2CODE_OUTPUT_DIR" "--auto-import=$CLOUD2CODE_AUTO_IMPORT")
+  local -a cmd=(cloud2code --log-type=json import aws --region "$AWS_REGION" --output-dir "$CLOUD2CODE_OUTPUT_DIR" "--auto-import=$CLOUD2CODE_AUTO_IMPORT")
   if [ -n "$CLOUD2CODE_DISCOVERY_NAME" ]; then
     cmd+=(--name "$CLOUD2CODE_DISCOVERY_NAME")
   fi
@@ -248,6 +250,8 @@ run_cloud2code_import() {
   if [ "$CLOUD2CODE_ALLOW_PARTIAL" = true ]; then
     cmd+=(--allow-partial)
   fi
+  # Keep structured permission_skipped events in the log consumed by the PR
+  # report, even if a runner-wide CLOUD2CODE_LOG_TYPE override is configured.
   printf '%q ' "${cmd[@]}" >"$WORK_ROOT/.work/cloud2code-command.txt"
   echo >>"$WORK_ROOT/.work/cloud2code-command.txt"
   "${cmd[@]}" >"$WORK_ROOT/.work/cloud2code.log" 2>&1

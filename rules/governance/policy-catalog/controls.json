@@ -23,7 +23,7 @@
       "severity": "blocker",
       "obligation": "GCP resources must include required labels mapped from the Nile tagging and labeling standard.",
       "enforce": true,
-      "iac_check": "For google_* create/update resource_changes that support labels, change.after.labels must contain non-empty required keys."
+      "iac_check": "For google_* create/update resource_changes that support labels, change.after.labels, google_container_cluster.change.after.resource_labels, google_container_node_pool.change.after.node_config[].labels, and google_sql_database_instance.change.after.settings[].user_labels must contain non-empty required keys."
     },
     {
       "id": "NPC-003",
