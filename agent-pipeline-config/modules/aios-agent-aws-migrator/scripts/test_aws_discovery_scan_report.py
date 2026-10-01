@@ -106,6 +106,40 @@ Scanning aws_iam_role [8/10] Done! (imported=8 skipped=0 permission_skipped=0 fi
         mismatch_gaps = {item["code"] for item in mismatch_report["evidence_gaps"]}
         assert "evidence_counter_mismatch" in mismatch_gaps
         assert "listed_imported_delta_unaccounted" in mismatch_gaps
+
+        # Non-permission Read errors must be visible in WARN JSONL and attached
+        # to the right type in the report, rather than reduced to an unexplained
+        # read_failed counter (4,345 successful tables + 19 failed reads).
+        read_failure_log = root / "read-failure.log"
+        read_failure_events = [json.dumps({
+            "time": "2026-09-29T00:00:04Z",
+            "level": "WARN",
+            "msg": "read_failed",
+            "resource_type": "aws_glue_catalog_table",
+            "id": f"123456789012:db:table-{index}",
+            "phase": "Read",
+            "error": "operation error Glue: GetTable, https response error StatusCode: 400, RequestID: redacted, EntityNotFoundException: table not found",
+        }) for index in range(19)]
+        read_failure_log.write_text(
+            "Scanning aws_glue_catalog_table [4345/4364] Done! (imported=4345 skipped=0 permission_skipped=0 filtered=0 nil_state=0 read_failed=19)\n"
+            "scan integrity: listed=4364 imported=4345 import_state_skipped=0 read_skipped=0 read_failed=19 throttled_types=0\n"
+            + "\n".join(read_failure_events) + "\n",
+            encoding="utf-8",
+        )
+        read_failure_report = build_report("us-east-1", None, None, str(read_failure_log))
+        glue_failures = next(
+            item for item in read_failure_report["resource_types_skipped"]
+            if item["resource_type"] == "aws_glue_catalog_table"
+        )
+        assert glue_failures["listed"] == 4364
+        assert glue_failures["imported"] == 4345
+        assert glue_failures["read_failed"] == 19
+        assert glue_failures["reasons"] == [{
+            "phase": "Read",
+            "count": 19,
+            "reason": "EntityNotFoundException",
+            "aws_api_operations": ["glue:GetTable"],
+        }]
     print("OK: AWS discovery scan report")
 
 

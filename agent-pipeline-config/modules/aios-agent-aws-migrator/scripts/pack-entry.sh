@@ -114,9 +114,11 @@ case "$cmd" in
     case "${_scan_exclude}" in
       ''|CLOUD2CODE_EXCLUDE_PLACEHOLDER) ;;
       *)
-        if [ -z "${CLOUD2CODE_EXCLUDE:-}" ]; then
-          export CLOUD2CODE_EXCLUDE="${_scan_exclude}"
-        fi
+        # The stage command argument is the explicit per-run request. Preserve
+        # it separately so the scan wrapper can also override stale inputs in
+        # notes.json / cloud2code-inputs.json, not only runner environment.
+        export CLOUD2CODE_EXCLUDE_OVERRIDE="${_scan_exclude}"
+        export CLOUD2CODE_EXCLUDE="${_scan_exclude}"
         ;;
     esac
     export CLOUD2CODE_EXCLUDE="${CLOUD2CODE_EXCLUDE:-}"

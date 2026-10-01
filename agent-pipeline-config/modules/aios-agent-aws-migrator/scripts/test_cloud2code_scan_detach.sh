@@ -69,7 +69,9 @@ out3="$(CLOUD2CODE_EXCLUDE=aws_glue_catalog_table bash "$TEST_ROOT/pack/cloud2co
 printf '%s\n' "$out3" | grep -q 'cloud2code_scan_ok: "true"' || fail "finished scan was not replayed: $out3"
 printf '%s\n' "$out3" | grep -q 'exclude=aws_glue_catalog_table' || fail "exclude was not forwarded to the detached scan: $out3"
 
-# pack-entry must pass argv 3 into CLOUD2CODE_EXCLUDE before detach.
+# pack-entry must pass argv 3 into CLOUD2CODE_EXCLUDE before detach, even
+# when the runner has a conflicting global value. A global value previously
+# silently overrode the workflow's explicit resource exclusion.
 entry="$SCRIPT_DIR/pack-entry.sh"
 if ! grep -q 'export CLOUD2CODE_EXCLUDE="${_scan_exclude}"' "$entry"; then
   fail "pack-entry does not export the scan exclude argument"
@@ -77,6 +79,24 @@ fi
 if ! grep -q 'CLOUD2CODE_SCAN_CALL_BUDGET_SECONDS=3500' "$entry"; then
   fail "pack-entry does not wait out the stage timeout for a detached scan"
 fi
+
+mkdir -p "$TEST_ROOT/entry-pack"
+for f in runner-capability-preflight.sh cloud2code-aws-scan.sh ingest-bootstrap.sh \
+  iac-pr-bootstrap.sh converge-bootstrap.sh run-destination-stage.sh; do
+  : >"$TEST_ROOT/entry-pack/$f"
+done
+cat >"$TEST_ROOT/entry-pack/cloud2code-scan-detach.sh" <<'EOF'
+#!/usr/bin/env bash
+printf 'effective_exclude=%s\n' "${CLOUD2CODE_EXCLUDE:-}"
+printf 'exclude_override=%s\n' "${CLOUD2CODE_EXCLUDE_OVERRIDE:-}"
+EOF
+chmod +x "$TEST_ROOT/entry-pack/cloud2code-scan-detach.sh"
+entry_output="$(PRELOAD_DIR="$TEST_ROOT/entry-pack" PACK_VER=test \
+  CLOUD2CODE_EXCLUDE=aws_s3_bucket bash "$entry" scan wf-entry-test us-east-1 aws_glue_catalog_table)"
+printf '%s\n' "$entry_output" | grep -q '^effective_exclude=aws_glue_catalog_table$' \
+  || fail "workflow scan exclusion lost to runner environment: $entry_output"
+printf '%s\n' "$entry_output" | grep -q '^exclude_override=aws_glue_catalog_table$' \
+  || fail "workflow scan exclusion override was not preserved: $entry_output"
 
 bad="$(WORKFLOW_RUN_ID= bash "$TEST_ROOT/pack/cloud2code-scan-detach.sh" '/tmp/not-a-workflow' us-east-1 || true)"
 printf '%s\n' "$bad" | grep -q 'blocked:cloud2code_workflow_run_id_unresolved: "true"' || fail "path workflow id was accepted: $bad"

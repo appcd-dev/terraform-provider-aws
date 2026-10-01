@@ -24,6 +24,8 @@ if [[ "$*" == *"--arg r"* ]]; then
     printf '{"aws_region":"us-east-1","cloud2code_allow_partial":"true"}\n'
   elif [ -f "$HOME/.wf-test/.work/cloud2code-inputs.json" ] && grep -q 'allow_partial.*false' "$HOME/.wf-test/.work/cloud2code-inputs.json"; then
     printf '{"aws_region":"us-east-1","cloud2code_allow_partial":"false"}\n'
+  elif [ -f "$HOME/.wf-test/.work/cloud2code-inputs.json" ] && grep -q 'cloud2code_exclude.*aws_s3_bucket' "$HOME/.wf-test/.work/cloud2code-inputs.json"; then
+    printf '{"aws_region":"us-east-1","cloud2code_exclude":"aws_s3_bucket"}\n'
   else
     printf '{"aws_region":"us-east-1"}\n'
   fi
@@ -32,6 +34,10 @@ elif [[ "$*" == *"--arg k aws_region"* ]]; then
 elif [[ "$*" == *"--arg k cloud2code_allow_partial"* ]]; then
   if [ -f "$HOME/.wf-test/.work/cloud2code-inputs.json" ]; then
     if grep -q 'allow_partial.*true' "$HOME/.wf-test/.work/cloud2code-inputs.json"; then echo true; elif grep -q 'allow_partial.*false' "$HOME/.wf-test/.work/cloud2code-inputs.json"; then echo false; fi
+  fi
+elif [[ "$*" == *"--arg k cloud2code_exclude"* ]]; then
+  if [ -f "$HOME/.wf-test/.work/cloud2code-inputs.json" ]; then
+    sed -n 's/.*"cloud2code_exclude"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$HOME/.wf-test/.work/cloud2code-inputs.json"
   fi
 elif [[ "$*" == *"--arg k"* ]]; then
   exit 0
@@ -85,6 +91,33 @@ if grep -q 'cloud2code_scan_ok: "true"' "$TEST_ROOT/scan.out"; then
   fail "throttled partial inventory was incorrectly marked successful"
 fi
 
+
+# Explicit scan exclusions must override a stale value in workflow inputs.
+cat > "$TEST_ROOT/bin/cloud2code" << 'MOCK'
+#!/usr/bin/env bash
+if [[ "$1" == "version" ]]; then echo "0.5.6"; exit 0; fi
+if [[ "$*" == *"get-supported-resources"* ]]; then
+  echo " - aws_glue_catalog_table"
+  exit 0
+fi
+printf '%s\n' "$*" >"$MOCK_CLOUD2CODE_ARGS"
+mkdir -p "$CLOUD2CODE_OUTPUT_DIR"
+printf '{"resources":[{"mode":"managed","type":"aws_vpc","instances":[{}]}]}\n' >"$CLOUD2CODE_OUTPUT_DIR/terraform.tfstate"
+MOCK
+chmod +x "$TEST_ROOT/bin/cloud2code"
+export MOCK_CLOUD2CODE_ARGS="$TEST_ROOT/partial-cloud2code-args"
+printf '{"aws_region":"us-east-1","cloud2code_exclude":"aws_s3_bucket"}\n' \
+  > "$TEST_ROOT/work/.wf-test/.work/cloud2code-inputs.json"
+export CLOUD2CODE_EXCLUDE_OVERRIDE=aws_glue_catalog_table
+if ! bash "$SCAN_SCRIPT" "wf-test" "us-east-1" > "$TEST_ROOT/exclude-override.out" 2>&1; then
+  cat "$TEST_ROOT/exclude-override.out"
+  fail "explicit exclusion override should complete scan"
+fi
+if ! grep -q -- '--exclude aws_glue_catalog_table' "$MOCK_CLOUD2CODE_ARGS"; then
+  cat "$MOCK_CLOUD2CODE_ARGS"
+  fail "explicit workflow exclusion did not override stale input exclusion"
+fi
+unset CLOUD2CODE_EXCLUDE_OVERRIDE
 
 # A Cloud2Code nonzero exit caused only by non-throttled read failures may
 # continue when a validated state meets the default 90% imported/listed floor.

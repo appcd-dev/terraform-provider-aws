@@ -68,6 +68,11 @@ coalesce_value() {
 AWS_REGION="$(coalesce_value aws_region AWS_REGION)"
 CLOUD2CODE_INCLUDE="$(coalesce_value cloud2code_include CLOUD2CODE_INCLUDE)"
 CLOUD2CODE_EXCLUDE="$(coalesce_value cloud2code_exclude CLOUD2CODE_EXCLUDE)"
+# An explicit pack-entry argument is per-run intent and takes precedence over
+# runner env as well as possibly stale workflow input files / notes.
+if [ -n "${CLOUD2CODE_EXCLUDE_OVERRIDE:-}" ]; then
+  CLOUD2CODE_EXCLUDE="$CLOUD2CODE_EXCLUDE_OVERRIDE"
+fi
 # Default exclude: catalog non_applicable types that never map to Azure/GCP as
 # standalone resources (identity humans, Athena, EC2 key pairs, folded attrs).
 # Operators may override via cloud2code_exclude / CLOUD2CODE_EXCLUDE.
@@ -82,7 +87,9 @@ if [ -n "$CLOUD2CODE_EXCLUDE" ] && command -v cloud2code >/dev/null 2>&1; then
   _sup_file="$(mktemp)"
   if cloud2code get-supported-resources -c aws >"$${_sup_file}" 2>/dev/null; then
     CLOUD2CODE_EXCLUDE="$(
-      printf '%s' "$CLOUD2CODE_EXCLUDE" | tr ',' '\n' | while IFS= read -r _t; do
+      # Ensure the final CSV item is newline-terminated; read otherwise drops a
+      # single-type exclusion (and the last type in any list).
+      printf '%s\n' "$CLOUD2CODE_EXCLUDE" | tr ',' '\n' | while IFS= read -r _t; do
         _t="$(printf '%s' "$${_t}" | tr -d '[:space:]')"
         [ -z "$${_t}" ] && continue
         if grep -Eq "^ - $${_t}\$" "$${_sup_file}"; then

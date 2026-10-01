@@ -2,8 +2,8 @@
 """Build a durable AWS discovery report from Cloud2Code's scan log and tfstate.
 
 The report deliberately omits resource IDs and raw error text. It groups denied
-reads by Terraform type, API phase, classified reason, and AWS action, while
-making unclassified/missing detail explicit rather than guessing.
+reads and non-permission read failures by Terraform type, API phase, classified
+reason, and AWS action, while making missing detail explicit rather than guessing.
 """
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ API_OPERATION_RE = re.compile(r"operation error\s+([^:,]+):\s*([A-Za-z][A-Za-z0-
 DENIED_ACTION_RE = re.compile(r"(?:not authorized to perform|perform):\s*([a-z0-9-]+:[A-Za-z0-9*]+)", re.IGNORECASE)
 TYPE_RE = re.compile(r"\baws_[a-z0-9_]+\b", re.IGNORECASE)
 ACTION_RE = re.compile(r"\b([a-z][a-z0-9-]*:[A-Za-z][A-Za-z0-9*]+)\b", re.IGNORECASE)
+AWS_ERROR_TYPE_RE = re.compile(r"\b([A-Za-z][A-Za-z0-9]*(?:Exception|Error))\b")
 TYPE_SUMMARY_RE = re.compile(
     r"Scanning\s+(aws_[a-z0-9_]+)\s+\[\d+/(\d+)\]\s+Done!\s+"
     r"\(imported=(\d+)\s+skipped=(\d+)\s+permission_skipped=(\d+)\s+"
@@ -86,19 +87,36 @@ def _classify_reason(message: str) -> str:
     return "Cloud2Code reported a skipped/failed read; exact cause not classified"
 
 
-def _parse_log(path: str | None) -> tuple[dict[str, dict[str, int]], dict[str, Counter[tuple[str, str, tuple[str, ...]]]], dict[str, int], dict[str, int]]:
+def _read_failure_reason(message: str) -> str:
+    for error_type in AWS_ERROR_TYPE_RE.findall(message):
+        if error_type.lower() not in {"error", "exception"}:
+            return error_type
+    return _classify_reason(message)
+
+
+ReadFailureKey = tuple[str, str, tuple[str, ...]]  # phase, error kind, AWS operation(s)
+
+
+def _parse_log(path: str | None) -> tuple[
+    dict[str, dict[str, int]],
+    dict[str, Counter[tuple[str, str, tuple[str, ...]]]],
+    dict[str, int],
+    dict[tuple[str, str, tuple[str, ...]], int],
+    dict[str, Counter[ReadFailureKey]],
+]:
     type_stats: dict[str, dict[str, int]] = {}
     reason_counts: dict[str, Counter[tuple[str, str, tuple[str, ...]]]] = {}
     aggregate: dict[str, int] = {}
     phase_totals: dict[str, int] = {}
     event_unattributed: Counter[tuple[str, str, tuple[str, ...]]] = Counter()
+    read_failure_counts: dict[str, Counter[ReadFailureKey]] = {}
     if not path:
-        return type_stats, reason_counts, aggregate, {}
+        return type_stats, reason_counts, aggregate, {}, read_failure_counts
     try:
         # Terracognita progress updates use CRs and Cloud2Code logs JSONL.
         lines = Path(path).read_text(encoding="utf-8", errors="replace").replace("\r", "\n").splitlines()
     except OSError:
-        return type_stats, reason_counts, aggregate, {}
+        return type_stats, reason_counts, aggregate, {}, read_failure_counts
 
     for line in lines:
         if "scan integrity:" in line:
@@ -127,6 +145,16 @@ def _parse_log(path: str | None) -> tuple[dict[str, dict[str, int]], dict[str, C
             pass
         lower = line.lower()
         message = " ".join(str(entry.get(k, "")) for k in ("msg", "error", "message")) or line
+        if entry.get("msg") == "read_failed":
+            phase = str(entry.get("phase", "Read"))
+            reason = _read_failure_reason(" ".join(str(entry.get(k, "")) for k in ("error", "message")) or message)
+            actions = tuple(_api_actions(message))
+            resource_type = str(entry.get("resource_type", "")).lower()
+            if resource_type:
+                read_failure_counts.setdefault(resource_type, Counter())[(phase, reason, actions)] += 1
+            else:
+                event_unattributed[(phase, reason, actions)] += 1
+            continue
         is_skip = entry.get("msg") == "permission_skipped" or "permission skips:" in lower
         if not is_skip:
             continue
@@ -144,7 +172,7 @@ def _parse_log(path: str | None) -> tuple[dict[str, dict[str, int]], dict[str, C
             event_unattributed[detail_key] += 1
 
     aggregate.update({f"permission_skipped_{phase}": count for phase, count in phase_totals.items()})
-    return type_stats, reason_counts, aggregate, dict(event_unattributed)
+    return type_stats, reason_counts, aggregate, dict(event_unattributed), read_failure_counts
 
 
 def _discover_state_path(output_dir: str | None) -> str | None:
@@ -160,8 +188,8 @@ def _discover_state_path(output_dir: str | None) -> str | None:
 def build_report(region: str, identity_path: str | None, state_path: str | None, log_path: str | None) -> dict[str, Any]:
     identity = _read_json(identity_path)
     state_valid, found = _state_inventory(state_path)
-    type_stats, reason_counts, aggregate, unattributed_events = _parse_log(log_path)
-    resource_types = sorted(set(type_stats) | set(reason_counts) | set(found))
+    type_stats, reason_counts, aggregate, unattributed_events, read_failure_counts = _parse_log(log_path)
+    resource_types = sorted(set(type_stats) | set(reason_counts) | set(read_failure_counts) | set(found))
     skipped: list[dict[str, Any]] = []
     for resource_type in resource_types:
         stats = type_stats.get(resource_type, {})
@@ -178,8 +206,22 @@ def build_report(region: str, identity_path: str | None, state_path: str | None,
         unreported_permission_events = max(0, stats.get("permission_skipped", 0) - warning_events)
         if unreported_permission_events:
             details.append({"phase": "unknown", "count": unreported_permission_events, "reason": "Per-type summary confirms permission-skipped reads, but individual warning records do not provide their specific action/reason", "aws_api_operations": []})
-        if stats.get("read_failed", 0):
-            details.append({"phase": "Read", "count": stats["read_failed"], "reason": "Cloud2Code counted non-permission read failures; individual cause is unavailable in the retained log", "aws_api_operations": []})
+        for (phase, reason, actions), count in sorted(read_failure_counts.get(resource_type, Counter()).items()):
+            details.append({
+                "phase": phase,
+                "count": count,
+                "reason": reason,
+                "aws_api_operations": list(actions),
+            })
+        logged_read_failures = sum(read_failure_counts.get(resource_type, Counter()).values())
+        unreported_read_failures = max(0, stats.get("read_failed", 0) - logged_read_failures)
+        if unreported_read_failures:
+            details.append({
+                "phase": "Read",
+                "count": unreported_read_failures,
+                "reason": "Cloud2Code counted non-permission read failures; individual error detail is unavailable in the retained log",
+                "aws_api_operations": [],
+            })
         if stats.get("filtered", 0):
             details.append({"phase": "Read", "count": stats["filtered"], "reason": "Cloud2Code counted filtered resources (for example tag/filter rules); not an AWS permission denial", "aws_api_operations": []})
         if stats.get("nil_state", 0):
