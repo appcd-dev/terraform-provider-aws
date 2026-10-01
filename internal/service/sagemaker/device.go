@@ -1,5 +1,7 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
+
+// DONOTCOPY: Copying old resources spreads bad habits. Use skaff instead.
 
 package sagemaker
 
@@ -15,11 +17,11 @@ import (
 	awstypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/hashicorp/aws-sdk-go-base/v2/tfawserr"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
 	"github.com/hashicorp/terraform-provider-aws/internal/conns"
 	"github.com/hashicorp/terraform-provider-aws/internal/errs/sdkdiag"
+	"github.com/hashicorp/terraform-provider-aws/internal/retry"
 	"github.com/hashicorp/terraform-provider-aws/internal/tfresource"
 	"github.com/hashicorp/terraform-provider-aws/names"
 )
@@ -35,61 +37,63 @@ func resourceDevice() *schema.Resource {
 			StateContext: schema.ImportStatePassthroughContext,
 		},
 
-		Schema: map[string]*schema.Schema{
-			names.AttrARN: {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"agent_version": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"device_fleet_name": {
-				Type:     schema.TypeString,
-				Required: true,
-				ForceNew: true,
-				ValidateFunc: validation.All(
-					validation.StringLenBetween(1, 63),
-					validation.StringMatch(regexache.MustCompile(`^[0-9A-Za-z](-*[0-9A-Za-z]){0,62}$`), "Valid characters are a-z, A-Z, 0-9, and - (hyphen)."),
-				),
-			},
-			"device": {
-				Type:     schema.TypeList,
-				Required: true,
-				MaxItems: 1,
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						names.AttrDescription: {
-							Type:         schema.TypeString,
-							Optional:     true,
-							ValidateFunc: validation.StringLenBetween(1, 40),
-						},
-						names.AttrDeviceName: {
-							Type:         schema.TypeString,
-							Required:     true,
-							ForceNew:     true,
-							ValidateFunc: validation.StringLenBetween(1, 63),
-						},
-						"iot_thing_name": {
-							Type:         schema.TypeString,
-							Optional:     true,
-							ValidateFunc: validation.StringLenBetween(1, 128),
+		SchemaFunc: func() map[string]*schema.Schema {
+			return map[string]*schema.Schema{
+				names.AttrARN: {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				"agent_version": {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				"device_fleet_name": {
+					Type:     schema.TypeString,
+					Required: true,
+					ForceNew: true,
+					ValidateFunc: validation.All(
+						validation.StringLenBetween(1, 63),
+						validation.StringMatch(regexache.MustCompile(`^[0-9A-Za-z](-*[0-9A-Za-z]){0,62}$`), "Valid characters are a-z, A-Z, 0-9, and - (hyphen)."),
+					),
+				},
+				"device": {
+					Type:     schema.TypeList,
+					Required: true,
+					MaxItems: 1,
+					Elem: &schema.Resource{
+						Schema: map[string]*schema.Schema{
+							names.AttrDescription: {
+								Type:         schema.TypeString,
+								Optional:     true,
+								ValidateFunc: validation.StringLenBetween(1, 40),
+							},
+							names.AttrDeviceName: {
+								Type:         schema.TypeString,
+								Required:     true,
+								ForceNew:     true,
+								ValidateFunc: validation.StringLenBetween(1, 63),
+							},
+							"iot_thing_name": {
+								Type:         schema.TypeString,
+								Optional:     true,
+								ValidateFunc: validation.StringLenBetween(1, 128),
+							},
 						},
 					},
 				},
-			},
+			}
 		},
 	}
 }
 
-func resourceDeviceCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceDeviceCreate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).SageMakerClient(ctx)
 
 	name := d.Get("device_fleet_name").(string)
 	input := &sagemaker.RegisterDevicesInput{
 		DeviceFleetName: aws.String(name),
-		Devices:         expandDevice(d.Get("device").([]interface{})),
+		Devices:         expandDevice(d.Get("device").([]any)),
 	}
 
 	_, err := conn.RegisterDevices(ctx, input)
@@ -102,7 +106,7 @@ func resourceDeviceCreate(ctx context.Context, d *schema.ResourceData, meta inte
 	return append(diags, resourceDeviceRead(ctx, d, meta)...)
 }
 
-func resourceDeviceRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceDeviceRead(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).SageMakerClient(ctx)
 
@@ -111,7 +115,7 @@ func resourceDeviceRead(ctx context.Context, d *schema.ResourceData, meta interf
 		return sdkdiag.AppendErrorf(diags, "reading SageMaker AI Device (%s): %s", d.Id(), err)
 	}
 	device, err := findDeviceByName(ctx, conn, deviceFleetName, deviceName)
-	if !d.IsNewResource() && tfresource.NotFound(err) {
+	if !d.IsNewResource() && retry.NotFound(err) {
 		log.Printf("[WARN] Unable to find SageMaker AI Device (%s); removing from state", d.Id())
 		d.SetId("")
 		return diags
@@ -132,7 +136,7 @@ func resourceDeviceRead(ctx context.Context, d *schema.ResourceData, meta interf
 	return diags
 }
 
-func resourceDeviceUpdate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceDeviceUpdate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).SageMakerClient(ctx)
 
@@ -143,7 +147,7 @@ func resourceDeviceUpdate(ctx context.Context, d *schema.ResourceData, meta inte
 
 	input := &sagemaker.UpdateDevicesInput{
 		DeviceFleetName: aws.String(deviceFleetName),
-		Devices:         expandDevice(d.Get("device").([]interface{})),
+		Devices:         expandDevice(d.Get("device").([]any)),
 	}
 
 	log.Printf("[DEBUG] SageMaker AI Device update config: %#v", input)
@@ -155,7 +159,7 @@ func resourceDeviceUpdate(ctx context.Context, d *schema.ResourceData, meta inte
 	return append(diags, resourceDeviceRead(ctx, d, meta)...)
 }
 
-func resourceDeviceDelete(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceDeviceDelete(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).SageMakerClient(ctx)
 
@@ -191,8 +195,7 @@ func findDeviceByName(ctx context.Context, conn *sagemaker.Client, deviceFleetNa
 	if tfawserr.ErrMessageContains(err, ErrCodeValidationException, "No device with name") ||
 		tfawserr.ErrMessageContains(err, ErrCodeValidationException, "No device fleet with name") {
 		return nil, &retry.NotFoundError{
-			LastError:   err,
-			LastRequest: input,
+			LastError: err,
 		}
 	}
 
@@ -201,18 +204,18 @@ func findDeviceByName(ctx context.Context, conn *sagemaker.Client, deviceFleetNa
 	}
 
 	if output == nil {
-		return nil, tfresource.NewEmptyResultError(input)
+		return nil, tfresource.NewEmptyResultError()
 	}
 
 	return output, nil
 }
 
-func expandDevice(l []interface{}) []awstypes.Device {
+func expandDevice(l []any) []awstypes.Device {
 	if len(l) == 0 || l[0] == nil {
 		return nil
 	}
 
-	m := l[0].(map[string]interface{})
+	m := l[0].(map[string]any)
 
 	config := awstypes.Device{
 		DeviceName: aws.String(m[names.AttrDeviceName].(string)),
@@ -229,12 +232,12 @@ func expandDevice(l []interface{}) []awstypes.Device {
 	return []awstypes.Device{config}
 }
 
-func flattenDevice(config *sagemaker.DescribeDeviceOutput) []map[string]interface{} {
+func flattenDevice(config *sagemaker.DescribeDeviceOutput) []map[string]any {
 	if config == nil {
-		return []map[string]interface{}{}
+		return []map[string]any{}
 	}
 
-	m := map[string]interface{}{
+	m := map[string]any{
 		names.AttrDeviceName: aws.ToString(config.DeviceName),
 	}
 
@@ -246,7 +249,7 @@ func flattenDevice(config *sagemaker.DescribeDeviceOutput) []map[string]interfac
 		m["iot_thing_name"] = aws.ToString(config.IotThingName)
 	}
 
-	return []map[string]interface{}{m}
+	return []map[string]any{m}
 }
 
 func decodeDeviceId(id string) (string, string, error) {

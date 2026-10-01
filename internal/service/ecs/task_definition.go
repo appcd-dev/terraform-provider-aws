@@ -1,5 +1,7 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
+
+// DONOTCOPY: Copying old resources spreads bad habits. Use skaff instead.
 
 package ecs
 
@@ -18,7 +20,6 @@ import (
 	awstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/hashicorp/aws-sdk-go-base/v2/tfawserr"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/structure"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
@@ -28,6 +29,8 @@ import (
 	"github.com/hashicorp/terraform-provider-aws/internal/errs"
 	"github.com/hashicorp/terraform-provider-aws/internal/errs/sdkdiag"
 	"github.com/hashicorp/terraform-provider-aws/internal/flex"
+	"github.com/hashicorp/terraform-provider-aws/internal/provider/sdkv2/importer"
+	"github.com/hashicorp/terraform-provider-aws/internal/retry"
 	"github.com/hashicorp/terraform-provider-aws/internal/sdkv2"
 	tftags "github.com/hashicorp/terraform-provider-aws/internal/tags"
 	"github.com/hashicorp/terraform-provider-aws/internal/tfresource"
@@ -37,6 +40,16 @@ import (
 
 // @SDKResource("aws_ecs_task_definition", name="Task Definition")
 // @Tags(identifierAttribute="arn")
+// @IdentityAttribute("family")
+// @IdentityAttribute("revision", valueType="int")
+// @MutableIdentity
+// @ImportIDHandler("taskDefinitionImportID")
+// @CustomImport
+// @Testing(preIdentityVersion="v6.32.0")
+// @Testing(idAttrDuplicates="family")
+// @Testing(importStateIdFunc=testAccTaskDefinitionImportStateIdFunc)
+// @Testing(existsType="github.com/aws/aws-sdk-go-v2/service/ecs/types;types.TaskDefinition")
+// @Testing(importIgnore="skip_destroy;track_latest", plannableImportAction="NoOp")
 func resourceTaskDefinition() *schema.Resource {
 	//lintignore:R011
 	return &schema.Resource{
@@ -46,20 +59,23 @@ func resourceTaskDefinition() *schema.Resource {
 		DeleteWithoutTimeout: resourceTaskDefinitionDelete,
 
 		Importer: &schema.ResourceImporter{
-			StateContext: func(ctx context.Context, d *schema.ResourceData, meta interface{}) ([]*schema.ResourceData, error) {
-				d.Set(names.AttrARN, d.Id())
+			StateContext: func(ctx context.Context, d *schema.ResourceData, meta any) ([]*schema.ResourceData, error) {
+				if err := importer.Import(ctx, d, meta); err != nil {
+					return nil, err
+				}
 
-				idErr := fmt.Errorf("Expected ID in format of arn:PARTITION:ecs:REGION:ACCOUNTID:task-definition/FAMILY:REVISION and provided: %s", d.Id())
-				resARN, err := arn.Parse(d.Id())
-				if err != nil {
-					return nil, idErr
+				client := meta.(*conns.AWSClient)
+
+				family, revision := d.Get(names.AttrFamily).(string), d.Get("revision").(int)
+
+				region := client.Region(ctx)
+				if v, ok := d.GetOk(names.AttrRegion); ok {
+					region = v.(string)
 				}
-				familyRevision := strings.TrimPrefix(resARN.Resource, "task-definition/")
-				familyRevisionParts := strings.Split(familyRevision, ":")
-				if len(familyRevisionParts) != 2 {
-					return nil, idErr
-				}
-				d.SetId(familyRevisionParts[0])
+
+				taskDefinitionARN := client.RegionalARNWithRegion(ctx, names.ECS, region, "task-definition/"+family+":"+strconv.Itoa(revision))
+				d.Set(names.AttrARN, taskDefinitionARN)
+				d.SetId(family)
 
 				return []*schema.ResourceData{d}, nil
 			},
@@ -68,487 +84,526 @@ func resourceTaskDefinition() *schema.Resource {
 		SchemaVersion: 1,
 		MigrateState:  resourceTaskDefinitionMigrateState,
 
-		Schema: map[string]*schema.Schema{
-			names.AttrARN: {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"arn_without_revision": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"container_definitions": {
-				Type:     schema.TypeString,
-				Required: true,
-				ForceNew: true,
-				StateFunc: func(v interface{}) string {
-					// Sort the lists of environment variables as they are serialized to state, so we won't get
-					// spurious reorderings in plans (diff is suppressed if the environment variables haven't changed,
-					// but they still show in the plan if some other property changes).
-					orderedCDs, err := expandContainerDefinitions(v.(string))
-					if err != nil {
-						// e.g. The value is unknown ("74D93920-ED26-11E3-AC10-0800200C9A66").
-						// Mimic the pre-v5.59.0 behavior.
-						return "[]"
-					}
-					containerDefinitions(orderedCDs).orderContainers()
-					containerDefinitions(orderedCDs).orderEnvironmentVariables()
-					containerDefinitions(orderedCDs).orderSecrets()
-					containerDefinitions(orderedCDs).compactArrays()
-					unnormalizedJson, _ := flattenContainerDefinitions(orderedCDs)
-					json, _ := structure.NormalizeJsonString(unnormalizedJson)
-					return json
+		SchemaFunc: func() map[string]*schema.Schema {
+			return map[string]*schema.Schema{
+				names.AttrARN: {
+					Type:     schema.TypeString,
+					Computed: true,
 				},
-				DiffSuppressFunc: func(k, old, new string, d *schema.ResourceData) bool {
-					networkMode, ok := d.GetOk("network_mode")
-					isAWSVPC := ok && networkMode.(string) == string(awstypes.NetworkModeAwsvpc)
-					equal, _ := containerDefinitionsAreEquivalent(old, new, isAWSVPC)
-					return equal
+				"arn_without_revision": {
+					Type:     schema.TypeString,
+					Computed: true,
 				},
-				DiffSuppressOnRefresh: true,
-				ValidateFunc:          validTaskDefinitionContainerDefinitions,
-			},
-			"cpu": {
-				Type:     schema.TypeString,
-				Optional: true,
-				ForceNew: true,
-			},
-			"enable_fault_injection": {
-				Type:     schema.TypeBool,
-				Optional: true,
-				Computed: true,
-				ForceNew: true,
-			},
-			"ephemeral_storage": {
-				Type:     schema.TypeList,
-				MaxItems: 1,
-				Optional: true,
-				ForceNew: true,
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						"size_in_gib": {
-							Type:         schema.TypeInt,
-							Required:     true,
-							ForceNew:     true,
-							ValidateFunc: validation.IntBetween(21, 200),
-						},
+				"container_definitions": {
+					Type:     schema.TypeString,
+					Required: true,
+					ForceNew: true,
+					StateFunc: func(v any) string {
+						// Sort the lists of environment variables as they are serialized to state, so we won't get
+						// spurious reorderings in plans (diff is suppressed if the environment variables haven't changed,
+						// but they still show in the plan if some other property changes).
+						orderedCDs, err := expandContainerDefinitions(v.(string))
+						if err != nil {
+							// e.g. The value is unknown ("74D93920-ED26-11E3-AC10-0800200C9A66").
+							// Mimic the pre-v5.59.0 behavior.
+							return "[]"
+						}
+						containerDefinitions(orderedCDs).orderContainers()
+						containerDefinitions(orderedCDs).orderEnvironmentVariables()
+						containerDefinitions(orderedCDs).orderSecrets()
+						containerDefinitions(orderedCDs).compactArrays()
+						unnormalizedJson, _ := flattenContainerDefinitions(orderedCDs)
+						json, _ := structure.NormalizeJsonString(unnormalizedJson)
+						return json
 					},
-				},
-			},
-			names.AttrExecutionRoleARN: {
-				Type:         schema.TypeString,
-				Optional:     true,
-				ForceNew:     true,
-				ValidateFunc: verify.ValidARN,
-			},
-			names.AttrFamily: {
-				Type:     schema.TypeString,
-				Required: true,
-				ForceNew: true,
-				ValidateFunc: validation.All(
-					validation.StringLenBetween(1, 255),
-					validation.StringMatch(regexache.MustCompile("^[0-9A-Za-z_-]+$"), "see https://docs.aws.amazon.com/AmazonECS/latest/APIReference/API_TaskDefinition.html"),
-				),
-			},
-			"inference_accelerator": {
-				Type:     schema.TypeSet,
-				Optional: true,
-				ForceNew: true,
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						names.AttrDeviceName: {
-							Type:     schema.TypeString,
-							Required: true,
-							ForceNew: true,
-						},
-						"device_type": {
-							Type:     schema.TypeString,
-							Required: true,
-							ForceNew: true,
-						},
+					DiffSuppressFunc: func(k, old, new string, d *schema.ResourceData) bool {
+						networkMode, ok := d.GetOk("network_mode")
+						isAWSVPC := ok && networkMode.(string) == string(awstypes.NetworkModeAwsvpc)
+						equal, _ := containerDefinitionsAreEquivalent(old, new, isAWSVPC)
+						return equal
 					},
+					DiffSuppressOnRefresh: true,
+					ValidateFunc:          validTaskDefinitionContainerDefinitions,
 				},
-			},
-			"ipc_mode": {
-				Type:             schema.TypeString,
-				Optional:         true,
-				ForceNew:         true,
-				ValidateDiagFunc: enum.Validate[awstypes.IpcMode](),
-			},
-			"memory": {
-				Type:     schema.TypeString,
-				Optional: true,
-				ForceNew: true,
-			},
-			"network_mode": {
-				Type:             schema.TypeString,
-				Optional:         true,
-				Computed:         true,
-				ForceNew:         true,
-				ValidateDiagFunc: enum.Validate[awstypes.NetworkMode](),
-			},
-			"pid_mode": {
-				Type:             schema.TypeString,
-				Optional:         true,
-				ForceNew:         true,
-				ValidateDiagFunc: enum.Validate[awstypes.PidMode](),
-			},
-			"placement_constraints": {
-				Type:     schema.TypeSet,
-				Optional: true,
-				ForceNew: true,
-				MaxItems: 10,
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						names.AttrExpression: {
-							Type:     schema.TypeString,
-							ForceNew: true,
-							Optional: true,
-						},
-						names.AttrType: {
-							Type:             schema.TypeString,
-							ForceNew:         true,
-							Required:         true,
-							ValidateDiagFunc: enum.Validate[awstypes.TaskDefinitionPlacementConstraintType](),
-						},
-					},
+				"cpu": {
+					Type:     schema.TypeString,
+					Optional: true,
+					ForceNew: true,
 				},
-			},
-			"proxy_configuration": {
-				Type:     schema.TypeList,
-				MaxItems: 1,
-				Optional: true,
-				ForceNew: true,
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						"container_name": {
-							Type:     schema.TypeString,
-							Required: true,
-							ForceNew: true,
-						},
-						names.AttrProperties: {
-							Type:     schema.TypeMap,
-							Elem:     &schema.Schema{Type: schema.TypeString},
-							Optional: true,
-							ForceNew: true,
-						},
-						names.AttrType: {
-							Type:             schema.TypeString,
-							Default:          awstypes.ProxyConfigurationTypeAppmesh,
-							Optional:         true,
-							ForceNew:         true,
-							ValidateDiagFunc: enum.Validate[awstypes.ProxyConfigurationType](),
-						},
-					},
+				"enable_fault_injection": {
+					Type:     schema.TypeBool,
+					Optional: true,
+					Computed: true,
+					ForceNew: true,
 				},
-			},
-			"requires_compatibilities": {
-				Type:     schema.TypeSet,
-				Optional: true,
-				ForceNew: true,
-				Elem: &schema.Schema{
-					Type: schema.TypeString,
-					ValidateFunc: validation.StringInSlice([]string{
-						"EC2",
-						"FARGATE",
-						"EXTERNAL",
-					}, false),
-				},
-			},
-			"revision": {
-				Type:     schema.TypeInt,
-				Computed: true,
-			},
-			"runtime_platform": {
-				Type:     schema.TypeList,
-				MaxItems: 1,
-				Optional: true,
-				ForceNew: true,
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						"cpu_architecture": {
-							Type:             schema.TypeString,
-							Optional:         true,
-							ForceNew:         true,
-							ValidateDiagFunc: enum.Validate[awstypes.CPUArchitecture](),
-						},
-						"operating_system_family": {
-							Type:             schema.TypeString,
-							Optional:         true,
-							ForceNew:         true,
-							ValidateDiagFunc: enum.Validate[awstypes.OSFamily](),
-						},
-					},
-				},
-			},
-			names.AttrSkipDestroy: {
-				Type:     schema.TypeBool,
-				Default:  false,
-				Optional: true,
-			},
-			names.AttrTags:    tftags.TagsSchema(),
-			names.AttrTagsAll: tftags.TagsSchemaComputed(),
-			"task_role_arn": {
-				Type:         schema.TypeString,
-				Optional:     true,
-				ForceNew:     true,
-				ValidateFunc: verify.ValidARN,
-			},
-			"track_latest": {
-				Type:     schema.TypeBool,
-				Default:  false,
-				Optional: true,
-			},
-			"volume": {
-				Type:     schema.TypeSet,
-				Optional: true,
-				ForceNew: true,
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						"configure_at_launch": {
-							Type:     schema.TypeBool,
-							Optional: true,
-							Computed: true,
-							ForceNew: true,
-						},
-						"docker_volume_configuration": {
-							Type:     schema.TypeList,
-							Optional: true,
-							ForceNew: true,
-							MaxItems: 1,
-							Elem: &schema.Resource{
-								Schema: map[string]*schema.Schema{
-									"autoprovision": {
-										Type:     schema.TypeBool,
-										Optional: true,
-										ForceNew: true,
-										Default:  false,
-									},
-									"driver": {
-										Type:     schema.TypeString,
-										Optional: true,
-										Computed: true,
-										ForceNew: true,
-									},
-									"driver_opts": {
-										Type:     schema.TypeMap,
-										Elem:     &schema.Schema{Type: schema.TypeString},
-										Optional: true,
-										ForceNew: true,
-									},
-									"labels": {
-										Type:     schema.TypeMap,
-										Elem:     &schema.Schema{Type: schema.TypeString},
-										Optional: true,
-										ForceNew: true,
-									},
-									names.AttrScope: {
-										Type:             schema.TypeString,
-										Optional:         true,
-										Computed:         true,
-										ForceNew:         true,
-										ValidateDiagFunc: enum.Validate[awstypes.Scope](),
-									},
-								},
+				"ephemeral_storage": {
+					Type:     schema.TypeList,
+					MaxItems: 1,
+					Optional: true,
+					ForceNew: true,
+					Elem: &schema.Resource{
+						Schema: map[string]*schema.Schema{
+							"size_in_gib": {
+								Type:         schema.TypeInt,
+								Required:     true,
+								ForceNew:     true,
+								ValidateFunc: validation.IntBetween(21, 200),
 							},
 						},
-						"efs_volume_configuration": {
-							Type:     schema.TypeList,
-							Optional: true,
-							ForceNew: true,
-							MaxItems: 1,
-							Elem: &schema.Resource{
-								Schema: map[string]*schema.Schema{
-									"authorization_config": {
-										Type:     schema.TypeList,
-										Optional: true,
-										ForceNew: true,
-										MaxItems: 1,
-										Elem: &schema.Resource{
-											Schema: map[string]*schema.Schema{
-												"access_point_id": {
-													Type:     schema.TypeString,
-													ForceNew: true,
-													Optional: true,
-												},
-												"iam": {
-													Type:             schema.TypeString,
-													ForceNew:         true,
-													Optional:         true,
-													ValidateDiagFunc: enum.Validate[awstypes.EFSAuthorizationConfigIAM](),
-												},
-											},
-										},
-									},
-									names.AttrFileSystemID: {
-										Type:     schema.TypeString,
-										ForceNew: true,
-										Required: true,
-									},
-									"root_directory": {
-										Type:     schema.TypeString,
-										ForceNew: true,
-										Optional: true,
-										Default:  "/",
-									},
-									"transit_encryption": {
-										Type:             schema.TypeString,
-										ForceNew:         true,
-										Optional:         true,
-										ValidateDiagFunc: enum.Validate[awstypes.EFSTransitEncryption](),
-									},
-									"transit_encryption_port": {
-										Type:         schema.TypeInt,
-										ForceNew:     true,
-										Optional:     true,
-										ValidateFunc: validation.IsPortNumberOrZero,
-										Default:      0,
-									},
-								},
+					},
+				},
+				names.AttrExecutionRoleARN: {
+					Type:         schema.TypeString,
+					Optional:     true,
+					ForceNew:     true,
+					ValidateFunc: verify.ValidARN,
+				},
+				names.AttrFamily: {
+					Type:     schema.TypeString,
+					Required: true,
+					ForceNew: true,
+					ValidateFunc: validation.All(
+						validation.StringLenBetween(1, 255),
+						validation.StringMatch(regexache.MustCompile("^[0-9A-Za-z_-]+$"), "see https://docs.aws.amazon.com/AmazonECS/latest/APIReference/API_TaskDefinition.html"),
+					),
+				},
+				"ipc_mode": {
+					Type:             schema.TypeString,
+					Optional:         true,
+					ForceNew:         true,
+					ValidateDiagFunc: enum.Validate[awstypes.IpcMode](),
+				},
+				"memory": {
+					Type:     schema.TypeString,
+					Optional: true,
+					ForceNew: true,
+				},
+				"network_mode": {
+					Type:             schema.TypeString,
+					Optional:         true,
+					Computed:         true,
+					ForceNew:         true,
+					ValidateDiagFunc: enum.Validate[awstypes.NetworkMode](),
+				},
+				"pid_mode": {
+					Type:             schema.TypeString,
+					Optional:         true,
+					ForceNew:         true,
+					ValidateDiagFunc: enum.Validate[awstypes.PidMode](),
+				},
+				"placement_constraints": {
+					Type:     schema.TypeSet,
+					Optional: true,
+					ForceNew: true,
+					MaxItems: 10,
+					Elem: &schema.Resource{
+						Schema: map[string]*schema.Schema{
+							names.AttrExpression: {
+								Type:     schema.TypeString,
+								ForceNew: true,
+								Optional: true,
 							},
-						},
-						"fsx_windows_file_server_volume_configuration": {
-							Type:     schema.TypeList,
-							Optional: true,
-							ForceNew: true,
-							MaxItems: 1,
-							Elem: &schema.Resource{
-								Schema: map[string]*schema.Schema{
-									"authorization_config": {
-										Type:     schema.TypeList,
-										Required: true,
-										ForceNew: true,
-										MaxItems: 1,
-										Elem: &schema.Resource{
-											Schema: map[string]*schema.Schema{
-												"credentials_parameter": {
-													Type:         schema.TypeString,
-													ForceNew:     true,
-													Required:     true,
-													ValidateFunc: verify.ValidARN,
-												},
-												names.AttrDomain: {
-													Type:     schema.TypeString,
-													ForceNew: true,
-													Required: true,
-												},
-											},
-										},
-									},
-									names.AttrFileSystemID: {
-										Type:     schema.TypeString,
-										ForceNew: true,
-										Required: true,
-									},
-									"root_directory": {
-										Type:     schema.TypeString,
-										ForceNew: true,
-										Required: true,
-									},
-								},
+							names.AttrType: {
+								Type:             schema.TypeString,
+								ForceNew:         true,
+								Required:         true,
+								ValidateDiagFunc: enum.Validate[awstypes.TaskDefinitionPlacementConstraintType](),
 							},
-						},
-						"host_path": {
-							Type:     schema.TypeString,
-							Optional: true,
-							ForceNew: true,
-						},
-						names.AttrName: {
-							Type:     schema.TypeString,
-							Required: true,
-							ForceNew: true,
 						},
 					},
 				},
-				Set: func(v interface{}) int {
-					var str strings.Builder
-					tfMap := v.(map[string]interface{})
-
-					if v, ok := tfMap["configure_at_launch"].(bool); ok {
-						str.WriteString(strconv.FormatBool(v))
-					}
-					if v, ok := tfMap["docker_volume_configuration"]; ok && len(v.([]interface{})) > 0 && v.([]interface{})[0] != nil {
-						tfMap := v.([]interface{})[0].(map[string]interface{})
-
-						if v, ok := tfMap["autoprovision"].(bool); ok {
-							str.WriteString(strconv.FormatBool(v))
-						}
-						if v, ok := tfMap["driver"].(string); ok {
-							if v == "" {
-								v = "local"
-							}
-							str.WriteString(v)
-						}
-						if v, ok := tfMap["driver_opts"].(map[string]interface{}); ok && len(v) > 0 {
-							str.WriteString(strconv.Itoa(sdkv2.HashStringValueMap(flex.ExpandStringValueMap(v))))
-						}
-						if v, ok := tfMap["labels"].(map[string]interface{}); ok && len(v) > 0 {
-							str.WriteString(strconv.Itoa(sdkv2.HashStringValueMap(flex.ExpandStringValueMap(v))))
-						}
-						if v, ok := tfMap[names.AttrScope].(string); ok {
-							if v == "" {
-								v = "task"
-							}
-							str.WriteString(v)
-						}
-					}
-					if v, ok := tfMap["efs_volume_configuration"]; ok && len(v.([]interface{})) > 0 && v.([]interface{})[0] != nil {
-						tfMap := v.([]interface{})[0].(map[string]interface{})
-
-						if v, ok := tfMap["authorization_config"]; ok && len(v.([]interface{})) > 0 && v.([]interface{})[0] != nil {
-							tfMap := v.([]interface{})[0].(map[string]interface{})
-
-							if v, ok := tfMap["access_point_id"].(string); ok && v != "" {
-								str.WriteString(v)
-							}
-							if v, ok := tfMap["iam"].(string); ok && v != "" {
-								str.WriteString(v)
-							}
-						}
-						if v, ok := tfMap[names.AttrFileSystemID].(string); ok && v != "" {
-							str.WriteString(v)
-						}
-						if v, ok := tfMap["root_directory"].(string); ok && v != "" {
-							str.WriteString(v)
-						}
-						if v, ok := tfMap["transit_encryption"].(string); ok && v != "" {
-							str.WriteString(v)
-						}
-						if v, ok := tfMap["transit_encryption_port"].(int); ok && v != 0 {
-							str.WriteString(strconv.Itoa(v))
-						}
-					}
-					if v, ok := tfMap["fsx_windows_file_server_volume_configuration"]; ok && len(v.([]interface{})) > 0 && v.([]interface{})[0] != nil {
-						tfMap := v.([]interface{})[0].(map[string]interface{})
-
-						if v, ok := tfMap["authorization_config"]; ok && len(v.([]interface{})) > 0 && v.([]interface{})[0] != nil {
-							tfMap := v.([]interface{})[0].(map[string]interface{})
-
-							if v, ok := tfMap["credentials_parameter"].(string); ok && v != "" {
-								str.WriteString(v)
-							}
-							if v, ok := tfMap[names.AttrDomain].(string); ok && v != "" {
-								str.WriteString(v)
-							}
-						}
-						if v, ok := tfMap[names.AttrFileSystemID].(string); ok && v != "" {
-							str.WriteString(v)
-						}
-						if v, ok := tfMap["root_directory"].(string); ok && v != "" {
-							str.WriteString(v)
-						}
-					}
-					str.WriteString(tfMap["host_path"].(string))
-					str.WriteString(tfMap[names.AttrName].(string))
-
-					return create.StringHashcode(str.String())
+				"proxy_configuration": {
+					Type:     schema.TypeList,
+					MaxItems: 1,
+					Optional: true,
+					ForceNew: true,
+					Elem: &schema.Resource{
+						Schema: map[string]*schema.Schema{
+							"container_name": {
+								Type:     schema.TypeString,
+								Required: true,
+								ForceNew: true,
+							},
+							names.AttrProperties: {
+								Type:     schema.TypeMap,
+								Elem:     &schema.Schema{Type: schema.TypeString},
+								Optional: true,
+								ForceNew: true,
+							},
+							names.AttrType: {
+								Type:             schema.TypeString,
+								Default:          awstypes.ProxyConfigurationTypeAppmesh,
+								Optional:         true,
+								ForceNew:         true,
+								ValidateDiagFunc: enum.Validate[awstypes.ProxyConfigurationType](),
+							},
+						},
+					},
 				},
-			},
+				"requires_compatibilities": {
+					Type:     schema.TypeSet,
+					Optional: true,
+					ForceNew: true,
+					Elem: &schema.Schema{
+						Type: schema.TypeString,
+						ValidateFunc: validation.StringInSlice([]string{
+							"EC2",
+							"FARGATE",
+							"EXTERNAL",
+							"MANAGED_INSTANCES",
+						}, false),
+					},
+				},
+				"revision": {
+					Type:     schema.TypeInt,
+					Computed: true,
+				},
+				"runtime_platform": {
+					Type:     schema.TypeList,
+					MaxItems: 1,
+					Optional: true,
+					ForceNew: true,
+					Elem: &schema.Resource{
+						Schema: map[string]*schema.Schema{
+							"cpu_architecture": {
+								Type:             schema.TypeString,
+								Optional:         true,
+								ForceNew:         true,
+								ValidateDiagFunc: enum.Validate[awstypes.CPUArchitecture](),
+							},
+							"operating_system_family": {
+								Type:             schema.TypeString,
+								Optional:         true,
+								ForceNew:         true,
+								ValidateDiagFunc: enum.Validate[awstypes.OSFamily](),
+							},
+						},
+					},
+				},
+				names.AttrSkipDestroy: {
+					Type:     schema.TypeBool,
+					Default:  false,
+					Optional: true,
+				},
+				names.AttrTags:    tftags.TagsSchema(),
+				names.AttrTagsAll: tftags.TagsSchemaComputed(),
+				"task_role_arn": {
+					Type:         schema.TypeString,
+					Optional:     true,
+					ForceNew:     true,
+					ValidateFunc: verify.ValidARN,
+				},
+				"track_latest": {
+					Type:     schema.TypeBool,
+					Default:  false,
+					Optional: true,
+				},
+				"volume": resourceTaskDefinitionVolumeSchema(),
+			}
 		},
 	}
 }
 
-func resourceTaskDefinitionCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceTaskDefinitionVolumeSchema() *schema.Schema {
+	return &schema.Schema{
+		Type:     schema.TypeSet,
+		Optional: true,
+		ForceNew: true,
+		Elem: &schema.Resource{
+			Schema: map[string]*schema.Schema{
+				"configure_at_launch": {
+					Type:     schema.TypeBool,
+					Optional: true,
+					Computed: true,
+					ForceNew: true,
+				},
+				"docker_volume_configuration": {
+					Type:     schema.TypeList,
+					Optional: true,
+					ForceNew: true,
+					MaxItems: 1,
+					Elem: &schema.Resource{
+						Schema: map[string]*schema.Schema{
+							"autoprovision": {
+								Type:     schema.TypeBool,
+								Optional: true,
+								ForceNew: true,
+								Default:  false,
+							},
+							"driver": {
+								Type:     schema.TypeString,
+								Optional: true,
+								Computed: true,
+								ForceNew: true,
+							},
+							"driver_opts": {
+								Type:     schema.TypeMap,
+								Elem:     &schema.Schema{Type: schema.TypeString},
+								Optional: true,
+								ForceNew: true,
+							},
+							"labels": {
+								Type:     schema.TypeMap,
+								Elem:     &schema.Schema{Type: schema.TypeString},
+								Optional: true,
+								ForceNew: true,
+							},
+							names.AttrScope: {
+								Type:             schema.TypeString,
+								Optional:         true,
+								Computed:         true,
+								ForceNew:         true,
+								ValidateDiagFunc: enum.Validate[awstypes.Scope](),
+							},
+						},
+					},
+				},
+				"efs_volume_configuration": {
+					Type:     schema.TypeList,
+					Optional: true,
+					ForceNew: true,
+					MaxItems: 1,
+					Elem: &schema.Resource{
+						Schema: map[string]*schema.Schema{
+							"authorization_config": {
+								Type:     schema.TypeList,
+								Optional: true,
+								ForceNew: true,
+								MaxItems: 1,
+								Elem: &schema.Resource{
+									Schema: map[string]*schema.Schema{
+										"access_point_id": {
+											Type:     schema.TypeString,
+											ForceNew: true,
+											Optional: true,
+										},
+										"iam": {
+											Type:             schema.TypeString,
+											ForceNew:         true,
+											Optional:         true,
+											ValidateDiagFunc: enum.Validate[awstypes.EFSAuthorizationConfigIAM](),
+										},
+									},
+								},
+							},
+							names.AttrFileSystemID: {
+								Type:     schema.TypeString,
+								ForceNew: true,
+								Required: true,
+							},
+							"root_directory": {
+								Type:     schema.TypeString,
+								ForceNew: true,
+								Optional: true,
+								Default:  "/",
+							},
+							"transit_encryption": {
+								Type:             schema.TypeString,
+								ForceNew:         true,
+								Optional:         true,
+								ValidateDiagFunc: enum.Validate[awstypes.EFSTransitEncryption](),
+							},
+							"transit_encryption_port": {
+								Type:         schema.TypeInt,
+								ForceNew:     true,
+								Optional:     true,
+								ValidateFunc: validation.IsPortNumberOrZero,
+								Default:      0,
+							},
+						},
+					},
+				},
+				"fsx_windows_file_server_volume_configuration": {
+					Type:     schema.TypeList,
+					Optional: true,
+					ForceNew: true,
+					MaxItems: 1,
+					Elem: &schema.Resource{
+						Schema: map[string]*schema.Schema{
+							"authorization_config": {
+								Type:     schema.TypeList,
+								Required: true,
+								ForceNew: true,
+								MaxItems: 1,
+								Elem: &schema.Resource{
+									Schema: map[string]*schema.Schema{
+										"credentials_parameter": {
+											Type:         schema.TypeString,
+											ForceNew:     true,
+											Required:     true,
+											ValidateFunc: verify.ValidARN,
+										},
+										names.AttrDomain: {
+											Type:     schema.TypeString,
+											ForceNew: true,
+											Required: true,
+										},
+									},
+								},
+							},
+							names.AttrFileSystemID: {
+								Type:     schema.TypeString,
+								ForceNew: true,
+								Required: true,
+							},
+							"root_directory": {
+								Type:     schema.TypeString,
+								ForceNew: true,
+								Required: true,
+							},
+						},
+					},
+				},
+				"host_path": {
+					Type:     schema.TypeString,
+					Optional: true,
+					ForceNew: true,
+				},
+				names.AttrName: {
+					Type:     schema.TypeString,
+					Required: true,
+					ForceNew: true,
+				},
+				"s3files_volume_configuration": {
+					Type:     schema.TypeList,
+					Optional: true,
+					ForceNew: true,
+					MaxItems: 1,
+					Elem: &schema.Resource{
+						Schema: map[string]*schema.Schema{
+							"access_point_arn": {
+								Type:         schema.TypeString,
+								ForceNew:     true,
+								Optional:     true,
+								ValidateFunc: verify.ValidARN,
+							},
+							"file_system_arn": {
+								Type:         schema.TypeString,
+								ForceNew:     true,
+								Required:     true,
+								ValidateFunc: verify.ValidARN,
+							},
+							"root_directory": {
+								Type:     schema.TypeString,
+								ForceNew: true,
+								Optional: true,
+								Default:  "/",
+							},
+							"transit_encryption_port": {
+								Type:         schema.TypeInt,
+								ForceNew:     true,
+								Optional:     true,
+								ValidateFunc: validation.IsPortNumberOrZero,
+								Default:      0,
+							},
+						},
+					},
+				},
+			},
+		},
+		Set: func(v any) int {
+			var str strings.Builder
+			tfMap := v.(map[string]any)
+
+			if v, ok := tfMap["configure_at_launch"].(bool); ok {
+				str.WriteString(strconv.FormatBool(v))
+			}
+			if v, ok := tfMap["docker_volume_configuration"]; ok && len(v.([]any)) > 0 && v.([]any)[0] != nil {
+				tfMap := v.([]any)[0].(map[string]any)
+
+				if v, ok := tfMap["autoprovision"].(bool); ok {
+					str.WriteString(strconv.FormatBool(v))
+				}
+				if v, ok := tfMap["driver"].(string); ok {
+					if v == "" {
+						v = "local"
+					}
+					str.WriteString(v)
+				}
+				if v, ok := tfMap["driver_opts"].(map[string]any); ok && len(v) > 0 {
+					str.WriteString(strconv.Itoa(sdkv2.HashStringValueMap(flex.ExpandStringValueMap(v))))
+				}
+				if v, ok := tfMap["labels"].(map[string]any); ok && len(v) > 0 {
+					str.WriteString(strconv.Itoa(sdkv2.HashStringValueMap(flex.ExpandStringValueMap(v))))
+				}
+				if v, ok := tfMap[names.AttrScope].(string); ok {
+					if v == "" {
+						v = "task"
+					}
+					str.WriteString(v)
+				}
+			}
+			if v, ok := tfMap["efs_volume_configuration"]; ok && len(v.([]any)) > 0 && v.([]any)[0] != nil {
+				tfMap := v.([]any)[0].(map[string]any)
+
+				if v, ok := tfMap["authorization_config"]; ok && len(v.([]any)) > 0 && v.([]any)[0] != nil {
+					tfMap := v.([]any)[0].(map[string]any)
+
+					if v, ok := tfMap["access_point_id"].(string); ok && v != "" {
+						str.WriteString(v)
+					}
+					if v, ok := tfMap["iam"].(string); ok && v != "" {
+						str.WriteString(v)
+					}
+				}
+				if v, ok := tfMap[names.AttrFileSystemID].(string); ok && v != "" {
+					str.WriteString(v)
+				}
+				if v, ok := tfMap["root_directory"].(string); ok && v != "" {
+					str.WriteString(v)
+				}
+				if v, ok := tfMap["transit_encryption"].(string); ok && v != "" {
+					str.WriteString(v)
+				}
+				if v, ok := tfMap["transit_encryption_port"].(int); ok && v != 0 {
+					str.WriteString(strconv.Itoa(v))
+				}
+			}
+			if v, ok := tfMap["fsx_windows_file_server_volume_configuration"]; ok && len(v.([]any)) > 0 && v.([]any)[0] != nil {
+				tfMap := v.([]any)[0].(map[string]any)
+
+				if v, ok := tfMap["authorization_config"]; ok && len(v.([]any)) > 0 && v.([]any)[0] != nil {
+					tfMap := v.([]any)[0].(map[string]any)
+
+					if v, ok := tfMap["credentials_parameter"].(string); ok && v != "" {
+						str.WriteString(v)
+					}
+					if v, ok := tfMap[names.AttrDomain].(string); ok && v != "" {
+						str.WriteString(v)
+					}
+				}
+				if v, ok := tfMap[names.AttrFileSystemID].(string); ok && v != "" {
+					str.WriteString(v)
+				}
+				if v, ok := tfMap["root_directory"].(string); ok && v != "" {
+					str.WriteString(v)
+				}
+			}
+			str.WriteString(tfMap["host_path"].(string))
+			str.WriteString(tfMap[names.AttrName].(string))
+			if v, ok := tfMap["s3files_volume_configuration"]; ok && len(v.([]any)) > 0 && v.([]any)[0] != nil {
+				tfMap := v.([]any)[0].(map[string]any)
+
+				if v, ok := tfMap["access_point_arn"].(string); ok && v != "" {
+					str.WriteString(v)
+				}
+				if v, ok := tfMap["file_system_arn"].(string); ok && v != "" {
+					str.WriteString(v)
+				}
+				if v, ok := tfMap["root_directory"].(string); ok && v != "" {
+					str.WriteString(v)
+				}
+				if v, ok := tfMap["transit_encryption_port"].(int); ok && v != 0 {
+					str.WriteString(strconv.Itoa(v))
+				}
+			}
+
+			return create.StringHashcode(str.String())
+		},
+	}
+}
+
+func resourceTaskDefinitionCreate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).ECSClient(ctx)
 	partition := meta.(*conns.AWSClient).Partition(ctx)
@@ -572,16 +627,12 @@ func resourceTaskDefinitionCreate(ctx context.Context, d *schema.ResourceData, m
 		input.EnableFaultInjection = aws.Bool(v.(bool))
 	}
 
-	if v, ok := d.GetOk("ephemeral_storage"); ok && len(v.([]interface{})) > 0 {
-		input.EphemeralStorage = expandEphemeralStorage(v.([]interface{}))
+	if v, ok := d.GetOk("ephemeral_storage"); ok && len(v.([]any)) > 0 {
+		input.EphemeralStorage = expandEphemeralStorage(v.([]any))
 	}
 
 	if v, ok := d.GetOk(names.AttrExecutionRoleARN); ok {
 		input.ExecutionRoleArn = aws.String(v.(string))
-	}
-
-	if v, ok := d.GetOk("inference_accelerator"); ok {
-		input.InferenceAccelerators = expandInferenceAccelerators(v.(*schema.Set).List())
 	}
 
 	if v, ok := d.GetOk("ipc_mode"); ok {
@@ -609,7 +660,7 @@ func resourceTaskDefinitionCreate(ctx context.Context, d *schema.ResourceData, m
 		input.PlacementConstraints = apiObject
 	}
 
-	if proxyConfigs := d.Get("proxy_configuration").([]interface{}); len(proxyConfigs) > 0 {
+	if proxyConfigs := d.Get("proxy_configuration").([]any); len(proxyConfigs) > 0 {
 		input.ProxyConfiguration = expandProxyConfiguration(proxyConfigs)
 	}
 
@@ -617,7 +668,7 @@ func resourceTaskDefinitionCreate(ctx context.Context, d *schema.ResourceData, m
 		input.RequiresCompatibilities = flex.ExpandStringyValueSet[awstypes.Compatibility](v.(*schema.Set))
 	}
 
-	if runtimePlatformConfigs := d.Get("runtime_platform").([]interface{}); len(runtimePlatformConfigs) > 0 && runtimePlatformConfigs[0] != nil {
+	if runtimePlatformConfigs := d.Get("runtime_platform").([]any); len(runtimePlatformConfigs) > 0 && runtimePlatformConfigs[0] != nil {
 		input.RuntimePlatform = expandRuntimePlatform(runtimePlatformConfigs)
 	}
 
@@ -652,7 +703,7 @@ func resourceTaskDefinitionCreate(ctx context.Context, d *schema.ResourceData, m
 		err := createTags(ctx, conn, d.Get(names.AttrARN).(string), tags)
 
 		// If default tags only, continue. Otherwise, error.
-		if v, ok := d.GetOk(names.AttrTags); (!ok || len(v.(map[string]interface{})) == 0) && errs.IsUnsupportedOperationInPartitionError(partition, err) {
+		if v, ok := d.GetOk(names.AttrTags); (!ok || len(v.(map[string]any)) == 0) && errs.IsUnsupportedOperationInPartitionError(partition, err) {
 			return append(diags, resourceTaskDefinitionRead(ctx, d, meta)...)
 		}
 
@@ -664,7 +715,7 @@ func resourceTaskDefinitionCreate(ctx context.Context, d *schema.ResourceData, m
 	return append(diags, resourceTaskDefinitionRead(ctx, d, meta)...)
 }
 
-func resourceTaskDefinitionRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceTaskDefinitionRead(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).ECSClient(ctx)
 
@@ -674,7 +725,7 @@ func resourceTaskDefinitionRead(ctx context.Context, d *schema.ResourceData, met
 	}
 	taskDefinition, tags, err := findTaskDefinitionByFamilyOrARN(ctx, conn, familyOrARN)
 
-	if !d.IsNewResource() && tfresource.NotFound(err) {
+	if !d.IsNewResource() && retry.NotFound(err) {
 		log.Printf("[WARN] ECS Task Definition (%s) not found, removing from state", d.Id())
 		d.SetId("")
 		return diags
@@ -683,60 +734,10 @@ func resourceTaskDefinitionRead(ctx context.Context, d *schema.ResourceData, met
 		return sdkdiag.AppendErrorf(diags, "reading ECS Task Definition (%s): %s", familyOrARN, err)
 	}
 
-	d.SetId(aws.ToString(taskDefinition.Family))
-	arn := aws.ToString(taskDefinition.TaskDefinitionArn)
-	d.Set(names.AttrARN, arn)
-	d.Set("arn_without_revision", taskDefinitionARNStripRevision(arn))
-	d.Set("cpu", taskDefinition.Cpu)
-	d.Set("enable_fault_injection", taskDefinition.EnableFaultInjection)
-	if err := d.Set("ephemeral_storage", flattenEphemeralStorage(taskDefinition.EphemeralStorage)); err != nil {
-		return sdkdiag.AppendErrorf(diags, "setting ephemeral_storage: %s", err)
-	}
-	d.Set(names.AttrExecutionRoleARN, taskDefinition.ExecutionRoleArn)
-	d.Set(names.AttrFamily, taskDefinition.Family)
-	if err := d.Set("inference_accelerator", flattenInferenceAccelerators(taskDefinition.InferenceAccelerators)); err != nil {
-		return sdkdiag.AppendErrorf(diags, "setting inference accelerators: %s", err)
-	}
-	d.Set("ipc_mode", taskDefinition.IpcMode)
-	d.Set("memory", taskDefinition.Memory)
-	d.Set("network_mode", taskDefinition.NetworkMode)
-	d.Set("pid_mode", taskDefinition.PidMode)
-	if err := d.Set("placement_constraints", flattenTaskDefinitionPlacementConstraints(taskDefinition.PlacementConstraints)); err != nil {
-		return sdkdiag.AppendErrorf(diags, "setting placement_constraints: %s", err)
-	}
-	if err := d.Set("proxy_configuration", flattenProxyConfiguration(taskDefinition.ProxyConfiguration)); err != nil {
-		return sdkdiag.AppendErrorf(diags, "setting proxy_configuration: %s", err)
-	}
-	d.Set("requires_compatibilities", taskDefinition.RequiresCompatibilities)
-	d.Set("revision", taskDefinition.Revision)
-	if err := d.Set("runtime_platform", flattenRuntimePlatform(taskDefinition.RuntimePlatform)); err != nil {
-		return sdkdiag.AppendErrorf(diags, "setting runtime_platform: %s", err)
-	}
-	d.Set("task_role_arn", taskDefinition.TaskRoleArn)
-	d.Set("track_latest", d.Get("track_latest"))
-	if err := d.Set("volume", flattenVolumes(taskDefinition.Volumes)); err != nil {
-		return sdkdiag.AppendErrorf(diags, "setting volume: %s", err)
-	}
-
-	// Sort the lists of environment variables as they come in, so we won't get spurious reorderings in plans
-	// (diff is suppressed if the environment variables haven't changed, but they still show in the plan if
-	// some other property changes).
-	containerDefinitions(taskDefinition.ContainerDefinitions).orderContainers()
-	containerDefinitions(taskDefinition.ContainerDefinitions).orderEnvironmentVariables()
-	containerDefinitions(taskDefinition.ContainerDefinitions).orderSecrets()
-
-	defs, err := flattenContainerDefinitions(taskDefinition.ContainerDefinitions)
-	if err != nil {
-		return sdkdiag.AppendFromErr(diags, err)
-	}
-	d.Set("container_definitions", defs)
-
-	setTagsOut(ctx, tags)
-
-	return diags
+	return append(diags, resourceTaskDefinitionFlatten(ctx, d, taskDefinition, tags)...)
 }
 
-func resourceTaskDefinitionUpdate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceTaskDefinitionUpdate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 
 	// Tags only.
@@ -744,7 +745,7 @@ func resourceTaskDefinitionUpdate(ctx context.Context, d *schema.ResourceData, m
 	return append(diags, resourceTaskDefinitionRead(ctx, d, meta)...)
 }
 
-func resourceTaskDefinitionDelete(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceTaskDefinitionDelete(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	if v, ok := d.GetOk(names.AttrSkipDestroy); ok && v.(bool) {
 		log.Printf("[DEBUG] Retaining ECS Task Definition Revision: %s", d.Id())
@@ -774,8 +775,7 @@ func findTaskDefinition(ctx context.Context, conn *ecs.Client, input *ecs.Descri
 
 	if tfawserr.ErrHTTPStatusCodeEquals(err, http.StatusBadRequest) {
 		return nil, nil, &retry.NotFoundError{
-			LastError:   err,
-			LastRequest: input,
+			LastError: err,
 		}
 	}
 
@@ -784,7 +784,7 @@ func findTaskDefinition(ctx context.Context, conn *ecs.Client, input *ecs.Descri
 	}
 
 	if output == nil || output.TaskDefinition == nil {
-		return nil, nil, tfresource.NewEmptyResultError(input)
+		return nil, nil, tfresource.NewEmptyResultError()
 	}
 
 	return output.TaskDefinition, output.Tags, nil
@@ -811,31 +811,30 @@ func findTaskDefinitionByFamilyOrARN(ctx context.Context, conn *ecs.Client, fami
 
 	if status := taskDefinition.Status; status == awstypes.TaskDefinitionStatusInactive || status == awstypes.TaskDefinitionStatusDeleteInProgress {
 		return nil, nil, &retry.NotFoundError{
-			Message:     string(status),
-			LastRequest: input,
+			Message: string(status),
 		}
 	}
 
 	return taskDefinition, tags, nil
 }
 
-func validTaskDefinitionContainerDefinitions(v interface{}, k string) (ws []string, errors []error) {
+func validTaskDefinitionContainerDefinitions(v any, k string) (ws []string, errors []error) {
 	_, err := expandContainerDefinitions(v.(string))
 	if err != nil {
-		errors = append(errors, fmt.Errorf("ECS Task Definition container_definitions is invalid: %s", err))
+		errors = append(errors, fmt.Errorf("ECS Task Definition container_definitions is invalid: %w", err))
 	}
 	return
 }
 
-func flattenTaskDefinitionPlacementConstraints(apiObjects []awstypes.TaskDefinitionPlacementConstraint) []interface{} {
+func flattenTaskDefinitionPlacementConstraints(apiObjects []awstypes.TaskDefinitionPlacementConstraint) []any {
 	if len(apiObjects) == 0 {
 		return nil
 	}
 
-	tfList := make([]interface{}, 0)
+	tfList := make([]any, 0)
 
 	for _, apiObject := range apiObjects {
-		tfMap := make(map[string]interface{})
+		tfMap := make(map[string]any)
 
 		tfMap[names.AttrExpression] = aws.ToString(apiObject.Expression)
 		tfMap[names.AttrType] = apiObject.Type
@@ -846,7 +845,7 @@ func flattenTaskDefinitionPlacementConstraints(apiObjects []awstypes.TaskDefinit
 	return tfList
 }
 
-func flattenRuntimePlatform(apiObject *awstypes.RuntimePlatform) []interface{} {
+func flattenRuntimePlatform(apiObject *awstypes.RuntimePlatform) []any {
 	if apiObject == nil {
 		return nil
 	}
@@ -857,7 +856,7 @@ func flattenRuntimePlatform(apiObject *awstypes.RuntimePlatform) []interface{} {
 		return nil
 	}
 
-	tfMap := make(map[string]interface{})
+	tfMap := make(map[string]any)
 
 	if cpu != "" {
 		tfMap["cpu_architecture"] = cpu
@@ -866,12 +865,12 @@ func flattenRuntimePlatform(apiObject *awstypes.RuntimePlatform) []interface{} {
 		tfMap["operating_system_family"] = os
 	}
 
-	return []interface{}{
+	return []any{
 		tfMap,
 	}
 }
 
-func flattenProxyConfiguration(apiObject *awstypes.ProxyConfiguration) []interface{} {
+func flattenProxyConfiguration(apiObject *awstypes.ProxyConfiguration) []any {
 	if apiObject == nil {
 		return nil
 	}
@@ -881,51 +880,21 @@ func flattenProxyConfiguration(apiObject *awstypes.ProxyConfiguration) []interfa
 		meshProperties[aws.ToString(property.Name)] = aws.ToString(property.Value)
 	}
 
-	tfMap := make(map[string]interface{})
+	tfMap := make(map[string]any)
 	tfMap["container_name"] = aws.ToString(apiObject.ContainerName)
 	tfMap[names.AttrProperties] = meshProperties
 	tfMap[names.AttrType] = apiObject.Type
 
-	return []interface{}{
+	return []any{
 		tfMap,
 	}
 }
 
-func flattenInferenceAccelerators(apiObjects []awstypes.InferenceAccelerator) []interface{} {
-	tfList := make([]interface{}, 0, len(apiObjects))
-
-	for _, apiObject := range apiObjects {
-		tfMap := map[string]interface{}{
-			names.AttrDeviceName: aws.ToString(apiObject.DeviceName),
-			"device_type":        aws.ToString(apiObject.DeviceType),
-		}
-
-		tfList = append(tfList, tfMap)
-	}
-
-	return tfList
-}
-
-func expandInferenceAccelerators(tfList []interface{}) []awstypes.InferenceAccelerator {
-	apiObjects := make([]awstypes.InferenceAccelerator, 0, len(tfList))
-
-	for _, tfMapRaw := range tfList {
-		tfMap := tfMapRaw.(map[string]interface{})
-		apiObject := awstypes.InferenceAccelerator{
-			DeviceName: aws.String(tfMap[names.AttrDeviceName].(string)),
-			DeviceType: aws.String(tfMap["device_type"].(string)),
-		}
-		apiObjects = append(apiObjects, apiObject)
-	}
-
-	return apiObjects
-}
-
-func expandTaskDefinitionPlacementConstraints(tfList []interface{}) ([]awstypes.TaskDefinitionPlacementConstraint, error) {
+func expandTaskDefinitionPlacementConstraints(tfList []any) ([]awstypes.TaskDefinitionPlacementConstraint, error) {
 	var apiObjects []awstypes.TaskDefinitionPlacementConstraint
 
 	for _, tfMapRaw := range tfList {
-		tfMap := tfMapRaw.(map[string]interface{})
+		tfMap := tfMapRaw.(map[string]any)
 		t := tfMap[names.AttrType].(string)
 		e := tfMap[names.AttrExpression].(string)
 		if err := validPlacementConstraint(t, e); err != nil {
@@ -940,9 +909,9 @@ func expandTaskDefinitionPlacementConstraints(tfList []interface{}) ([]awstypes.
 	return apiObjects, nil
 }
 
-func expandRuntimePlatform(tfList []interface{}) *awstypes.RuntimePlatform {
+func expandRuntimePlatform(tfList []any) *awstypes.RuntimePlatform {
 	tfMapRaw := tfList[0]
-	tfMap := tfMapRaw.(map[string]interface{})
+	tfMap := tfMapRaw.(map[string]any)
 	apiObject := &awstypes.RuntimePlatform{}
 
 	if v := tfMap["cpu_architecture"].(string); v != "" {
@@ -955,12 +924,12 @@ func expandRuntimePlatform(tfList []interface{}) *awstypes.RuntimePlatform {
 	return apiObject
 }
 
-func expandProxyConfiguration(tfList []interface{}) *awstypes.ProxyConfiguration {
+func expandProxyConfiguration(tfList []any) *awstypes.ProxyConfiguration {
 	tfMapRaw := tfList[0]
-	tfMap := tfMapRaw.(map[string]interface{})
+	tfMap := tfMapRaw.(map[string]any)
 
 	properties := make([]awstypes.KeyValuePair, 0)
-	for k, v := range flex.ExpandStringValueMap(tfMap[names.AttrProperties].(map[string]interface{})) {
+	for k, v := range flex.ExpandStringValueMap(tfMap[names.AttrProperties].(map[string]any)) {
 		properties = append(properties, awstypes.KeyValuePair{
 			Name:  aws.String(k),
 			Value: aws.String(v),
@@ -976,11 +945,11 @@ func expandProxyConfiguration(tfList []interface{}) *awstypes.ProxyConfiguration
 	return apiObject
 }
 
-func expandVolumes(tfList []interface{}) []awstypes.Volume {
+func expandVolumes(tfList []any) []awstypes.Volume {
 	apiObjects := make([]awstypes.Volume, 0, len(tfList))
 
 	for _, tfMapRaw := range tfList {
-		tfMap := tfMapRaw.(map[string]interface{})
+		tfMap := tfMapRaw.(map[string]any)
 
 		apiObject := awstypes.Volume{
 			Name: aws.String(tfMap[names.AttrName].(string)),
@@ -990,15 +959,15 @@ func expandVolumes(tfList []interface{}) []awstypes.Volume {
 			apiObject.ConfiguredAtLaunch = aws.Bool(v)
 		}
 
-		if v, ok := tfMap["docker_volume_configuration"].([]interface{}); ok && len(v) > 0 {
+		if v, ok := tfMap["docker_volume_configuration"].([]any); ok && len(v) > 0 {
 			apiObject.DockerVolumeConfiguration = expandDockerVolumeConfiguration(v)
 		}
 
-		if v, ok := tfMap["efs_volume_configuration"].([]interface{}); ok && len(v) > 0 {
+		if v, ok := tfMap["efs_volume_configuration"].([]any); ok && len(v) > 0 {
 			apiObject.EfsVolumeConfiguration = expandEFSVolumeConfiguration(v)
 		}
 
-		if v, ok := tfMap["fsx_windows_file_server_volume_configuration"].([]interface{}); ok && len(v) > 0 {
+		if v, ok := tfMap["fsx_windows_file_server_volume_configuration"].([]any); ok && len(v) > 0 {
 			apiObject.FsxWindowsFileServerVolumeConfiguration = expandFSxWindowsFileServerVolumeConfiguration(v)
 		}
 
@@ -1008,14 +977,18 @@ func expandVolumes(tfList []interface{}) []awstypes.Volume {
 			}
 		}
 
+		if v, ok := tfMap["s3files_volume_configuration"].([]any); ok && len(v) > 0 {
+			apiObject.S3filesVolumeConfiguration = expandS3FilesVolumeConfiguration(v)
+		}
+
 		apiObjects = append(apiObjects, apiObject)
 	}
 
 	return apiObjects
 }
 
-func expandDockerVolumeConfiguration(tfList []interface{}) *awstypes.DockerVolumeConfiguration {
-	tfMap := tfList[0].(map[string]interface{})
+func expandDockerVolumeConfiguration(tfList []any) *awstypes.DockerVolumeConfiguration {
+	tfMap := tfList[0].(map[string]any)
 	apiObject := &awstypes.DockerVolumeConfiguration{}
 
 	if v, ok := tfMap[names.AttrScope].(string); ok && v != "" {
@@ -1032,22 +1005,22 @@ func expandDockerVolumeConfiguration(tfList []interface{}) *awstypes.DockerVolum
 		apiObject.Driver = aws.String(v)
 	}
 
-	if v, ok := tfMap["driver_opts"].(map[string]interface{}); ok && len(v) > 0 {
+	if v, ok := tfMap["driver_opts"].(map[string]any); ok && len(v) > 0 {
 		apiObject.DriverOpts = flex.ExpandStringValueMap(v)
 	}
 
-	if v, ok := tfMap["labels"].(map[string]interface{}); ok && len(v) > 0 {
+	if v, ok := tfMap["labels"].(map[string]any); ok && len(v) > 0 {
 		apiObject.Labels = flex.ExpandStringValueMap(v)
 	}
 
 	return apiObject
 }
 
-func expandEFSVolumeConfiguration(tfList []interface{}) *awstypes.EFSVolumeConfiguration {
-	tfMap := tfList[0].(map[string]interface{})
+func expandEFSVolumeConfiguration(tfList []any) *awstypes.EFSVolumeConfiguration {
+	tfMap := tfList[0].(map[string]any)
 	apiObject := &awstypes.EFSVolumeConfiguration{}
 
-	if v, ok := tfMap["authorization_config"].([]interface{}); ok && len(v) > 0 {
+	if v, ok := tfMap["authorization_config"].([]any); ok && len(v) > 0 {
 		apiObject.AuthorizationConfig = expandEFSAuthorizationConfig(v)
 	}
 
@@ -1070,8 +1043,8 @@ func expandEFSVolumeConfiguration(tfList []interface{}) *awstypes.EFSVolumeConfi
 	return apiObject
 }
 
-func expandEFSAuthorizationConfig(tfList []interface{}) *awstypes.EFSAuthorizationConfig {
-	tfMap := tfList[0].(map[string]interface{})
+func expandEFSAuthorizationConfig(tfList []any) *awstypes.EFSAuthorizationConfig {
+	tfMap := tfList[0].(map[string]any)
 	apiObject := &awstypes.EFSAuthorizationConfig{}
 
 	if v, ok := tfMap["access_point_id"].(string); ok && v != "" {
@@ -1085,11 +1058,11 @@ func expandEFSAuthorizationConfig(tfList []interface{}) *awstypes.EFSAuthorizati
 	return apiObject
 }
 
-func expandFSxWindowsFileServerVolumeConfiguration(tfList []interface{}) *awstypes.FSxWindowsFileServerVolumeConfiguration {
-	tfMap := tfList[0].(map[string]interface{})
+func expandFSxWindowsFileServerVolumeConfiguration(tfList []any) *awstypes.FSxWindowsFileServerVolumeConfiguration {
+	tfMap := tfList[0].(map[string]any)
 	apiObject := &awstypes.FSxWindowsFileServerVolumeConfiguration{}
 
-	if v, ok := tfMap["authorization_config"].([]interface{}); ok && len(v) > 0 {
+	if v, ok := tfMap["authorization_config"].([]any); ok && len(v) > 0 {
 		apiObject.AuthorizationConfig = expandFSxWindowsFileServerAuthorizationConfig(v)
 	}
 
@@ -1104,8 +1077,8 @@ func expandFSxWindowsFileServerVolumeConfiguration(tfList []interface{}) *awstyp
 	return apiObject
 }
 
-func expandFSxWindowsFileServerAuthorizationConfig(tfList []interface{}) *awstypes.FSxWindowsFileServerAuthorizationConfig {
-	tfMap := tfList[0].(map[string]interface{})
+func expandFSxWindowsFileServerAuthorizationConfig(tfList []any) *awstypes.FSxWindowsFileServerAuthorizationConfig {
+	tfMap := tfList[0].(map[string]any)
 	apiObject := &awstypes.FSxWindowsFileServerAuthorizationConfig{}
 
 	if v, ok := tfMap["credentials_parameter"].(string); ok && v != "" {
@@ -1119,11 +1092,11 @@ func expandFSxWindowsFileServerAuthorizationConfig(tfList []interface{}) *awstyp
 	return apiObject
 }
 
-func flattenVolumes(apiObjects []awstypes.Volume) []interface{} {
-	tfList := make([]interface{}, 0, len(apiObjects))
+func flattenVolumes(apiObjects []awstypes.Volume) []any {
+	tfList := make([]any, 0, len(apiObjects))
 
 	for _, apiObject := range apiObjects {
-		tfMap := map[string]interface{}{
+		tfMap := map[string]any{
 			names.AttrName: aws.ToString(apiObject.Name),
 		}
 
@@ -1147,15 +1120,19 @@ func flattenVolumes(apiObjects []awstypes.Volume) []interface{} {
 			tfMap["host_path"] = aws.ToString(apiObject.Host.SourcePath)
 		}
 
+		if apiObject.S3filesVolumeConfiguration != nil {
+			tfMap["s3files_volume_configuration"] = flattenS3FilesVolumeConfiguration(apiObject.S3filesVolumeConfiguration)
+		}
+
 		tfList = append(tfList, tfMap)
 	}
 
 	return tfList
 }
 
-func flattenDockerVolumeConfiguration(apiObject *awstypes.DockerVolumeConfiguration) []interface{} {
-	var tfList []interface{}
-	tfMap := make(map[string]interface{})
+func flattenDockerVolumeConfiguration(apiObject *awstypes.DockerVolumeConfiguration) []any {
+	var tfList []any
+	tfMap := make(map[string]any)
 
 	if v := apiObject.Autoprovision; v != nil {
 		tfMap["autoprovision"] = aws.ToBool(v)
@@ -1180,9 +1157,9 @@ func flattenDockerVolumeConfiguration(apiObject *awstypes.DockerVolumeConfigurat
 	return tfList
 }
 
-func flattenEFSVolumeConfiguration(apiObject *awstypes.EFSVolumeConfiguration) []interface{} {
-	var tfList []interface{}
-	tfMap := make(map[string]interface{})
+func flattenEFSVolumeConfiguration(apiObject *awstypes.EFSVolumeConfiguration) []any {
+	var tfList []any
+	tfMap := make(map[string]any)
 
 	if apiObject != nil {
 		if v := apiObject.AuthorizationConfig; v != nil {
@@ -1209,9 +1186,9 @@ func flattenEFSVolumeConfiguration(apiObject *awstypes.EFSVolumeConfiguration) [
 	return tfList
 }
 
-func flattenEFSAuthorizationConfig(apiObject *awstypes.EFSAuthorizationConfig) []interface{} {
-	var tfList []interface{}
-	tfMap := make(map[string]interface{})
+func flattenEFSAuthorizationConfig(apiObject *awstypes.EFSAuthorizationConfig) []any {
+	var tfList []any
+	tfMap := make(map[string]any)
 
 	if apiObject != nil {
 		if v := apiObject.AccessPointId; v != nil {
@@ -1226,9 +1203,9 @@ func flattenEFSAuthorizationConfig(apiObject *awstypes.EFSAuthorizationConfig) [
 	return tfList
 }
 
-func flattenFSxWindowsFileServerVolumeConfiguration(apiObject *awstypes.FSxWindowsFileServerVolumeConfiguration) []interface{} {
-	var tfList []interface{}
-	tfMap := make(map[string]interface{})
+func flattenFSxWindowsFileServerVolumeConfiguration(apiObject *awstypes.FSxWindowsFileServerVolumeConfiguration) []any {
+	var tfList []any
+	tfMap := make(map[string]any)
 
 	if apiObject != nil {
 		if v := apiObject.AuthorizationConfig; v != nil {
@@ -1249,9 +1226,9 @@ func flattenFSxWindowsFileServerVolumeConfiguration(apiObject *awstypes.FSxWindo
 	return tfList
 }
 
-func flattenFSxWindowsFileServerAuthorizationConfig(apiObject *awstypes.FSxWindowsFileServerAuthorizationConfig) []interface{} {
-	var tfList []interface{}
-	tfMap := make(map[string]interface{})
+func flattenFSxWindowsFileServerAuthorizationConfig(apiObject *awstypes.FSxWindowsFileServerAuthorizationConfig) []any {
+	var tfList []any
+	tfMap := make(map[string]any)
 
 	if apiObject != nil {
 		if v := apiObject.CredentialsParameter; v != nil {
@@ -1268,8 +1245,8 @@ func flattenFSxWindowsFileServerAuthorizationConfig(apiObject *awstypes.FSxWindo
 	return tfList
 }
 
-func expandEphemeralStorage(tfList []interface{}) *awstypes.EphemeralStorage {
-	tfMap := tfList[0].(map[string]interface{})
+func expandEphemeralStorage(tfList []any) *awstypes.EphemeralStorage {
+	tfMap := tfList[0].(map[string]any)
 
 	apiObject := &awstypes.EphemeralStorage{
 		SizeInGiB: int32(tfMap["size_in_gib"].(int)),
@@ -1278,15 +1255,108 @@ func expandEphemeralStorage(tfList []interface{}) *awstypes.EphemeralStorage {
 	return apiObject
 }
 
-func flattenEphemeralStorage(apiObject *awstypes.EphemeralStorage) []interface{} {
+func flattenEphemeralStorage(apiObject *awstypes.EphemeralStorage) []any {
 	if apiObject == nil {
 		return nil
 	}
 
-	tfMap := make(map[string]interface{})
+	tfMap := make(map[string]any)
 	tfMap["size_in_gib"] = apiObject.SizeInGiB
 
-	return []interface{}{tfMap}
+	return []any{tfMap}
+}
+
+func expandS3FilesVolumeConfiguration(tfList []any) *awstypes.S3FilesVolumeConfiguration {
+	tfMap := tfList[0].(map[string]any)
+	apiObject := &awstypes.S3FilesVolumeConfiguration{}
+
+	if v, ok := tfMap["access_point_arn"].(string); ok && v != "" {
+		apiObject.AccessPointArn = aws.String(v)
+	}
+
+	if v, ok := tfMap["file_system_arn"].(string); ok && v != "" {
+		apiObject.FileSystemArn = aws.String(v)
+	}
+
+	if v, ok := tfMap["root_directory"].(string); ok && v != "" {
+		apiObject.RootDirectory = aws.String(v)
+	}
+
+	if v, ok := tfMap["transit_encryption_port"].(int); ok && v != 0 {
+		apiObject.TransitEncryptionPort = aws.Int32(int32(v))
+	}
+
+	return apiObject
+}
+
+func flattenS3FilesVolumeConfiguration(apiObject *awstypes.S3FilesVolumeConfiguration) []any {
+	var tfList []any
+	tfMap := make(map[string]any)
+
+	if apiObject != nil {
+		if v := apiObject.AccessPointArn; v != nil {
+			tfMap["access_point_arn"] = aws.ToString(v)
+		}
+
+		if v := apiObject.FileSystemArn; v != nil {
+			tfMap["file_system_arn"] = aws.ToString(v)
+		}
+
+		if v := apiObject.RootDirectory; v != nil {
+			tfMap["root_directory"] = aws.ToString(v)
+		}
+
+		if v := apiObject.TransitEncryptionPort; v != nil {
+			tfMap["transit_encryption_port"] = aws.ToInt32(v)
+		}
+	}
+
+	tfList = append(tfList, tfMap)
+
+	return tfList
+}
+
+func resourceTaskDefinitionFlatten(ctx context.Context, d *schema.ResourceData, taskDefinition *awstypes.TaskDefinition, tags []awstypes.Tag) diag.Diagnostics {
+	var diags diag.Diagnostics
+
+	d.SetId(aws.ToString(taskDefinition.Family))
+	arn := aws.ToString(taskDefinition.TaskDefinitionArn)
+	d.Set(names.AttrARN, arn)
+	d.Set("arn_without_revision", taskDefinitionARNStripRevision(arn))
+	d.Set("cpu", taskDefinition.Cpu)
+	d.Set("enable_fault_injection", taskDefinition.EnableFaultInjection)
+	d.Set("ephemeral_storage", flattenEphemeralStorage(taskDefinition.EphemeralStorage))
+	d.Set(names.AttrExecutionRoleARN, taskDefinition.ExecutionRoleArn)
+	d.Set(names.AttrFamily, taskDefinition.Family)
+	d.Set("ipc_mode", taskDefinition.IpcMode)
+	d.Set("memory", taskDefinition.Memory)
+	d.Set("network_mode", taskDefinition.NetworkMode)
+	d.Set("pid_mode", taskDefinition.PidMode)
+	d.Set("placement_constraints", flattenTaskDefinitionPlacementConstraints(taskDefinition.PlacementConstraints))
+	d.Set("proxy_configuration", flattenProxyConfiguration(taskDefinition.ProxyConfiguration))
+	d.Set("requires_compatibilities", taskDefinition.RequiresCompatibilities)
+	d.Set("revision", taskDefinition.Revision)
+	d.Set("runtime_platform", flattenRuntimePlatform(taskDefinition.RuntimePlatform))
+	d.Set("task_role_arn", taskDefinition.TaskRoleArn)
+	d.Set("track_latest", d.Get("track_latest"))
+	d.Set("volume", flattenVolumes(taskDefinition.Volumes))
+
+	// Sort the lists of environment variables as they come in, so we won't get spurious reorderings in plans
+	// (diff is suppressed if the environment variables haven't changed, but they still show in the plan if
+	// some other property changes).
+	containerDefinitions(taskDefinition.ContainerDefinitions).orderContainers()
+	containerDefinitions(taskDefinition.ContainerDefinitions).orderEnvironmentVariables()
+	containerDefinitions(taskDefinition.ContainerDefinitions).orderSecrets()
+
+	defs, err := flattenContainerDefinitions(taskDefinition.ContainerDefinitions)
+	if err != nil {
+		return sdkdiag.AppendFromErr(diags, err)
+	}
+	d.Set("container_definitions", defs)
+
+	setTagsOut(ctx, tags)
+
+	return diags
 }
 
 // taskDefinitionARNStripRevision strips the trailing revision number from a task definition ARN
@@ -1303,4 +1373,45 @@ func taskDefinitionARNStripRevision(s string) string {
 		tdArn.Resource = parts[0]
 	}
 	return tdArn.String()
+}
+
+func parseRevisionParts(id string) (string, string, error) {
+	resARN, err := arn.Parse(id)
+	if err != nil {
+		return "", "", err
+	}
+
+	familyRevision := strings.TrimPrefix(resARN.Resource, "task-definition/")
+	familyRevisionParts := strings.Split(familyRevision, ":")
+	if len(familyRevisionParts) != 2 {
+		return "", "", fmt.Errorf("expected ID in format of arn:PARTITION:ecs:REGION:ACCOUNTID:task-definition/FAMILY:REVISION and provided: %s", id)
+	}
+
+	return familyRevisionParts[0], familyRevisionParts[1], nil
+}
+
+type taskDefinitionImportID struct{}
+
+func (taskDefinitionImportID) Create(d *schema.ResourceData) string {
+	// pass through an unset id since it is not used and will be
+	// parsed in the custom import
+	return d.Id()
+}
+
+func (taskDefinitionImportID) Parse(id string) (string, map[string]any, error) {
+	family, revision, err := parseRevisionParts(id)
+	if err != nil {
+		return "", nil, err
+	}
+
+	rev, err := strconv.Atoi(revision)
+	if err != nil {
+		return "", nil, err
+	}
+
+	result := map[string]any{
+		names.AttrFamily: family,
+		"revision":       rev,
+	}
+	return id, result, nil
 }

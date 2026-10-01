@@ -1,5 +1,7 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
+
+// DONOTCOPY: Copying old resources spreads bad habits. Use skaff instead.
 
 package ec2
 
@@ -32,7 +34,7 @@ func resourceVPCPeeringConnectionAccepter() *schema.Resource {
 		},
 
 		Importer: &schema.ResourceImporter{
-			StateContext: func(ctx context.Context, d *schema.ResourceData, m interface{}) (result []*schema.ResourceData, err error) {
+			StateContext: func(ctx context.Context, d *schema.ResourceData, m any) (result []*schema.ResourceData, err error) {
 				d.Set("vpc_peering_connection_id", d.Id())
 
 				return []*schema.ResourceData{d}, nil
@@ -46,45 +48,47 @@ func resourceVPCPeeringConnectionAccepter() *schema.Resource {
 		//   - vpc_id is Computed-only
 		// and additions:
 		//   - vpc_peering_connection_id Required/ForceNew
-		Schema: map[string]*schema.Schema{
-			"accept_status": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"accepter": vpcPeeringConnectionOptionsSchema,
-			"auto_accept": {
-				Type:     schema.TypeBool,
-				Optional: true,
-			},
-			"peer_owner_id": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"peer_region": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"peer_vpc_id": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"requester":       vpcPeeringConnectionOptionsSchema,
-			names.AttrTags:    tftags.TagsSchema(),
-			names.AttrTagsAll: tftags.TagsSchemaComputed(),
-			names.AttrVPCID: {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"vpc_peering_connection_id": {
-				Type:     schema.TypeString,
-				Required: true,
-				ForceNew: true,
-			},
+		SchemaFunc: func() map[string]*schema.Schema {
+			return map[string]*schema.Schema{
+				"accept_status": {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				"accepter": vpcPeeringConnectionOptionsSchema,
+				"auto_accept": {
+					Type:     schema.TypeBool,
+					Optional: true,
+				},
+				"peer_owner_id": {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				"peer_region": {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				"peer_vpc_id": {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				"requester":       vpcPeeringConnectionOptionsSchema,
+				names.AttrTags:    tftags.TagsSchema(),
+				names.AttrTagsAll: tftags.TagsSchemaComputed(),
+				names.AttrVPCID: {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				"vpc_peering_connection_id": {
+					Type:     schema.TypeString,
+					Required: true,
+					ForceNew: true,
+				},
+			}
 		},
 	}
 }
 
-func resourceVPCPeeringAccepterCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceVPCPeeringAccepterCreate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).EC2Client(ctx)
 

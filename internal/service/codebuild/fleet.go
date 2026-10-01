@@ -1,5 +1,7 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
+
+// DONOTCOPY: Copying old resources spreads bad habits. Use skaff instead.
 
 package codebuild
 
@@ -13,13 +15,13 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/codebuild"
 	"github.com/aws/aws-sdk-go-v2/service/codebuild/types"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
 	"github.com/hashicorp/terraform-provider-aws/internal/conns"
 	"github.com/hashicorp/terraform-provider-aws/internal/create"
 	"github.com/hashicorp/terraform-provider-aws/internal/enum"
 	"github.com/hashicorp/terraform-provider-aws/internal/errs"
+	"github.com/hashicorp/terraform-provider-aws/internal/retry"
 	tftags "github.com/hashicorp/terraform-provider-aws/internal/tags"
 	"github.com/hashicorp/terraform-provider-aws/internal/tfresource"
 	"github.com/hashicorp/terraform-provider-aws/internal/verify"
@@ -28,6 +30,8 @@ import (
 
 // @SDKResource("aws_codebuild_fleet", name="Fleet")
 // @Tags(identifierAttribute="arn")
+// @ArnIdentity
+// @V60SDKv2Fix
 func resourceFleet() *schema.Resource {
 	return &schema.Resource{
 		CreateWithoutTimeout: resourceFleetCreate,
@@ -35,189 +39,193 @@ func resourceFleet() *schema.Resource {
 		UpdateWithoutTimeout: resourceFleetUpdate,
 		DeleteWithoutTimeout: resourceFleetDelete,
 
-		Importer: &schema.ResourceImporter{
-			StateContext: schema.ImportStatePassthroughContext,
-		},
-
-		Schema: map[string]*schema.Schema{
-			names.AttrARN: {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"base_capacity": {
-				Type:         schema.TypeInt,
-				Required:     true,
-				ValidateFunc: validation.IntAtLeast(1),
-			},
-			"compute_configuration": {
-				Type:     schema.TypeList,
-				Optional: true,
-				MaxItems: 1,
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						"disk": {
-							Type:     schema.TypeInt,
-							Optional: true,
-							Computed: true,
-						},
-						"machine_type": {
-							Type:             schema.TypeString,
-							Optional:         true,
-							ValidateDiagFunc: enum.Validate[types.MachineType](),
-						},
-						"memory": {
-							Type:     schema.TypeInt,
-							Optional: true,
-							Computed: true,
-						},
-						"vcpu": {
-							Type:     schema.TypeInt,
-							Optional: true,
-							Computed: true,
+		SchemaFunc: func() map[string]*schema.Schema {
+			return map[string]*schema.Schema{
+				names.AttrARN: {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				"base_capacity": {
+					Type:         schema.TypeInt,
+					Required:     true,
+					ValidateFunc: validation.IntAtLeast(1),
+				},
+				"compute_configuration": {
+					Type:     schema.TypeList,
+					Optional: true,
+					MaxItems: 1,
+					Elem: &schema.Resource{
+						Schema: map[string]*schema.Schema{
+							"disk": {
+								Type:     schema.TypeInt,
+								Optional: true,
+								Computed: true,
+							},
+							names.AttrInstanceType: {
+								Type:     schema.TypeString,
+								Optional: true,
+								Computed: true,
+							},
+							"machine_type": {
+								Type:             schema.TypeString,
+								Optional:         true,
+								Computed:         true,
+								ValidateDiagFunc: enum.Validate[types.MachineType](),
+							},
+							"memory": {
+								Type:     schema.TypeInt,
+								Optional: true,
+								Computed: true,
+							},
+							"vcpu": {
+								Type:     schema.TypeInt,
+								Optional: true,
+								Computed: true,
+							},
 						},
 					},
 				},
-			},
-			"compute_type": {
-				Type:             schema.TypeString,
-				Required:         true,
-				ValidateDiagFunc: enum.Validate[types.ComputeType](),
-			},
-			"created": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"environment_type": {
-				Type:             schema.TypeString,
-				Required:         true,
-				ValidateDiagFunc: enum.Validate[types.EnvironmentType](),
-			},
-			"fleet_service_role": {
-				Type:         schema.TypeString,
-				Optional:     true,
-				ValidateFunc: verify.ValidARN,
-			},
-			names.AttrID: {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"image_id": {
-				Type:     schema.TypeString,
-				Optional: true,
-			},
-			"last_modified": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			names.AttrName: {
-				Type:         schema.TypeString,
-				Required:     true,
-				ForceNew:     true,
-				ValidateFunc: validation.StringLenBetween(2, 128),
-			},
-			"overflow_behavior": {
-				Type:             schema.TypeString,
-				Optional:         true,
-				Computed:         true,
-				ValidateDiagFunc: enum.Validate[types.FleetOverflowBehavior](),
-				DiffSuppressFunc: func(k, old, new string, d *schema.ResourceData) bool {
-					if new == "" {
-						return true
-					}
-					return old == new
+				"compute_type": {
+					Type:             schema.TypeString,
+					Required:         true,
+					ValidateDiagFunc: enum.Validate[types.ComputeType](),
 				},
-			},
-			"scaling_configuration": {
-				Type:     schema.TypeList,
-				Optional: true,
-				MaxItems: 1,
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						"desired_capacity": {
-							Type:     schema.TypeInt,
-							Computed: true,
-						},
-						names.AttrMaxCapacity: {
-							Type:         schema.TypeInt,
-							Optional:     true,
-							ValidateFunc: validation.IntAtLeast(1),
-						},
-						"scaling_type": {
-							Type:             schema.TypeString,
-							Optional:         true,
-							ValidateDiagFunc: enum.Validate[types.FleetScalingType](),
-						},
-						"target_tracking_scaling_configs": {
-							Type:     schema.TypeList,
-							Optional: true,
-							Elem: &schema.Resource{
-								Schema: map[string]*schema.Schema{
-									"metric_type": {
-										Type:             schema.TypeString,
-										Optional:         true,
-										ValidateDiagFunc: enum.Validate[types.FleetScalingMetricType](),
-									},
-									"target_value": {
-										Type:         schema.TypeFloat,
-										Optional:     true,
-										ValidateFunc: validation.FloatAtLeast(0),
+				"created": {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				"environment_type": {
+					Type:             schema.TypeString,
+					Required:         true,
+					ValidateDiagFunc: enum.Validate[types.EnvironmentType](),
+				},
+				"fleet_service_role": {
+					Type:         schema.TypeString,
+					Optional:     true,
+					ValidateFunc: verify.ValidARN,
+				},
+				names.AttrID: {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				"image_id": {
+					Type:     schema.TypeString,
+					Optional: true,
+				},
+				"last_modified": {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				names.AttrName: {
+					Type:         schema.TypeString,
+					Required:     true,
+					ForceNew:     true,
+					ValidateFunc: validation.StringLenBetween(2, 128),
+				},
+				"overflow_behavior": {
+					Type:             schema.TypeString,
+					Optional:         true,
+					Computed:         true,
+					ValidateDiagFunc: enum.Validate[types.FleetOverflowBehavior](),
+					DiffSuppressFunc: func(k, old, new string, d *schema.ResourceData) bool {
+						if new == "" {
+							return true
+						}
+						return old == new
+					},
+				},
+				"scaling_configuration": {
+					Type:     schema.TypeList,
+					Optional: true,
+					MaxItems: 1,
+					Elem: &schema.Resource{
+						Schema: map[string]*schema.Schema{
+							"desired_capacity": {
+								Type:     schema.TypeInt,
+								Computed: true,
+							},
+							names.AttrMaxCapacity: {
+								Type:         schema.TypeInt,
+								Optional:     true,
+								ValidateFunc: validation.IntAtLeast(1),
+							},
+							"scaling_type": {
+								Type:             schema.TypeString,
+								Optional:         true,
+								ValidateDiagFunc: enum.Validate[types.FleetScalingType](),
+							},
+							"target_tracking_scaling_configs": {
+								Type:     schema.TypeList,
+								Optional: true,
+								Elem: &schema.Resource{
+									Schema: map[string]*schema.Schema{
+										"metric_type": {
+											Type:             schema.TypeString,
+											Optional:         true,
+											ValidateDiagFunc: enum.Validate[types.FleetScalingMetricType](),
+										},
+										"target_value": {
+											Type:         schema.TypeFloat,
+											Optional:     true,
+											ValidateFunc: validation.FloatAtLeast(0),
+										},
 									},
 								},
 							},
 						},
 					},
 				},
-			},
-			names.AttrStatus: {
-				Type:     schema.TypeSet,
-				Computed: true,
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						"context": {
-							Type:     schema.TypeString,
-							Computed: true,
-						},
-						names.AttrMessage: {
-							Type:     schema.TypeString,
-							Computed: true,
-						},
-						names.AttrStatusCode: {
-							Type:     schema.TypeString,
-							Computed: true,
-						},
-					},
-				},
-			},
-			names.AttrTags:    tftags.TagsSchema(),
-			names.AttrTagsAll: tftags.TagsSchemaComputed(),
-			names.AttrVPCConfig: {
-				Type:         schema.TypeList,
-				Optional:     true,
-				MinItems:     1,
-				RequiredWith: []string{"fleet_service_role"},
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						names.AttrSecurityGroupIDs: {
-							Type:     schema.TypeSet,
-							Required: true,
-							Elem:     &schema.Schema{Type: schema.TypeString},
-							MinItems: 1,
-							MaxItems: 5,
-						},
-						names.AttrSubnets: {
-							Type:     schema.TypeSet,
-							Required: true,
-							Elem:     &schema.Schema{Type: schema.TypeString},
-							MinItems: 1,
-							MaxItems: 16,
-						},
-						names.AttrVPCID: {
-							Type:     schema.TypeString,
-							Required: true,
+				names.AttrStatus: {
+					Type:     schema.TypeSet,
+					Computed: true,
+					Elem: &schema.Resource{
+						Schema: map[string]*schema.Schema{
+							"context": {
+								Type:     schema.TypeString,
+								Computed: true,
+							},
+							names.AttrMessage: {
+								Type:     schema.TypeString,
+								Computed: true,
+							},
+							names.AttrStatusCode: {
+								Type:     schema.TypeString,
+								Computed: true,
+							},
 						},
 					},
 				},
-			},
+				names.AttrTags:    tftags.TagsSchema(),
+				names.AttrTagsAll: tftags.TagsSchemaComputed(),
+				names.AttrVPCConfig: {
+					Type:         schema.TypeList,
+					Optional:     true,
+					MinItems:     1,
+					RequiredWith: []string{"fleet_service_role"},
+					Elem: &schema.Resource{
+						Schema: map[string]*schema.Schema{
+							names.AttrSecurityGroupIDs: {
+								Type:     schema.TypeSet,
+								Required: true,
+								Elem:     &schema.Schema{Type: schema.TypeString},
+								MinItems: 1,
+								MaxItems: 5,
+							},
+							names.AttrSubnets: {
+								Type:     schema.TypeSet,
+								Required: true,
+								Elem:     &schema.Schema{Type: schema.TypeString},
+								MinItems: 1,
+								MaxItems: 16,
+							},
+							names.AttrVPCID: {
+								Type:     schema.TypeString,
+								Required: true,
+							},
+						},
+					},
+				},
+			}
 		},
 	}
 }
@@ -226,7 +234,7 @@ const (
 	resNameFleet = "Fleet"
 )
 
-func resourceFleetCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceFleetCreate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 
 	conn := meta.(*conns.AWSClient).CodeBuildClient(ctx)
@@ -239,8 +247,8 @@ func resourceFleetCreate(ctx context.Context, d *schema.ResourceData, meta inter
 		Tags:            getTagsIn(ctx),
 	}
 
-	if v, ok := d.GetOk("compute_configuration"); ok && len(v.([]interface{})) > 0 && v.([]interface{})[0] != nil {
-		input.ComputeConfiguration = expandComputeConfiguration(v.([]interface{})[0].(map[string]interface{}))
+	if v, ok := d.GetOk("compute_configuration"); ok && len(v.([]any)) > 0 && v.([]any)[0] != nil {
+		input.ComputeConfiguration = expandComputeConfiguration(v.([]any)[0].(map[string]any))
 	}
 
 	if v, ok := d.GetOk("fleet_service_role"); ok {
@@ -255,16 +263,16 @@ func resourceFleetCreate(ctx context.Context, d *schema.ResourceData, meta inter
 		input.OverflowBehavior = types.FleetOverflowBehavior(v.(string))
 	}
 
-	if v, ok := d.GetOk("scaling_configuration"); ok && len(v.([]interface{})) > 0 && v.([]interface{})[0] != nil {
-		input.ScalingConfiguration = expandScalingConfiguration(v.([]interface{})[0].(map[string]interface{}))
+	if v, ok := d.GetOk("scaling_configuration"); ok && len(v.([]any)) > 0 && v.([]any)[0] != nil {
+		input.ScalingConfiguration = expandScalingConfiguration(v.([]any)[0].(map[string]any))
 	}
 
-	if v, ok := d.GetOk(names.AttrVPCConfig); ok && len(v.([]interface{})) > 0 && v.([]interface{})[0] != nil {
-		input.VpcConfig = expandVPCConfig(v.([]interface{})[0].(map[string]interface{}))
+	if v, ok := d.GetOk(names.AttrVPCConfig); ok && len(v.([]any)) > 0 && v.([]any)[0] != nil {
+		input.VpcConfig = expandVPCConfig(v.([]any)[0].(map[string]any))
 	}
 
 	// InvalidInputException: CodeBuild is not authorized to perform
-	outputRaw, err := tfresource.RetryWhenIsAErrorMessageContains[*types.InvalidInputException](ctx, propagationTimeout, func() (interface{}, error) {
+	outputRaw, err := tfresource.RetryWhenIsAErrorMessageContains[any, *types.InvalidInputException](ctx, propagationTimeout, func(ctx context.Context) (any, error) {
 		return conn.CreateFleet(ctx, input)
 	}, "ot authorized to perform")
 
@@ -284,14 +292,14 @@ func resourceFleetCreate(ctx context.Context, d *schema.ResourceData, meta inter
 	return append(diags, resourceFleetRead(ctx, d, meta)...)
 }
 
-func resourceFleetRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceFleetRead(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 
 	conn := meta.(*conns.AWSClient).CodeBuildClient(ctx)
 
 	fleet, err := findFleetByARN(ctx, conn, d.Id())
 
-	if !d.IsNewResource() && tfresource.NotFound(err) {
+	if !d.IsNewResource() && retry.NotFound(err) {
 		log.Printf("[WARN] CodeBuild Fleet (%s) not found, removing from state", d.Id())
 		d.SetId("")
 		return diags
@@ -305,7 +313,7 @@ func resourceFleetRead(ctx context.Context, d *schema.ResourceData, meta interfa
 	d.Set("base_capacity", fleet.BaseCapacity)
 
 	if fleet.ComputeConfiguration != nil {
-		if err := d.Set("compute_configuration", []interface{}{flattenComputeConfiguration(fleet.ComputeConfiguration)}); err != nil {
+		if err := d.Set("compute_configuration", []any{flattenComputeConfiguration(fleet.ComputeConfiguration)}); err != nil {
 			return create.AppendDiagError(diags, names.CodeBuild, create.ErrActionSetting, resNameFleet, d.Id(), err)
 		}
 	} else {
@@ -327,7 +335,7 @@ func resourceFleetRead(ctx context.Context, d *schema.ResourceData, meta interfa
 	}
 
 	if fleet.Status != nil {
-		if err := d.Set(names.AttrStatus, []interface{}{flattenStatus(fleet.Status)}); err != nil {
+		if err := d.Set(names.AttrStatus, []any{flattenStatus(fleet.Status)}); err != nil {
 			return create.AppendDiagError(diags, names.CodeBuild, create.ErrActionSetting, resNameFleet, d.Id(), err)
 		}
 	} else {
@@ -343,7 +351,7 @@ func resourceFleetRead(ctx context.Context, d *schema.ResourceData, meta interfa
 	return diags
 }
 
-func resourceFleetUpdate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceFleetUpdate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).CodeBuildClient(ctx)
 
@@ -358,8 +366,8 @@ func resourceFleetUpdate(ctx context.Context, d *schema.ResourceData, meta inter
 	if d.HasChange("compute_configuration") {
 		input.ComputeType = types.ComputeType(d.Get("compute_type").(string))
 
-		if v, ok := d.GetOk("compute_configuration"); ok && len(v.([]interface{})) > 0 && v.([]interface{})[0] != nil {
-			input.ComputeConfiguration = expandComputeConfiguration(v.([]interface{})[0].(map[string]interface{}))
+		if v, ok := d.GetOk("compute_configuration"); ok && len(v.([]any)) > 0 && v.([]any)[0] != nil {
+			input.ComputeConfiguration = expandComputeConfiguration(v.([]any)[0].(map[string]any))
 		}
 	}
 
@@ -385,22 +393,22 @@ func resourceFleetUpdate(ctx context.Context, d *schema.ResourceData, meta inter
 	}
 
 	if d.HasChange("scaling_configuration") {
-		if v, ok := d.GetOk("scaling_configuration"); ok && len(v.([]interface{})) > 0 && v.([]interface{})[0] != nil {
-			input.ScalingConfiguration = expandScalingConfiguration(v.([]interface{})[0].(map[string]interface{}))
+		if v, ok := d.GetOk("scaling_configuration"); ok && len(v.([]any)) > 0 && v.([]any)[0] != nil {
+			input.ScalingConfiguration = expandScalingConfiguration(v.([]any)[0].(map[string]any))
 		} else {
 			input.ScalingConfiguration = &types.ScalingConfigurationInput{}
 		}
 	}
 
 	if d.HasChange(names.AttrVPCConfig) {
-		if v, ok := d.GetOk(names.AttrVPCConfig); ok && len(v.([]interface{})) > 0 && v.([]interface{})[0] != nil {
-			input.VpcConfig = expandVPCConfig(v.([]interface{})[0].(map[string]interface{}))
+		if v, ok := d.GetOk(names.AttrVPCConfig); ok && len(v.([]any)) > 0 && v.([]any)[0] != nil {
+			input.VpcConfig = expandVPCConfig(v.([]any)[0].(map[string]any))
 		}
 	}
 
 	input.Tags = getTagsIn(ctx)
 
-	_, err := tfresource.RetryWhenIsAErrorMessageContains[*types.InvalidInputException](ctx, propagationTimeout, func() (interface{}, error) {
+	_, err := tfresource.RetryWhenIsAErrorMessageContains[any, *types.InvalidInputException](ctx, propagationTimeout, func(ctx context.Context) (any, error) {
 		return conn.UpdateFleet(ctx, input)
 	}, "ot authorized to perform")
 
@@ -418,7 +426,7 @@ func resourceFleetUpdate(ctx context.Context, d *schema.ResourceData, meta inter
 	return append(diags, resourceFleetRead(ctx, d, meta)...)
 }
 
-func resourceFleetDelete(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceFleetDelete(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).CodeBuildClient(ctx)
 
@@ -459,8 +467,7 @@ func findFleetByARN(ctx context.Context, conn *codebuild.Client, arn string) (*t
 
 	if statusCode := output.Status.StatusCode; statusCode == types.FleetStatusCodePendingDeletion {
 		return nil, &retry.NotFoundError{
-			Message:     string(statusCode),
-			LastRequest: input,
+			Message: string(statusCode),
 		}
 	}
 
@@ -487,17 +494,17 @@ func findFleets(ctx context.Context, conn *codebuild.Client, input *codebuild.Ba
 	}
 
 	if output == nil {
-		return nil, tfresource.NewEmptyResultError(input)
+		return nil, tfresource.NewEmptyResultError()
 	}
 
 	return output.Fleets, nil
 }
 
-func statusFleet(ctx context.Context, conn *codebuild.Client, arn string) retry.StateRefreshFunc {
-	return func() (interface{}, string, error) {
+func statusFleet(conn *codebuild.Client, arn string) retry.StateRefreshFunc {
+	return func(ctx context.Context) (any, string, error) {
 		output, err := findFleetByARN(ctx, conn, arn)
 
-		if tfresource.NotFound(err) {
+		if retry.NotFound(err) {
 			return nil, "", nil
 		}
 
@@ -513,7 +520,7 @@ func waitFleetCreated(ctx context.Context, conn *codebuild.Client, arn string, t
 	stateConf := &retry.StateChangeConf{
 		Pending:    enum.Slice(types.FleetStatusCodeCreating, types.FleetStatusCodeRotating),
 		Target:     enum.Slice(types.FleetStatusCodeActive),
-		Refresh:    statusFleet(ctx, conn, arn),
+		Refresh:    statusFleet(conn, arn),
 		Timeout:    timeout,
 		MinTimeout: 15 * time.Second,
 		Delay:      15 * time.Second,
@@ -522,7 +529,7 @@ func waitFleetCreated(ctx context.Context, conn *codebuild.Client, arn string, t
 	outputRaw, err := stateConf.WaitForStateContext(ctx)
 
 	if output, ok := outputRaw.(*types.Fleet); ok {
-		tfresource.SetLastError(err, errors.New(aws.ToString(output.Status.Message)))
+		retry.SetLastError(err, errors.New(aws.ToString(output.Status.Message)))
 
 		return output, err
 	}
@@ -534,7 +541,7 @@ func waitFleetUpdated(ctx context.Context, conn *codebuild.Client, arn string, t
 	stateConf := &retry.StateChangeConf{
 		Pending:    enum.Slice(types.FleetStatusCodeUpdating, types.FleetStatusCodeRotating),
 		Target:     enum.Slice(types.FleetStatusCodeActive),
-		Refresh:    statusFleet(ctx, conn, arn),
+		Refresh:    statusFleet(conn, arn),
 		Timeout:    timeout,
 		MinTimeout: 15 * time.Second,
 		Delay:      15 * time.Second,
@@ -543,7 +550,7 @@ func waitFleetUpdated(ctx context.Context, conn *codebuild.Client, arn string, t
 	outputRaw, err := stateConf.WaitForStateContext(ctx)
 
 	if output, ok := outputRaw.(*types.Fleet); ok {
-		tfresource.SetLastError(err, errors.New(aws.ToString(output.Status.Message)))
+		retry.SetLastError(err, errors.New(aws.ToString(output.Status.Message)))
 
 		return output, err
 	}
@@ -555,7 +562,7 @@ func waitFleetDeleted(ctx context.Context, conn *codebuild.Client, arn string, t
 	stateConf := &retry.StateChangeConf{
 		Pending:    enum.Slice(types.FleetStatusCodeDeleting),
 		Target:     []string{},
-		Refresh:    statusFleet(ctx, conn, arn),
+		Refresh:    statusFleet(conn, arn),
 		Timeout:    timeout,
 		MinTimeout: 15 * time.Second,
 		Delay:      15 * time.Second,
@@ -564,7 +571,7 @@ func waitFleetDeleted(ctx context.Context, conn *codebuild.Client, arn string, t
 	outputRaw, err := stateConf.WaitForStateContext(ctx)
 
 	if output, ok := outputRaw.(*types.Fleet); ok {
-		tfresource.SetLastError(err, errors.New(aws.ToString(output.Status.Message)))
+		retry.SetLastError(err, errors.New(aws.ToString(output.Status.Message)))
 
 		return output, err
 	}
@@ -572,7 +579,7 @@ func waitFleetDeleted(ctx context.Context, conn *codebuild.Client, arn string, t
 	return nil, err
 }
 
-func expandComputeConfiguration(tfMap map[string]interface{}) *types.ComputeConfiguration {
+func expandComputeConfiguration(tfMap map[string]any) *types.ComputeConfiguration {
 	if tfMap == nil {
 		return nil
 	}
@@ -587,6 +594,10 @@ func expandComputeConfiguration(tfMap map[string]interface{}) *types.ComputeConf
 		apiObject.MachineType = types.MachineType(v)
 	}
 
+	if v, ok := tfMap[names.AttrInstanceType].(string); ok && v != "" {
+		apiObject.InstanceType = aws.String(v)
+	}
+
 	if v, ok := tfMap["memory"].(int); ok {
 		apiObject.Memory = aws.Int64(int64(v))
 	}
@@ -598,7 +609,7 @@ func expandComputeConfiguration(tfMap map[string]interface{}) *types.ComputeConf
 	return apiObject
 }
 
-func expandScalingConfiguration(tfMap map[string]interface{}) *types.ScalingConfigurationInput {
+func expandScalingConfiguration(tfMap map[string]any) *types.ScalingConfigurationInput {
 	if tfMap == nil {
 		return nil
 	}
@@ -613,14 +624,14 @@ func expandScalingConfiguration(tfMap map[string]interface{}) *types.ScalingConf
 		apiObject.ScalingType = types.FleetScalingType(v)
 	}
 
-	if v, ok := tfMap["target_tracking_scaling_configs"].([]interface{}); ok && len(v) > 0 {
+	if v, ok := tfMap["target_tracking_scaling_configs"].([]any); ok && len(v) > 0 {
 		apiObject.TargetTrackingScalingConfigs = expandTargetTrackingScalingConfigs(v)
 	}
 
 	return apiObject
 }
 
-func expandTargetTrackingScalingConfigs(tfList []interface{}) []types.TargetTrackingScalingConfiguration {
+func expandTargetTrackingScalingConfigs(tfList []any) []types.TargetTrackingScalingConfiguration {
 	if len(tfList) == 0 {
 		return nil
 	}
@@ -628,7 +639,7 @@ func expandTargetTrackingScalingConfigs(tfList []interface{}) []types.TargetTrac
 	var apiObjects []types.TargetTrackingScalingConfiguration
 
 	for _, tfMapRaw := range tfList {
-		tfMap, ok := tfMapRaw.(map[string]interface{})
+		tfMap, ok := tfMapRaw.(map[string]any)
 		if !ok {
 			continue
 		}
@@ -643,7 +654,7 @@ func expandTargetTrackingScalingConfigs(tfList []interface{}) []types.TargetTrac
 	return apiObjects
 }
 
-func expandTargetTrackingScalingConfig(tfMap map[string]interface{}) *types.TargetTrackingScalingConfiguration {
+func expandTargetTrackingScalingConfig(tfMap map[string]any) *types.TargetTrackingScalingConfiguration {
 	if tfMap == nil {
 		return nil
 	}
@@ -661,12 +672,12 @@ func expandTargetTrackingScalingConfig(tfMap map[string]interface{}) *types.Targ
 	return apiObject
 }
 
-func flattenComputeConfiguration(apiObject *types.ComputeConfiguration) map[string]interface{} {
+func flattenComputeConfiguration(apiObject *types.ComputeConfiguration) map[string]any {
 	if apiObject == nil {
 		return nil
 	}
 
-	tfMap := map[string]interface{}{}
+	tfMap := map[string]any{}
 
 	if v := apiObject.Disk; v != nil {
 		tfMap["disk"] = aws.ToInt64(v)
@@ -674,6 +685,10 @@ func flattenComputeConfiguration(apiObject *types.ComputeConfiguration) map[stri
 
 	if v := apiObject.MachineType; v != "" {
 		tfMap["machine_type"] = v
+	}
+
+	if v := apiObject.InstanceType; v != nil {
+		tfMap[names.AttrInstanceType] = aws.ToString(v)
 	}
 
 	if v := apiObject.Memory; v != nil {
@@ -687,12 +702,12 @@ func flattenComputeConfiguration(apiObject *types.ComputeConfiguration) map[stri
 	return tfMap
 }
 
-func flattenScalingConfiguration(apiObject *types.ScalingConfigurationOutput) []interface{} {
+func flattenScalingConfiguration(apiObject *types.ScalingConfigurationOutput) []any {
 	if apiObject == nil {
 		return nil
 	}
 
-	tfMap := map[string]interface{}{}
+	tfMap := map[string]any{}
 
 	if v := apiObject.DesiredCapacity; v != nil {
 		tfMap["desired_capacity"] = aws.ToInt32(v)
@@ -714,15 +729,15 @@ func flattenScalingConfiguration(apiObject *types.ScalingConfigurationOutput) []
 		return nil
 	}
 
-	return []interface{}{tfMap}
+	return []any{tfMap}
 }
 
-func flattenTargetTrackingScalingConfigs(apiObjects []types.TargetTrackingScalingConfiguration) []interface{} {
+func flattenTargetTrackingScalingConfigs(apiObjects []types.TargetTrackingScalingConfiguration) []any {
 	if len(apiObjects) == 0 {
 		return nil
 	}
 
-	var tfList []interface{}
+	var tfList []any
 
 	for _, apiObject := range apiObjects {
 		tfList = append(tfList, flattenTargetTrackingScalingConfig(&apiObject))
@@ -731,12 +746,12 @@ func flattenTargetTrackingScalingConfigs(apiObjects []types.TargetTrackingScalin
 	return tfList
 }
 
-func flattenTargetTrackingScalingConfig(apiObject *types.TargetTrackingScalingConfiguration) map[string]interface{} {
+func flattenTargetTrackingScalingConfig(apiObject *types.TargetTrackingScalingConfiguration) map[string]any {
 	if apiObject == nil {
 		return nil
 	}
 
-	tfMap := map[string]interface{}{}
+	tfMap := map[string]any{}
 
 	if v := apiObject.MetricType; v != "" {
 		tfMap["metric_type"] = v
@@ -749,12 +764,12 @@ func flattenTargetTrackingScalingConfig(apiObject *types.TargetTrackingScalingCo
 	return tfMap
 }
 
-func flattenStatus(apiObject *types.FleetStatus) map[string]interface{} {
+func flattenStatus(apiObject *types.FleetStatus) map[string]any {
 	if apiObject == nil {
 		return nil
 	}
 
-	tfMap := map[string]interface{}{}
+	tfMap := map[string]any{}
 
 	if v := apiObject.Context; v != "" {
 		tfMap["context"] = v

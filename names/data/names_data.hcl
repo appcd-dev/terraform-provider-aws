@@ -1,9 +1,10 @@
-// Copyright (c) HashiCorp, Inc.
-// SPDX-License-Identifier: MPL-2.0
+# Copyright IBM Corp. 2014, 2026
+# SPDX-License-Identifier: MPL-2.0
 
 service "accessanalyzer" {
   sdk {
-    id = "AccessAnalyzer"
+    id            = "AccessAnalyzer"
+    arn_namespace = "access-analyzer"
   }
 
   names {
@@ -26,7 +27,8 @@ service "accessanalyzer" {
 
 service "account" {
   sdk {
-    id = "Account"
+    id            = "Account"
+    arn_namespace = "account"
   }
 
   names {
@@ -45,16 +47,49 @@ service "account" {
   provider_package_correct = "account"
   doc_prefix               = ["account_"]
   brand                    = "AWS"
+
+  is_global = true
+}
+
+service "accountaccess" {
+  cli_v2_command {
+    aws_cli_v2_command           = "account-access"
+    aws_cli_v2_command_no_dashes = "accountaccess"
+  }
+
+  sdk {
+    id            = "Account Access"
+    arn_namespace = "account-access"
+  }
+
+  names {
+    provider_name_upper = "AccountAccess"
+    human_friendly      = "Account Access"
+  }
+
+  endpoint_info {
+    endpoint_api_call = "ListApplications"
+  }
+
+  resource_prefix {
+    correct = "aws_accountaccess_"
+  }
+
+  provider_package_correct = "accountaccess"
+  doc_prefix               = ["accountaccess_"]
+  brand                    = "AWS"
 }
 
 service "acm" {
   sdk {
-    id = "ACM"
+    id            = "ACM"
+    arn_namespace = "acm"
   }
 
   names {
-    provider_name_upper = "ACM"
-    human_friendly      = "ACM (Certificate Manager)"
+    provider_name_upper  = "ACM"
+    human_friendly       = "ACM (Certificate Manager)"
+    human_friendly_short = "ACM"
   }
 
   endpoint_info {
@@ -77,7 +112,8 @@ service "acmpca" {
   }
 
   sdk {
-    id = "ACM PCA"
+    id            = "ACM PCA"
+    arn_namespace = "acm-pca"
   }
 
   names {
@@ -98,9 +134,44 @@ service "acmpca" {
   brand                    = "AWS"
 }
 
+service "agentregistry" {
+  cli_v2_command {
+    aws_cli_v2_command           = "agent-registry-control"
+    aws_cli_v2_command_no_dashes = "agentregistrycontrol"
+  }
+
+  go_packages {
+    v2_package = "agentregistrycontrol"
+  }
+
+  sdk {
+    id            = "Agent Registry Control"
+    arn_namespace = "agent-registry"
+  }
+
+  names {
+    provider_name_upper = "AgentRegistry"
+    human_friendly      = "Agent Registry"
+  }
+
+  endpoint_info {
+    endpoint_api_call        = "ListRegistries"
+    endpoint_no_fips_support = true
+  }
+
+  resource_prefix {
+    correct = "aws_agentregistry_"
+  }
+
+  provider_package_correct = "agentregistry"
+  doc_prefix               = ["agentregistry_"]
+  brand                    = "AWS"
+}
+
 service "alexaforbusiness" {
   sdk {
-    id = "Alexa For Business"
+    id            = "Alexa For Business"
+    arn_namespace = "a4b"
   }
 
   names {
@@ -124,7 +195,8 @@ service "amp" {
   }
 
   sdk {
-    id = "amp"
+    id            = "amp"
+    arn_namespace = "aps"
   }
 
   names {
@@ -149,7 +221,8 @@ service "amp" {
 
 service "amplify" {
   sdk {
-    id = "Amplify"
+    id            = "Amplify"
+    arn_namespace = "amplify"
   }
 
   names {
@@ -172,7 +245,8 @@ service "amplify" {
 
 service "amplifybackend" {
   sdk {
-    id = "AmplifyBackend"
+    id            = "AmplifyBackend"
+    arn_namespace = "amplifybackend"
   }
 
   names {
@@ -192,7 +266,8 @@ service "amplifybackend" {
 
 service "amplifyuibuilder" {
   sdk {
-    id = "AmplifyUIBuilder"
+    id            = "AmplifyUIBuilder"
+    arn_namespace = "amplifyuibuilder"
   }
 
   names {
@@ -212,7 +287,8 @@ service "amplifyuibuilder" {
 
 service "apigateway" {
   sdk {
-    id = "API Gateway"
+    id            = "API Gateway"
+    arn_namespace = "apigateway"
   }
 
   names {
@@ -236,7 +312,8 @@ service "apigateway" {
 
 service "apigatewaymanagementapi" {
   sdk {
-    id = "ApiGatewayManagementApi"
+    id            = "ApiGatewayManagementApi"
+    arn_namespace = "apigateway"
   }
 
   names {
@@ -256,7 +333,8 @@ service "apigatewaymanagementapi" {
 
 service "apigatewayv2" {
   sdk {
-    id = "ApiGatewayV2"
+    id            = "ApiGatewayV2"
+    arn_namespace = "apigateway"
   }
 
   names {
@@ -279,7 +357,8 @@ service "apigatewayv2" {
 
 service "appfabric" {
   sdk {
-    id = "AppFabric"
+    id            = "AppFabric"
+    arn_namespace = "appfabric"
   }
 
   names {
@@ -302,7 +381,8 @@ service "appfabric" {
 
 service "appmesh" {
   sdk {
-    id = "App Mesh"
+    id            = "App Mesh"
+    arn_namespace = "appmesh"
   }
 
   names {
@@ -325,7 +405,8 @@ service "appmesh" {
 
 service "apprunner" {
   sdk {
-    id = "AppRunner"
+    id            = "AppRunner"
+    arn_namespace = "apprunner"
   }
 
   names {
@@ -348,7 +429,8 @@ service "apprunner" {
 
 service "appconfig" {
   sdk {
-    id = "AppConfig"
+    id            = "AppConfig"
+    arn_namespace = "appconfig"
   }
 
   names {
@@ -371,7 +453,8 @@ service "appconfig" {
 
 service "appconfigdata" {
   sdk {
-    id = "AppConfigData"
+    id            = "AppConfigData"
+    arn_namespace = "appconfig"
   }
 
   names {
@@ -391,7 +474,8 @@ service "appconfigdata" {
 
 service "appflow" {
   sdk {
-    id = "Appflow"
+    id            = "Appflow"
+    arn_namespace = "appflow"
   }
 
   names {
@@ -419,7 +503,8 @@ service "appintegrations" {
   }
 
   sdk {
-    id = "AppIntegrations"
+    id            = "AppIntegrations"
+    arn_namespace = "app-integrations"
   }
 
   names {
@@ -453,7 +538,8 @@ service "appautoscaling" {
   }
 
   sdk {
-    id = "Application Auto Scaling"
+    id            = "Application Auto Scaling"
+    arn_namespace = "application-autoscaling"
   }
 
   names {
@@ -478,7 +564,8 @@ service "appautoscaling" {
 
 service "applicationcostprofiler" {
   sdk {
-    id = "ApplicationCostProfiler"
+    id            = "ApplicationCostProfiler"
+    arn_namespace = "application-cost-profiler"
   }
 
   names {
@@ -503,7 +590,8 @@ service "applicationsignals" {
   }
 
   sdk {
-    id = "Application Signals"
+    id            = "Application Signals"
+    arn_namespace = "application-signals"
   }
 
   names {
@@ -531,7 +619,8 @@ service "discovery" {
   }
 
   sdk {
-    id = "Application Discovery Service"
+    id            = "Application Discovery Service"
+    arn_namespace = "discovery"
   }
 
   names {
@@ -552,7 +641,8 @@ service "discovery" {
 
 service "mgn" {
   sdk {
-    id = "mgn"
+    id            = "mgn"
+    arn_namespace = "mgn"
   }
 
   names {
@@ -575,7 +665,8 @@ service "mgn" {
 
 service "appstream" {
   sdk {
-    id = "AppStream"
+    id            = "AppStream"
+    arn_namespace = "appstream"
   }
 
   names {
@@ -599,7 +690,8 @@ service "appstream" {
 
 service "appsync" {
   sdk {
-    id = "AppSync"
+    id            = "AppSync"
+    arn_namespace = "appsync"
   }
 
   names {
@@ -620,9 +712,70 @@ service "appsync" {
   brand                    = "AWS"
 }
 
+service "arcregionswitch" {
+  cli_v2_command {
+    aws_cli_v2_command           = "arc-region-switch"
+    aws_cli_v2_command_no_dashes = "arcregionswitch"
+  }
+
+  sdk {
+    id            = "ARC Region Switch"
+    arn_namespace = "arcregionswitch"
+  }
+
+  names {
+    provider_name_upper = "ARCRegionSwitch"
+    human_friendly      = "ARC (Application Recovery Controller) Region Switch"
+  }
+
+  endpoint_info {
+    endpoint_api_call = "ListPlans"
+  }
+
+  resource_prefix {
+    correct = "aws_arcregionswitch_"
+  }
+
+  provider_package_correct = "arcregionswitch"
+  doc_prefix               = ["arcregionswitch_"]
+  brand                    = "Amazon"
+
+  is_global = true
+}
+
+service "arczonalshift" {
+  cli_v2_command {
+    aws_cli_v2_command           = "arc-zonal-shift"
+    aws_cli_v2_command_no_dashes = "arczonalshift"
+  }
+
+  sdk {
+    id            = "ARC Zonal Shift"
+    arn_namespace = "arczonalswitch"
+  }
+
+  names {
+    provider_name_upper = "ARCZonalShift"
+    human_friendly      = "ARC (Application Recovery Controller) Zonal Shift"
+  }
+
+  endpoint_info {
+    endpoint_api_call = "ListZonalShifts"
+  }
+
+  resource_prefix {
+    correct = "aws_arczonalshift_"
+  }
+
+  provider_package_correct = "arczonalshift"
+  doc_prefix               = ["arczonalshift_"]
+  brand                    = "Amazon"
+}
+
 service "athena" {
   sdk {
-    id = "Athena"
+    id            = "Athena"
+    arn_namespace = "athena"
   }
 
   names {
@@ -645,7 +798,8 @@ service "athena" {
 
 service "auditmanager" {
   sdk {
-    id = "AuditManager"
+    id            = "AuditManager"
+    arn_namespace = "auditmanager"
   }
 
   names {
@@ -668,7 +822,8 @@ service "auditmanager" {
 
 service "autoscaling" {
   sdk {
-    id = "Auto Scaling"
+    id            = "Auto Scaling"
+    arn_namespace = "autoscaling"
   }
 
   names {
@@ -696,7 +851,8 @@ service "autoscalingplans" {
   }
 
   sdk {
-    id = "Auto Scaling Plans"
+    id            = "Auto Scaling Plans"
+    arn_namespace = "autoscaling-plans"
   }
 
   names {
@@ -718,7 +874,8 @@ service "autoscalingplans" {
 
 service "backup" {
   sdk {
-    id = "Backup"
+    id            = "Backup"
+    arn_namespace = "backup"
   }
 
   names {
@@ -746,7 +903,8 @@ service "backupgateway" {
   }
 
   sdk {
-    id = "Backup Gateway"
+    id            = "Backup Gateway"
+    arn_namespace = "backup-gateway"
   }
 
   names {
@@ -766,7 +924,8 @@ service "backupgateway" {
 
 service "batch" {
   sdk {
-    id = "Batch"
+    id            = "Batch"
+    arn_namespace = "batch"
   }
 
   names {
@@ -789,7 +948,8 @@ service "batch" {
 
 service "bedrock" {
   sdk {
-    id = "Bedrock"
+    id            = "Bedrock"
+    arn_namespace = "bedrock"
   }
 
   names {
@@ -817,7 +977,8 @@ service "bedrockagent" {
   }
 
   sdk {
-    id = "Bedrock Agent"
+    id            = "Bedrock Agent"
+    arn_namespace = "bedrock"
   }
 
   names {
@@ -838,9 +999,73 @@ service "bedrockagent" {
   brand                    = "Amazon"
 }
 
+service "bedrockagentcore" {
+  cli_v2_command {
+    aws_cli_v2_command           = "bedrock-agentcore-control"
+    aws_cli_v2_command_no_dashes = "bedrockagentcorecontrol"
+  }
+
+  go_packages {
+    v2_package = "bedrockagentcorecontrol"
+  }
+
+  sdk {
+    id            = "Bedrock AgentCore Control"
+    arn_namespace = "bedrock-agentcore"
+  }
+
+  names {
+    provider_name_upper = "BedrockAgentCore"
+    human_friendly      = "Bedrock AgentCore"
+  }
+
+  endpoint_info {
+    endpoint_api_call = "ListAgentRuntimes"
+  }
+
+  resource_prefix {
+    correct = "aws_bedrockagentcore_"
+  }
+
+  provider_package_correct = "bedrockagentcore"
+  doc_prefix               = ["bedrockagentcore_"]
+  brand                    = "Amazon"
+}
+
+service "bedrockruntime" {
+  cli_v2_command {
+    aws_cli_v2_command           = "bedrock-runtime"
+    aws_cli_v2_command_no_dashes = "bedrockruntime"
+  }
+
+  sdk {
+    id            = "Bedrock Runtime"
+    arn_namespace = "bedrock"
+  }
+
+  names {
+    provider_name_upper = "BedrockRuntime"
+    human_friendly      = "Bedrock Runtime"
+  }
+
+  endpoint_info {
+    endpoint_api_call   = "InvokeModel"
+    endpoint_api_params = "Body: []byte(\"{}\"), ModelId: aws.String(\"test\")"
+  }
+
+  resource_prefix {
+    correct = "aws_bedrockruntime_"
+  }
+
+  provider_package_correct = "bedrockruntime"
+  doc_prefix               = ["bedrockruntime_"]
+  brand                    = "Amazon"
+}
+
 service "bcmdataexports" {
   sdk {
-    id = "BCM Data Exports"
+    id            = "BCM Data Exports"
+    arn_namespace = "bcm-data-exports"
   }
 
   names {
@@ -859,11 +1084,14 @@ service "bcmdataexports" {
   provider_package_correct = "bcmdataexports"
   doc_prefix               = ["bcmdataexports_"]
   brand                    = "AWS"
+
+  is_global = true
 }
 
 service "billing" {
   sdk {
-    id = "Billing"
+    id            = "Billing"
+    arn_namespace = "billing"
   }
 
   names {
@@ -885,6 +1113,8 @@ service "billing" {
   provider_package_correct = "billing"
   doc_prefix               = ["billing_"]
   brand                    = "AWS"
+
+  is_global = true
 }
 
 service "billingconductor" {
@@ -894,7 +1124,8 @@ service "billingconductor" {
   }
 
   sdk {
-    id = "billingconductor"
+    id            = "billingconductor"
+    arn_namespace = "billingconductor"
   }
 
   names {
@@ -914,7 +1145,8 @@ service "billingconductor" {
 
 service "braket" {
   sdk {
-    id = "Braket"
+    id            = "Braket"
+    arn_namespace = "braket"
   }
 
   names {
@@ -939,7 +1171,8 @@ service "ce" {
   }
 
   sdk {
-    id = "Cost Explorer"
+    id            = "Cost Explorer"
+    arn_namespace = "ce"
   }
 
   names {
@@ -959,11 +1192,14 @@ service "ce" {
   provider_package_correct = "ce"
   doc_prefix               = ["ce_"]
   brand                    = "AWS"
+
+  is_global = true
 }
 
 service "chatbot" {
   sdk {
-    id = "Chatbot"
+    id            = "Chatbot"
+    arn_namespace = "chatbot"
   }
 
   names {
@@ -986,7 +1222,8 @@ service "chatbot" {
 
 service "chime" {
   sdk {
-    id = "Chime"
+    id            = "Chime"
+    arn_namespace = "chime"
   }
 
   names {
@@ -1014,7 +1251,8 @@ service "chimesdkidentity" {
   }
 
   sdk {
-    id = "Chime SDK Identity"
+    id            = "Chime SDK Identity"
+    arn_namespace = "chime"
   }
 
   names {
@@ -1039,7 +1277,8 @@ service "chimesdkmediapipelines" {
   }
 
   sdk {
-    id = "Chime SDK Media Pipelines"
+    id            = "Chime SDK Media Pipelines"
+    arn_namespace = "chime"
   }
 
   names {
@@ -1067,7 +1306,8 @@ service "chimesdkmeetings" {
   }
 
   sdk {
-    id = "Chime SDK Meetings"
+    id            = "Chime SDK Meetings"
+    arn_namespace = "chime"
   }
 
   names {
@@ -1092,7 +1332,8 @@ service "chimesdkmessaging" {
   }
 
   sdk {
-    id = "Chime SDK Messaging"
+    id            = "Chime SDK Messaging"
+    arn_namespace = "chime"
   }
 
   names {
@@ -1117,7 +1358,8 @@ service "chimesdkvoice" {
   }
 
   sdk {
-    id = "Chime SDK Voice"
+    id            = "Chime SDK Voice"
+    arn_namespace = "chime"
   }
 
   names {
@@ -1140,7 +1382,8 @@ service "chimesdkvoice" {
 
 service "cleanrooms" {
   sdk {
-    id = "CleanRooms"
+    id            = "CleanRooms"
+    arn_namespace = "cleanrooms"
   }
 
   names {
@@ -1168,7 +1411,8 @@ service "cloudcontrol" {
   }
 
   sdk {
-    id = "CloudControl"
+    id            = "CloudControl"
+    arn_namespace = "cloudcontrol"
   }
 
   names {
@@ -1193,7 +1437,8 @@ service "cloudcontrol" {
 
 service "clouddirectory" {
   sdk {
-    id = "CloudDirectory"
+    id            = "CloudDirectory"
+    arn_namespace = "clouddirectory"
   }
 
   names {
@@ -1213,7 +1458,8 @@ service "clouddirectory" {
 
 service "servicediscovery" {
   sdk {
-    id = "ServiceDiscovery"
+    id            = "ServiceDiscovery"
+    arn_namespace = "servicediscovery"
   }
 
   names {
@@ -1237,7 +1483,8 @@ service "servicediscovery" {
 
 service "cloud9" {
   sdk {
-    id = "Cloud9"
+    id            = "Cloud9"
+    arn_namespace = "cloud9"
   }
 
   names {
@@ -1260,7 +1507,8 @@ service "cloud9" {
 
 service "cloudformation" {
   sdk {
-    id = "CloudFormation"
+    id            = "CloudFormation"
+    arn_namespace = "cloudformation"
   }
 
   names {
@@ -1284,7 +1532,8 @@ service "cloudformation" {
 
 service "cloudfront" {
   sdk {
-    id = "CloudFront"
+    id            = "CloudFront"
+    arn_namespace = "cloudfront"
   }
 
   names {
@@ -1303,6 +1552,8 @@ service "cloudfront" {
   provider_package_correct = "cloudfront"
   doc_prefix               = ["cloudfront_"]
   brand                    = "AWS"
+
+  is_global = true
 }
 
 service "cloudfrontkeyvaluestore" {
@@ -1317,7 +1568,8 @@ service "cloudfrontkeyvaluestore" {
   }
 
   sdk {
-    id = "CloudFront KeyValueStore"
+    id            = "CloudFront KeyValueStore"
+    arn_namespace = "cloudfront"
   }
 
   names {
@@ -1337,11 +1589,14 @@ service "cloudfrontkeyvaluestore" {
   provider_package_correct = "cloudfrontkeyvaluestore"
   doc_prefix               = ["cloudfrontkeyvaluestore_"]
   brand                    = "AWS"
+
+  is_global = true
 }
 
 service "cloudhsmv2" {
   sdk {
-    id = "CloudHSM V2"
+    id            = "CloudHSM V2"
+    arn_namespace = "cloudhsm"
   }
 
   names {
@@ -1366,7 +1621,8 @@ service "cloudhsmv2" {
 
 service "cloudsearch" {
   sdk {
-    id = "CloudSearch"
+    id            = "CloudSearch"
+    arn_namespace = "cloudsearch"
   }
 
   names {
@@ -1389,7 +1645,8 @@ service "cloudsearch" {
 
 service "cloudsearchdomain" {
   sdk {
-    id = "CloudSearch Domain"
+    id            = "CloudSearch Domain"
+    arn_namespace = "cloudsearch"
   }
 
   names {
@@ -1409,7 +1666,8 @@ service "cloudsearchdomain" {
 
 service "cloudtrail" {
   sdk {
-    id = "CloudTrail"
+    id            = "CloudTrail"
+    arn_namespace = "cloudtrail"
   }
 
   names {
@@ -1433,7 +1691,8 @@ service "cloudtrail" {
 
 service "cloudwatch" {
   sdk {
-    id = "CloudWatch"
+    id            = "CloudWatch"
+    arn_namespace = "cloudwatch"
   }
 
   names {
@@ -1451,7 +1710,7 @@ service "cloudwatch" {
   }
 
   provider_package_correct = "cloudwatch"
-  doc_prefix               = ["cloudwatch_dashboard", "cloudwatch_metric_", "cloudwatch_composite_", "cloudwatch_contributor_"]
+  doc_prefix               = ["cloudwatch_alarm_", "cloudwatch_dashboard", "cloudwatch_metric_", "cloudwatch_composite_", "cloudwatch_contributor_", "cloudwatch_otel_"]
   brand                    = "AWS"
 }
 
@@ -1462,7 +1721,8 @@ service "applicationinsights" {
   }
 
   sdk {
-    id = "Application Insights"
+    id            = "Application Insights"
+    arn_namespace = "applicationinsights"
   }
 
   names {
@@ -1490,7 +1750,8 @@ service "evidently" {
   }
 
   sdk {
-    id = "Evidently"
+    id            = "Evidently"
+    arn_namespace = "evidently"
   }
 
   names {
@@ -1514,7 +1775,8 @@ service "evidently" {
 
 service "internetmonitor" {
   sdk {
-    id = "InternetMonitor"
+    id            = "InternetMonitor"
+    arn_namespace = "internetmonitor"
   }
 
   names {
@@ -1542,7 +1804,8 @@ service "logs" {
   }
 
   sdk {
-    id = "CloudWatch Logs"
+    id            = "CloudWatch Logs"
+    arn_namespace = "logs"
   }
 
   names {
@@ -1567,7 +1830,8 @@ service "logs" {
 
 service "networkmonitor" {
   sdk {
-    id = "NetworkMonitor"
+    id            = "NetworkMonitor"
+    arn_namespace = "networkmonitor"
   }
 
   names {
@@ -1588,6 +1852,30 @@ service "networkmonitor" {
   brand                    = "Amazon"
 }
 
+service "networkflowmonitor" {
+  sdk {
+    id            = "NetworkFlowMonitor"
+    arn_namespace = "networkflowmonitor"
+  }
+
+  names {
+    provider_name_upper = "NetworkFlowMonitor"
+    human_friendly      = "CloudWatch NetworkFlow Monitor"
+  }
+
+  endpoint_info {
+    endpoint_api_call = "ListMonitors"
+  }
+
+  resource_prefix {
+    correct = "aws_networkflowmonitor_"
+  }
+
+  provider_package_correct = "networkflowmonitor"
+  doc_prefix               = ["networkflowmonitor_"]
+  brand                    = "Amazon"
+}
+
 service "rum" {
   go_packages {
     v1_package = "cloudwatchrum"
@@ -1595,7 +1883,8 @@ service "rum" {
   }
 
   sdk {
-    id = "RUM"
+    id            = "RUM"
+    arn_namespace = "rum"
   }
 
   names {
@@ -1619,7 +1908,8 @@ service "rum" {
 
 service "synthetics" {
   sdk {
-    id = "synthetics"
+    id            = "synthetics"
+    arn_namespace = "synthetics"
   }
 
   names {
@@ -1642,7 +1932,8 @@ service "synthetics" {
 
 service "codeartifact" {
   sdk {
-    id = "codeartifact"
+    id            = "codeartifact"
+    arn_namespace = "codeartifact"
   }
 
   names {
@@ -1665,7 +1956,8 @@ service "codeartifact" {
 
 service "codebuild" {
   sdk {
-    id = "CodeBuild"
+    id            = "CodeBuild"
+    arn_namespace = "codebuild"
   }
 
   names {
@@ -1688,7 +1980,8 @@ service "codebuild" {
 
 service "codecommit" {
   sdk {
-    id = "CodeCommit"
+    id            = "CodeCommit"
+    arn_namespace = "codecommit"
   }
 
   names {
@@ -1716,7 +2009,8 @@ service "codeconnections" {
   }
 
   sdk {
-    id = "CodeConnections"
+    id            = "CodeConnections"
+    arn_namespace = "codeconnections"
   }
 
   names {
@@ -1744,7 +2038,8 @@ service "deploy" {
   }
 
   sdk {
-    id = "CodeDeploy"
+    id            = "CodeDeploy"
+    arn_namespace = "codedeploy"
   }
 
   names {
@@ -1769,7 +2064,8 @@ service "deploy" {
 
 service "codeguruprofiler" {
   sdk {
-    id = "CodeGuruProfiler"
+    id            = "CodeGuruProfiler"
+    arn_namespace = "codeguru-profiler"
   }
 
   names {
@@ -1797,7 +2093,8 @@ service "codegurureviewer" {
   }
 
   sdk {
-    id = "CodeGuru Reviewer"
+    id            = "CodeGuru Reviewer"
+    arn_namespace = "codeguru-reviewer"
   }
 
   names {
@@ -1821,7 +2118,8 @@ service "codegurureviewer" {
 
 service "codepipeline" {
   sdk {
-    id = "CodePipeline"
+    id            = "CodePipeline"
+    arn_namespace = "codepipeline"
   }
 
   names {
@@ -1845,7 +2143,8 @@ service "codepipeline" {
 
 service "codestar" {
   sdk {
-    id = "CodeStar"
+    id            = "CodeStar"
+    arn_namespace = "codestar"
   }
 
   names {
@@ -1870,7 +2169,8 @@ service "codestarconnections" {
   }
 
   sdk {
-    id = "CodeStar connections"
+    id            = "CodeStar connections"
+    arn_namespace = "codestar-connections"
   }
 
   names {
@@ -1898,7 +2198,8 @@ service "codestarnotifications" {
   }
 
   sdk {
-    id = "codestar notifications"
+    id            = "codestar notifications"
+    arn_namespace = "codestar-notifications"
   }
 
   names {
@@ -1926,7 +2227,8 @@ service "cognitoidentity" {
   }
 
   sdk {
-    id = "Cognito Identity"
+    id            = "Cognito Identity"
+    arn_namespace = "cognito-identity"
   }
 
   names {
@@ -1961,7 +2263,8 @@ service "cognitoidp" {
   }
 
   sdk {
-    id = "Cognito Identity Provider"
+    id            = "Cognito Identity Provider"
+    arn_namespace = "cognito-idp"
   }
 
   names {
@@ -1976,13 +2279,21 @@ service "cognitoidp" {
   }
 
   resource_prefix {
-    actual  = "aws_cognito_(identity_provider|resource|user|risk)"
+    actual  = "aws_cognito_(identity_provider|log|managed_login_branding|managed_user|resource|risk|user)"
     correct = "aws_cognitoidp_"
   }
 
   provider_package_correct = "cognitoidp"
-  doc_prefix               = ["cognito_identity_provider", "cognito_managed_user", "cognito_resource_", "cognito_user", "cognito_risk"]
-  brand                    = "AWS"
+  doc_prefix = [
+    "cognito_identity_provider",
+    "cognito_log",
+    "cognito_managed_login_branding",
+    "cognito_managed_user",
+    "cognito_resource_",
+    "cognito_risk",
+    "cognito_user"
+  ]
+  brand = "AWS"
 }
 
 service "cognitosync" {
@@ -1992,7 +2303,8 @@ service "cognitosync" {
   }
 
   sdk {
-    id = "Cognito Sync"
+    id            = "Cognito Sync"
+    arn_namespace = "cognito-sync"
   }
 
   names {
@@ -2012,7 +2324,8 @@ service "cognitosync" {
 
 service "comprehend" {
   sdk {
-    id = "Comprehend"
+    id            = "Comprehend"
+    arn_namespace = "comprehend"
   }
 
   names {
@@ -2035,7 +2348,8 @@ service "comprehend" {
 
 service "comprehendmedical" {
   sdk {
-    id = "ComprehendMedical"
+    id            = "ComprehendMedical"
+    arn_namespace = "comprehendmedical"
   }
 
   names {
@@ -2060,7 +2374,8 @@ service "computeoptimizer" {
   }
 
   sdk {
-    id = "Compute Optimizer"
+    id            = "Compute Optimizer"
+    arn_namespace = "compute-optimizer"
   }
 
   names {
@@ -2083,7 +2398,8 @@ service "computeoptimizer" {
 
 service "configservice" {
   sdk {
-    id = "Config Service"
+    id            = "Config Service"
+    arn_namespace = "config"
   }
 
   names {
@@ -2108,7 +2424,8 @@ service "configservice" {
 
 service "connect" {
   sdk {
-    id = "Connect"
+    id            = "Connect"
+    arn_namespace = "connect"
   }
 
   names {
@@ -2131,7 +2448,8 @@ service "connect" {
 
 service "connectcases" {
   sdk {
-    id = "ConnectCases"
+    id            = "ConnectCases"
+    arn_namespace = "connect"
   }
 
   names {
@@ -2159,7 +2477,8 @@ service "connectcontactlens" {
   }
 
   sdk {
-    id = "Connect Contact Lens"
+    id            = "Connect Contact Lens"
+    arn_namespace = "connectcontactlens"
   }
 
   names {
@@ -2184,7 +2503,8 @@ service "customerprofiles" {
   }
 
   sdk {
-    id = "Customer Profiles"
+    id            = "Customer Profiles"
+    arn_namespace = "customerprofiles"
   }
 
   names {
@@ -2207,7 +2527,8 @@ service "customerprofiles" {
 
 service "connectparticipant" {
   sdk {
-    id = "ConnectParticipant"
+    id            = "ConnectParticipant"
+    arn_namespace = "connect"
   }
 
   names {
@@ -2232,7 +2553,8 @@ service "voiceid" {
   }
 
   sdk {
-    id = "Voice ID"
+    id            = "Voice ID"
+    arn_namespace = "voiceid"
   }
 
   names {
@@ -2257,7 +2579,8 @@ service "wisdom" {
   }
 
   sdk {
-    id = "Wisdom"
+    id            = "Wisdom"
+    arn_namespace = "wisdom"
   }
 
   names {
@@ -2278,7 +2601,8 @@ service "wisdom" {
 
 service "controltower" {
   sdk {
-    id = "ControlTower"
+    id            = "ControlTower"
+    arn_namespace = "controltower"
   }
 
   names {
@@ -2306,7 +2630,8 @@ service "costoptimizationhub" {
   }
 
   sdk {
-    id = "Cost Optimization Hub"
+    id            = "Cost Optimization Hub"
+    arn_namespace = "costoptimizationhub"
   }
 
   names {
@@ -2328,6 +2653,8 @@ service "costoptimizationhub" {
   provider_package_correct = "costoptimizationhub"
   doc_prefix               = ["costoptimizationhub_"]
   brand                    = "AWS"
+
+  is_global = true
 }
 
 service "cur" {
@@ -2337,7 +2664,8 @@ service "cur" {
   }
 
   sdk {
-    id = "Cost and Usage Report Service"
+    id            = "Cost and Usage Report Service"
+    arn_namespace = "cur"
   }
 
   names {
@@ -2360,11 +2688,14 @@ service "cur" {
   provider_package_correct = "cur"
   doc_prefix               = ["cur_"]
   brand                    = "AWS"
+
+  is_global = true
 }
 
 service "dataexchange" {
   sdk {
-    id = "DataExchange"
+    id            = "DataExchange"
+    arn_namespace = "dataexchange"
   }
 
   names {
@@ -2387,7 +2718,8 @@ service "dataexchange" {
 
 service "datapipeline" {
   sdk {
-    id = "Data Pipeline"
+    id            = "Data Pipeline"
+    arn_namespace = "datapipeline"
   }
 
   names {
@@ -2410,7 +2742,8 @@ service "datapipeline" {
 
 service "datasync" {
   sdk {
-    id = "DataSync"
+    id            = "DataSync"
+    arn_namespace = "datasync"
   }
 
   names {
@@ -2433,7 +2766,8 @@ service "datasync" {
 
 service "datazone" {
   sdk {
-    id = "DataZone"
+    id            = "DataZone"
+    arn_namespace = "datazone"
   }
 
   names {
@@ -2456,7 +2790,8 @@ service "datazone" {
 
 service "detective" {
   sdk {
-    id = "Detective"
+    id            = "Detective"
+    arn_namespace = "detective"
   }
 
   names {
@@ -2479,7 +2814,8 @@ service "detective" {
 
 service "devicefarm" {
   sdk {
-    id = "Device Farm"
+    id            = "Device Farm"
+    arn_namespace = "devicefarm"
   }
 
   names {
@@ -2500,6 +2836,35 @@ service "devicefarm" {
   brand                    = "AWS"
 }
 
+service "devopsagent" {
+  cli_v2_command {
+    aws_cli_v2_command           = "devops-agent"
+    aws_cli_v2_command_no_dashes = "devopsagent"
+  }
+
+  sdk {
+    id            = "DevOps Agent"
+    arn_namespace = "aidevops"
+  }
+
+  names {
+    provider_name_upper = "DevOpsAgent"
+    human_friendly      = "DevOps Agent"
+  }
+
+  endpoint_info {
+    endpoint_api_call = "ListAgentSpaces"
+  }
+
+  resource_prefix {
+    correct = "aws_devopsagent_"
+  }
+
+  provider_package_correct = "devopsagent"
+  doc_prefix               = ["devopsagent_"]
+  brand                    = "AWS"
+}
+
 service "devopsguru" {
   cli_v2_command {
     aws_cli_v2_command           = "devops-guru"
@@ -2507,7 +2872,8 @@ service "devopsguru" {
   }
 
   sdk {
-    id = "DevOps Guru"
+    id            = "DevOps Guru"
+    arn_namespace = "devopsguru"
   }
 
   names {
@@ -2530,7 +2896,8 @@ service "devopsguru" {
 
 service "directconnect" {
   sdk {
-    id = "Direct Connect"
+    id            = "Direct Connect"
+    arn_namespace = "directconnect"
   }
 
   names {
@@ -2552,9 +2919,35 @@ service "directconnect" {
   brand                    = "AWS"
 }
 
+service "directoryservicedata" {
+  sdk {
+    id            = "Directory Service Data"
+    arn_namespace = "ds"
+  }
+
+  names {
+    provider_name_upper = "DirectoryServiceData"
+    human_friendly      = "Directory Service Data"
+  }
+
+  endpoint_info {
+    endpoint_api_call   = "ListUsers"
+    endpoint_api_params = "DirectoryId: aws.String(\"d-1234567890\")"
+  }
+
+  resource_prefix {
+    correct = "aws_directoryservicedata_"
+  }
+
+  provider_package_correct = "directoryservicedata"
+  doc_prefix               = ["directoryservicedata_"]
+  brand                    = "AWS"
+}
+
 service "dlm" {
   sdk {
-    id = "DLM"
+    id            = "DLM"
+    arn_namespace = "dlm"
   }
 
   names {
@@ -2582,7 +2975,8 @@ service "dms" {
   }
 
   sdk {
-    id = "Database Migration Service"
+    id            = "Database Migration Service"
+    arn_namespace = "dms"
   }
 
   names {
@@ -2606,7 +3000,8 @@ service "dms" {
 
 service "docdb" {
   sdk {
-    id = "DocDB"
+    id            = "DocDB"
+    arn_namespace = "rds"
   }
 
   names {
@@ -2634,7 +3029,8 @@ service "docdbelastic" {
   }
 
   sdk {
-    id = "DocDB Elastic"
+    id            = "DocDB Elastic"
+    arn_namespace = "docdbelastic"
   }
 
   names {
@@ -2657,7 +3053,8 @@ service "docdbelastic" {
 
 service "drs" {
   sdk {
-    id = "DRS"
+    id            = "DRS"
+    arn_namespace = "drs"
   }
 
   names {
@@ -2685,7 +3082,8 @@ service "ds" {
   }
 
   sdk {
-    id = "Directory Service"
+    id            = "Directory Service"
+    arn_namespace = "ds"
   }
 
   names {
@@ -2708,9 +3106,34 @@ service "ds" {
   brand                    = "AWS"
 }
 
+service "dsql" {
+  sdk {
+    id            = "DSQL"
+    arn_namespace = "dsql"
+  }
+
+  names {
+    provider_name_upper = "DSQL"
+    human_friendly      = "DSQL"
+  }
+
+  endpoint_info {
+    endpoint_api_call = "ListClusters"
+  }
+
+  resource_prefix {
+    correct = "aws_dsql_"
+  }
+
+  provider_package_correct = "dsql"
+  doc_prefix               = ["dsql_"]
+  brand                    = "AWS"
+}
+
 service "dax" {
   sdk {
-    id = "DAX"
+    id            = "DAX"
+    arn_namespace = "dax"
   }
 
   names {
@@ -2733,7 +3156,8 @@ service "dax" {
 
 service "dynamodbstreams" {
   sdk {
-    id = "DynamoDB Streams"
+    id            = "DynamoDB Streams"
+    arn_namespace = "dynamodb"
   }
 
   names {
@@ -2753,7 +3177,8 @@ service "dynamodbstreams" {
 
 service "ebs" {
   sdk {
-    id = "EBS"
+    id            = "EBS"
+    arn_namespace = "ebs"
   }
 
   names {
@@ -2773,7 +3198,8 @@ service "ebs" {
 
 service "imagebuilder" {
   sdk {
-    id = "imagebuilder"
+    id            = "imagebuilder"
+    arn_namespace = "imagebuilder"
   }
 
   names {
@@ -2801,7 +3227,8 @@ service "ec2instanceconnect" {
   }
 
   sdk {
-    id = "EC2 Instance Connect"
+    id            = "EC2 Instance Connect"
+    arn_namespace = "ec2instanceconnect"
   }
 
   names {
@@ -2821,7 +3248,8 @@ service "ec2instanceconnect" {
 
 service "ecr" {
   sdk {
-    id = "ECR"
+    id            = "ECR"
+    arn_namespace = "ecr"
   }
 
   names {
@@ -2849,7 +3277,8 @@ service "ecrpublic" {
   }
 
   sdk {
-    id = "ECR PUBLIC"
+    id            = "ECR PUBLIC"
+    arn_namespace = "ecrpublic"
   }
 
   names {
@@ -2872,7 +3301,8 @@ service "ecrpublic" {
 
 service "ecs" {
   sdk {
-    id = "ECS"
+    id            = "ECS"
+    arn_namespace = "ecs"
   }
 
   names {
@@ -2895,7 +3325,8 @@ service "ecs" {
 
 service "efs" {
   sdk {
-    id = "EFS"
+    id            = "EFS"
+    arn_namespace = "elasticfilesystem"
   }
 
   names {
@@ -2918,7 +3349,8 @@ service "efs" {
 
 service "eks" {
   sdk {
-    id = "EKS"
+    id            = "EKS"
+    arn_namespace = "eks"
   }
 
   names {
@@ -2941,7 +3373,8 @@ service "eks" {
 
 service "elasticbeanstalk" {
   sdk {
-    id = "Elastic Beanstalk"
+    id            = "Elastic Beanstalk"
+    arn_namespace = "elasticbeanstalk"
   }
 
   names {
@@ -2971,7 +3404,8 @@ service "elasticinference" {
   }
 
   sdk {
-    id = "Elastic Inference"
+    id            = "Elastic Inference"
+    arn_namespace = "elasticinference"
   }
 
   names {
@@ -2991,7 +3425,8 @@ service "elasticinference" {
 
 service "elastictranscoder" {
   sdk {
-    id = "Elastic Transcoder"
+    id            = "Elastic Transcoder"
+    arn_namespace = "elastictranscoder"
   }
 
   names {
@@ -3014,7 +3449,8 @@ service "elastictranscoder" {
 
 service "elasticache" {
   sdk {
-    id = "ElastiCache"
+    id            = "ElastiCache"
+    arn_namespace = "elasticache"
   }
 
   names {
@@ -3047,7 +3483,8 @@ service "elasticsearch" {
   }
 
   sdk {
-    id = "Elasticsearch Service"
+    id            = "Elasticsearch Service"
+    arn_namespace = "elasticsearch"
   }
 
   names {
@@ -3077,13 +3514,15 @@ service "elbv2" {
   }
 
   sdk {
-    id = "Elastic Load Balancing v2"
+    id            = "Elastic Load Balancing v2"
+    arn_namespace = "elasticloadbalancing"
   }
 
   names {
-    aliases             = ["elasticloadbalancingv2"]
-    provider_name_upper = "ELBV2"
-    human_friendly      = "ELB (Elastic Load Balancing)"
+    aliases              = ["elasticloadbalancingv2"]
+    provider_name_upper  = "ELBV2"
+    human_friendly       = "ELB (Elastic Load Balancing)"
+    human_friendly_short = "ELB"
   }
 
   endpoint_info {
@@ -3106,7 +3545,8 @@ service "elb" {
   }
 
   sdk {
-    id = "Elastic Load Balancing"
+    id            = "Elastic Load Balancing"
+    arn_namespace = "elasticloadbalancing"
   }
 
   names {
@@ -3130,7 +3570,8 @@ service "elb" {
 
 service "invoicing" {
   sdk {
-    id = "Invoicing"
+    id            = "Invoicing"
+    arn_namespace = "invoicing"
   }
 
   names {
@@ -3149,11 +3590,14 @@ service "invoicing" {
   provider_package_correct = "invoicing"
   doc_prefix               = ["invoicing_"]
   brand                    = "AWS"
+
+  is_global = true
 }
 
 service "mediaconnect" {
   sdk {
-    id = "MediaConnect"
+    id            = "MediaConnect"
+    arn_namespace = "mediaconnect"
   }
 
   names {
@@ -3176,7 +3620,8 @@ service "mediaconnect" {
 
 service "mediaconvert" {
   sdk {
-    id = "MediaConvert"
+    id            = "MediaConvert"
+    arn_namespace = "mediaconvert"
   }
 
   names {
@@ -3199,7 +3644,8 @@ service "mediaconvert" {
 
 service "medialive" {
   sdk {
-    id = "MediaLive"
+    id            = "MediaLive"
+    arn_namespace = "medialive"
   }
 
   names {
@@ -3222,7 +3668,8 @@ service "medialive" {
 
 service "mediapackage" {
   sdk {
-    id = "MediaPackage"
+    id            = "MediaPackage"
+    arn_namespace = "mediapackage"
   }
 
   names {
@@ -3251,7 +3698,8 @@ service "mediapackagevod" {
   }
 
   sdk {
-    id = "MediaPackage Vod"
+    id            = "MediaPackage Vod"
+    arn_namespace = "mediapackagevod"
   }
 
   names {
@@ -3274,7 +3722,8 @@ service "mediapackagevod" {
 
 service "mediastore" {
   sdk {
-    id = "MediaStore"
+    id            = "MediaStore"
+    arn_namespace = "mediastore"
   }
 
   names {
@@ -3303,7 +3752,8 @@ service "mediastoredata" {
   }
 
   sdk {
-    id = "MediaStore Data"
+    id            = "MediaStore Data"
+    arn_namespace = "mediastoredata"
   }
 
   names {
@@ -3323,7 +3773,8 @@ service "mediastoredata" {
 
 service "mediatailor" {
   sdk {
-    id = "MediaTailor"
+    id            = "MediaTailor"
+    arn_namespace = "mediatailor"
   }
 
   names {
@@ -3343,7 +3794,8 @@ service "mediatailor" {
 
 service "emr" {
   sdk {
-    id = "EMR"
+    id            = "EMR"
+    arn_namespace = "elasticmapreduce"
   }
 
   names {
@@ -3371,7 +3823,8 @@ service "emrcontainers" {
   }
 
   sdk {
-    id = "EMR containers"
+    id            = "EMR containers"
+    arn_namespace = "emrcontainers"
   }
 
   names {
@@ -3399,7 +3852,8 @@ service "emrserverless" {
   }
 
   sdk {
-    id = "EMR Serverless"
+    id            = "EMR Serverless"
+    arn_namespace = "emrserverless"
   }
 
   names {
@@ -3427,7 +3881,8 @@ service "events" {
   }
 
   sdk {
-    id = "EventBridge"
+    id            = "EventBridge"
+    arn_namespace = "events"
   }
 
   names {
@@ -3452,7 +3907,8 @@ service "events" {
 
 service "schemas" {
   sdk {
-    id = "schemas"
+    id            = "schemas"
+    arn_namespace = "schemas"
   }
 
   names {
@@ -3475,7 +3931,8 @@ service "schemas" {
 
 service "fis" {
   sdk {
-    id = "fis"
+    id            = "fis"
+    arn_namespace = "fis"
   }
 
   names {
@@ -3498,7 +3955,8 @@ service "fis" {
 
 service "finspace" {
   sdk {
-    id = "finspace"
+    id            = "finspace"
+    arn_namespace = "finspace"
   }
 
   names {
@@ -3526,7 +3984,8 @@ service "finspacedata" {
   }
 
   sdk {
-    id = "finspace data"
+    id            = "finspace data"
+    arn_namespace = "finspacedata"
   }
 
   names {
@@ -3546,7 +4005,8 @@ service "finspacedata" {
 
 service "fms" {
   sdk {
-    id = "FMS"
+    id            = "FMS"
+    arn_namespace = "fms"
   }
 
   names {
@@ -3575,7 +4035,8 @@ service "forecast" {
   }
 
   sdk {
-    id = "forecast"
+    id            = "forecast"
+    arn_namespace = "forecast"
   }
 
   names {
@@ -3601,7 +4062,8 @@ service "forecastquery" {
   }
 
   sdk {
-    id = "forecastquery"
+    id            = "forecastquery"
+    arn_namespace = "forecastquery"
   }
 
   names {
@@ -3622,7 +4084,8 @@ service "forecastquery" {
 
 service "frauddetector" {
   sdk {
-    id = "FraudDetector"
+    id            = "FraudDetector"
+    arn_namespace = "frauddetector"
   }
 
   names {
@@ -3642,7 +4105,8 @@ service "frauddetector" {
 
 service "fsx" {
   sdk {
-    id = "FSx"
+    id            = "FSx"
+    arn_namespace = "fsx"
   }
 
   names {
@@ -3665,7 +4129,8 @@ service "fsx" {
 
 service "gamelift" {
   sdk {
-    id = "GameLift"
+    id            = "GameLift"
+    arn_namespace = "gamelift"
   }
 
   names {
@@ -3688,7 +4153,8 @@ service "gamelift" {
 
 service "globalaccelerator" {
   sdk {
-    id = "Global Accelerator"
+    id            = "Global Accelerator"
+    arn_namespace = "globalaccelerator"
   }
 
   names {
@@ -3710,11 +4176,14 @@ service "globalaccelerator" {
   provider_package_correct = "globalaccelerator"
   doc_prefix               = ["globalaccelerator_"]
   brand                    = "AWS"
+
+  is_global = true
 }
 
 service "glue" {
   sdk {
-    id = "Glue"
+    id            = "Glue"
+    arn_namespace = "glue"
   }
 
   names {
@@ -3737,7 +4206,8 @@ service "glue" {
 
 service "databrew" {
   sdk {
-    id = "DataBrew"
+    id            = "DataBrew"
+    arn_namespace = "databrew"
   }
 
   names {
@@ -3761,7 +4231,8 @@ service "databrew" {
 
 service "groundstation" {
   sdk {
-    id = "GroundStation"
+    id            = "GroundStation"
+    arn_namespace = "groundstation"
   }
 
   names {
@@ -3784,7 +4255,8 @@ service "groundstation" {
 
 service "guardduty" {
   sdk {
-    id = "GuardDuty"
+    id            = "GuardDuty"
+    arn_namespace = "guardduty"
   }
 
   names {
@@ -3807,7 +4279,8 @@ service "guardduty" {
 
 service "health" {
   sdk {
-    id = "Health"
+    id            = "Health"
+    arn_namespace = "health"
   }
 
   names {
@@ -3827,7 +4300,8 @@ service "health" {
 
 service "healthlake" {
   sdk {
-    id = "HealthLake"
+    id            = "HealthLake"
+    arn_namespace = "healthlake"
   }
 
   names {
@@ -3850,7 +4324,8 @@ service "healthlake" {
 
 service "honeycode" {
   sdk {
-    id = "Honeycode"
+    id            = "Honeycode"
+    arn_namespace = "honeycode"
   }
 
   names {
@@ -3870,12 +4345,14 @@ service "honeycode" {
 
 service "iam" {
   sdk {
-    id = "IAM"
+    id            = "IAM"
+    arn_namespace = "iam"
   }
 
   names {
-    provider_name_upper = "IAM"
-    human_friendly      = "IAM (Identity & Access Management)"
+    provider_name_upper  = "IAM"
+    human_friendly       = "IAM (Identity & Access Management)"
+    human_friendly_short = "IAM"
   }
 
   env_var {
@@ -3893,11 +4370,14 @@ service "iam" {
   provider_package_correct = "iam"
   doc_prefix               = ["iam_"]
   brand                    = "AWS"
+
+  is_global = true
 }
 
 service "inspector" {
   sdk {
-    id = "Inspector"
+    id            = "Inspector"
+    arn_namespace = "inspector"
   }
 
   names {
@@ -3920,7 +4400,8 @@ service "inspector" {
 
 service "inspector2" {
   sdk {
-    id = "Inspector2"
+    id            = "Inspector2"
+    arn_namespace = "inspector2"
   }
 
   names {
@@ -3941,6 +4422,30 @@ service "inspector2" {
   brand                    = "AWS"
 }
 
+service "interconnect" {
+  sdk {
+    id            = "Interconnect"
+    arn_namespace = "interconnect"
+  }
+
+  names {
+    provider_name_upper = "Interconnect"
+    human_friendly      = "Interconnect"
+  }
+
+  endpoint_info {
+    endpoint_api_call = "ListConnections"
+  }
+
+  resource_prefix {
+    correct = "aws_interconnect_"
+  }
+
+  provider_package_correct = "interconnect"
+  doc_prefix               = ["interconnect_"]
+  brand                    = "AWS"
+}
+
 service "iot1clickdevices" {
   cli_v2_command {
     aws_cli_v2_command           = "iot1click-devices"
@@ -3953,7 +4458,8 @@ service "iot1clickdevices" {
   }
 
   sdk {
-    id = "IoT 1Click Devices Service"
+    id            = "IoT 1Click Devices Service"
+    arn_namespace = "iot1clickdevices"
   }
 
   names {
@@ -3979,7 +4485,8 @@ service "iot1clickprojects" {
   }
 
   sdk {
-    id = "IoT 1Click Projects"
+    id            = "IoT 1Click Projects"
+    arn_namespace = "iot1clickprojects"
   }
 
   names {
@@ -3999,7 +4506,8 @@ service "iot1clickprojects" {
 
 service "iotanalytics" {
   sdk {
-    id = "IoTAnalytics"
+    id            = "IoTAnalytics"
+    arn_namespace = "iotanalytics"
   }
 
   names {
@@ -4018,6 +4526,7 @@ service "iotanalytics" {
   provider_package_correct = "iotanalytics"
   doc_prefix               = ["iotanalytics_"]
   brand                    = "AWS"
+  not_implemented          = true
 }
 
 service "iotdata" {
@@ -4032,7 +4541,8 @@ service "iotdata" {
   }
 
   sdk {
-    id = "IoT Data Plane"
+    id            = "IoT Data Plane"
+    arn_namespace = "iotdata"
   }
 
   names {
@@ -4053,7 +4563,8 @@ service "iotdata" {
 
 service "iotdeviceadvisor" {
   sdk {
-    id = "IotDeviceAdvisor"
+    id            = "IotDeviceAdvisor"
+    arn_namespace = "iotdeviceadvisor"
   }
 
   names {
@@ -4073,7 +4584,8 @@ service "iotdeviceadvisor" {
 
 service "iotevents" {
   sdk {
-    id = "IoT Events"
+    id            = "IoT Events"
+    arn_namespace = "iotevents"
   }
 
   names {
@@ -4092,6 +4604,7 @@ service "iotevents" {
   provider_package_correct = "iotevents"
   doc_prefix               = ["iotevents_"]
   brand                    = "AWS"
+  not_implemented          = true
 }
 
 service "ioteventsdata" {
@@ -4101,7 +4614,8 @@ service "ioteventsdata" {
   }
 
   sdk {
-    id = "IoT Events Data"
+    id            = "IoT Events Data"
+    arn_namespace = "iotevents"
   }
 
   names {
@@ -4121,7 +4635,8 @@ service "ioteventsdata" {
 
 service "iotfleethub" {
   sdk {
-    id = "IoTFleetHub"
+    id            = "IoTFleetHub"
+    arn_namespace = "iotfleethub"
   }
 
   names {
@@ -4141,7 +4656,8 @@ service "iotfleethub" {
 
 service "greengrass" {
   sdk {
-    id = "Greengrass"
+    id            = "Greengrass"
+    arn_namespace = "greengrass"
   }
 
   names {
@@ -4164,7 +4680,8 @@ service "greengrass" {
 
 service "greengrassv2" {
   sdk {
-    id = "GreengrassV2"
+    id            = "GreengrassV2"
+    arn_namespace = "greengrassv2"
   }
 
   names {
@@ -4194,7 +4711,8 @@ service "iotjobsdata" {
   }
 
   sdk {
-    id = "IoT Jobs Data Plane"
+    id            = "IoT Jobs Data Plane"
+    arn_namespace = "iotjobsdata"
   }
 
   names {
@@ -4215,7 +4733,8 @@ service "iotjobsdata" {
 
 service "iotsecuretunneling" {
   sdk {
-    id = "IoTSecureTunneling"
+    id            = "IoTSecureTunneling"
+    arn_namespace = "iotsecuretunneling"
   }
 
   names {
@@ -4235,7 +4754,8 @@ service "iotsecuretunneling" {
 
 service "iotsitewise" {
   sdk {
-    id = "IoTSiteWise"
+    id            = "IoTSiteWise"
+    arn_namespace = "iotsitewise"
   }
 
   names {
@@ -4255,7 +4775,8 @@ service "iotsitewise" {
 
 service "iotthingsgraph" {
   sdk {
-    id = "IoTThingsGraph"
+    id            = "IoTThingsGraph"
+    arn_namespace = "iotthingsgraph"
   }
 
   names {
@@ -4275,7 +4796,8 @@ service "iotthingsgraph" {
 
 service "iottwinmaker" {
   sdk {
-    id = "IoTTwinMaker"
+    id            = "IoTTwinMaker"
+    arn_namespace = "iottwinmaker"
   }
 
   names {
@@ -4295,7 +4817,8 @@ service "iottwinmaker" {
 
 service "iotwireless" {
   sdk {
-    id = "IoT Wireless"
+    id            = "IoT Wireless"
+    arn_namespace = "iotwireless"
   }
 
   names {
@@ -4315,7 +4838,8 @@ service "iotwireless" {
 
 service "ivs" {
   sdk {
-    id = "ivs"
+    id            = "ivs"
+    arn_namespace = "ivs"
   }
 
   names {
@@ -4338,7 +4862,8 @@ service "ivs" {
 
 service "ivschat" {
   sdk {
-    id = "ivschat"
+    id            = "ivschat"
+    arn_namespace = "ivschat"
   }
 
   names {
@@ -4361,7 +4886,8 @@ service "ivschat" {
 
 service "kendra" {
   sdk {
-    id = "kendra"
+    id            = "kendra"
+    arn_namespace = "kendra"
   }
 
   names {
@@ -4384,7 +4910,8 @@ service "kendra" {
 
 service "keyspaces" {
   sdk {
-    id = "Keyspaces"
+    id            = "Keyspaces"
+    arn_namespace = "keyspaces"
   }
 
   names {
@@ -4407,7 +4934,8 @@ service "keyspaces" {
 
 service "kinesis" {
   sdk {
-    id = "Kinesis"
+    id            = "Kinesis"
+    arn_namespace = "kinesis"
   }
 
   names {
@@ -4425,13 +4953,14 @@ service "kinesis" {
   }
 
   provider_package_correct = "kinesis"
-  doc_prefix               = ["kinesis_stream", "kinesis_resource_policy"]
+  doc_prefix               = ["kinesis_stream", "kinesis_resource_policy", "kinesis_account_settings"]
   brand                    = "AWS"
 }
 
 service "kinesisanalytics" {
   sdk {
-    id = "Kinesis Analytics"
+    id            = "Kinesis Analytics"
+    arn_namespace = "kinesisanalytics"
   }
 
   names {
@@ -4455,7 +4984,8 @@ service "kinesisanalytics" {
 
 service "kinesisanalyticsv2" {
   sdk {
-    id = "Kinesis Analytics V2"
+    id            = "Kinesis Analytics V2"
+    arn_namespace = "kinesisanalyticsv2"
   }
 
   names {
@@ -4478,7 +5008,8 @@ service "kinesisanalyticsv2" {
 
 service "firehose" {
   sdk {
-    id = "Firehose"
+    id            = "Firehose"
+    arn_namespace = "firehose"
   }
 
   names {
@@ -4502,7 +5033,8 @@ service "firehose" {
 
 service "kinesisvideo" {
   sdk {
-    id = "Kinesis Video"
+    id            = "Kinesis Video"
+    arn_namespace = "kinesisvideo"
   }
 
   names {
@@ -4530,7 +5062,8 @@ service "kinesisvideoarchivedmedia" {
   }
 
   sdk {
-    id = "Kinesis Video Archived Media"
+    id            = "Kinesis Video Archived Media"
+    arn_namespace = "kinesisvideoarchivedmedia"
   }
 
   names {
@@ -4555,7 +5088,8 @@ service "kinesisvideomedia" {
   }
 
   sdk {
-    id = "Kinesis Video Media"
+    id            = "Kinesis Video Media"
+    arn_namespace = "kinesisvideomedia"
   }
 
   names {
@@ -4585,7 +5119,8 @@ service "kinesisvideosignaling" {
   }
 
   sdk {
-    id = "Kinesis Video Signaling"
+    id            = "Kinesis Video Signaling"
+    arn_namespace = "kinesisvideosignaling"
   }
 
   names {
@@ -4606,7 +5141,8 @@ service "kinesisvideosignaling" {
 
 service "kms" {
   sdk {
-    id = "KMS"
+    id            = "KMS"
+    arn_namespace = "kms"
   }
 
   names {
@@ -4629,7 +5165,8 @@ service "kms" {
 
 service "lakeformation" {
   sdk {
-    id = "LakeFormation"
+    id            = "LakeFormation"
+    arn_namespace = "lakeformation"
   }
 
   names {
@@ -4652,7 +5189,8 @@ service "lakeformation" {
 
 service "lambda" {
   sdk {
-    id = "Lambda"
+    id            = "Lambda"
+    arn_namespace = "lambda"
   }
 
   names {
@@ -4673,6 +5211,57 @@ service "lambda" {
   brand                    = "AWS"
 }
 
+service "lambdacore" {
+  cli_v2_command {
+    aws_cli_v2_command           = "lambda-core"
+    aws_cli_v2_command_no_dashes = "lambdacore"
+  }
+
+  sdk {
+    id            = "Lambda Core"
+    arn_namespace = "lambda"
+  }
+
+  names {
+    provider_name_upper = "LambdaCore"
+    human_friendly      = "Lambda Core"
+  }
+
+  endpoint_info {
+    endpoint_api_call = "ListNetworkConnectors"
+  }
+
+  resource_prefix {
+    correct = "aws_lambdacore_"
+  }
+
+  doc_prefix = ["lambdacore_"]
+  brand      = "AWS"
+}
+
+service "lambdamicrovms" {
+  sdk {
+    id            = "Lambda Microvms"
+    arn_namespace = "lambda"
+  }
+
+  names {
+    provider_name_upper = "LambdaMicroVMs"
+    human_friendly      = "Lambda MicroVMs"
+  }
+
+  endpoint_info {
+    endpoint_api_call = "ListMicrovms"
+  }
+
+  resource_prefix {
+    correct = "aws_lambdamicrovms_"
+  }
+
+  doc_prefix = ["lambdamicrovms_"]
+  brand      = "AWS"
+}
+
 service "launchwizard" {
   cli_v2_command {
     aws_cli_v2_command           = "launch-wizard"
@@ -4680,7 +5269,8 @@ service "launchwizard" {
   }
 
   sdk {
-    id = "Launch Wizard"
+    id            = "Launch Wizard"
+    arn_namespace = "launchwizard"
   }
 
   names {
@@ -4713,7 +5303,8 @@ service "lexmodels" {
   }
 
   sdk {
-    id = "Lex Model Building Service"
+    id            = "Lex Model Building Service"
+    arn_namespace = "lexmodels"
   }
 
   names {
@@ -4748,7 +5339,8 @@ service "lexv2models" {
   }
 
   sdk {
-    id = "Lex Models V2"
+    id            = "Lex Models V2"
+    arn_namespace = "lexv2models"
   }
 
   names {
@@ -4782,7 +5374,8 @@ service "lexruntime" {
   }
 
   sdk {
-    id = "Lex Runtime Service"
+    id            = "Lex Runtime Service"
+    arn_namespace = "lexruntime"
   }
 
   names {
@@ -4808,7 +5401,8 @@ service "lexruntimev2" {
   }
 
   sdk {
-    id = "Lex Runtime V2"
+    id            = "Lex Runtime V2"
+    arn_namespace = "lexruntimev2"
   }
 
   names {
@@ -4834,7 +5428,8 @@ service "licensemanager" {
   }
 
   sdk {
-    id = "License Manager"
+    id            = "License Manager"
+    arn_namespace = "licensemanager"
   }
 
   names {
@@ -4857,7 +5452,8 @@ service "licensemanager" {
 
 service "lightsail" {
   sdk {
-    id = "Lightsail"
+    id            = "Lightsail"
+    arn_namespace = "lightsail"
   }
 
   names {
@@ -4885,7 +5481,8 @@ service "location" {
   }
 
   sdk {
-    id = "Location"
+    id            = "Location"
+    arn_namespace = "location"
   }
 
   names {
@@ -4909,7 +5506,8 @@ service "location" {
 
 service "lookoutequipment" {
   sdk {
-    id = "LookoutEquipment"
+    id            = "LookoutEquipment"
+    arn_namespace = "lookoutequipment"
   }
 
   names {
@@ -4929,7 +5527,8 @@ service "lookoutequipment" {
 
 service "lookoutmetrics" {
   sdk {
-    id = "LookoutMetrics"
+    id            = "LookoutMetrics"
+    arn_namespace = "lookoutmetrics"
   }
 
   names {
@@ -4948,6 +5547,7 @@ service "lookoutmetrics" {
   provider_package_correct = "lookoutmetrics"
   doc_prefix               = ["lookoutmetrics_"]
   brand                    = "AWS"
+  not_implemented          = true
 }
 
 service "lookoutvision" {
@@ -4957,7 +5557,8 @@ service "lookoutvision" {
   }
 
   sdk {
-    id = "LookoutVision"
+    id            = "LookoutVision"
+    arn_namespace = "lookoutvision"
   }
 
   names {
@@ -4978,7 +5579,8 @@ service "lookoutvision" {
 
 service "machinelearning" {
   sdk {
-    id = "Machine Learning"
+    id            = "Machine Learning"
+    arn_namespace = "machinelearning"
   }
 
   names {
@@ -4998,7 +5600,8 @@ service "machinelearning" {
 
 service "macie2" {
   sdk {
-    id = "Macie2"
+    id            = "Macie2"
+    arn_namespace = "macie2"
   }
 
   names {
@@ -5021,7 +5624,8 @@ service "macie2" {
 
 service "macie" {
   sdk {
-    id = "Macie"
+    id            = "Macie"
+    arn_namespace = "macie"
   }
 
   names {
@@ -5041,7 +5645,8 @@ service "macie" {
 
 service "m2" {
   sdk {
-    id = "m2"
+    id            = "m2"
+    arn_namespace = "m2"
   }
 
   names {
@@ -5064,7 +5669,8 @@ service "m2" {
 
 service "managedblockchain" {
   sdk {
-    id = "ManagedBlockchain"
+    id            = "ManagedBlockchain"
+    arn_namespace = "managedblockchain"
   }
 
   names {
@@ -5089,7 +5695,8 @@ service "grafana" {
   }
 
   sdk {
-    id = "grafana"
+    id            = "grafana"
+    arn_namespace = "grafana"
   }
 
   names {
@@ -5113,7 +5720,8 @@ service "grafana" {
 
 service "kafka" {
   sdk {
-    id = "Kafka"
+    id            = "Kafka"
+    arn_namespace = "kafka"
   }
 
   names {
@@ -5138,7 +5746,8 @@ service "kafka" {
 
 service "kafkaconnect" {
   sdk {
-    id = "KafkaConnect"
+    id            = "KafkaConnect"
+    arn_namespace = "kafkaconnect"
   }
 
   names {
@@ -5167,7 +5776,8 @@ service "marketplacecatalog" {
   }
 
   sdk {
-    id = "Marketplace Catalog"
+    id            = "Marketplace Catalog"
+    arn_namespace = "marketplacecatalog"
   }
 
   names {
@@ -5187,7 +5797,8 @@ service "marketplacecatalog" {
 
 service "marketplacecommerceanalytics" {
   sdk {
-    id = "Marketplace Commerce Analytics"
+    id            = "Marketplace Commerce Analytics"
+    arn_namespace = "marketplacecommerceanalytics"
   }
 
   names {
@@ -5217,7 +5828,8 @@ service "marketplaceentitlement" {
   }
 
   sdk {
-    id = "Marketplace Entitlement Service"
+    id            = "Marketplace Entitlement Service"
+    arn_namespace = "marketplaceentitlement"
   }
 
   names {
@@ -5243,7 +5855,8 @@ service "marketplacemetering" {
   }
 
   sdk {
-    id = "Marketplace Metering"
+    id            = "Marketplace Metering"
+    arn_namespace = "marketplacemetering"
   }
 
   names {
@@ -5264,7 +5877,8 @@ service "marketplacemetering" {
 
 service "memorydb" {
   sdk {
-    id = "MemoryDB"
+    id            = "MemoryDB"
+    arn_namespace = "memorydb"
   }
 
   names {
@@ -5314,7 +5928,8 @@ service "mgh" {
   }
 
   sdk {
-    id = "Migration Hub"
+    id            = "Migration Hub"
+    arn_namespace = "mgh"
   }
 
   names {
@@ -5340,7 +5955,8 @@ service "migrationhubconfig" {
   }
 
   sdk {
-    id = "MigrationHub Config"
+    id            = "MigrationHub Config"
+    arn_namespace = "migrationhubconfig"
   }
 
   names {
@@ -5365,7 +5981,8 @@ service "migrationhubrefactorspaces" {
   }
 
   sdk {
-    id = "Migration Hub Refactor Spaces"
+    id            = "Migration Hub Refactor Spaces"
+    arn_namespace = "migrationhubrefactorspaces"
   }
 
   names {
@@ -5390,7 +6007,8 @@ service "migrationhubstrategy" {
   }
 
   sdk {
-    id = "MigrationHubStrategy"
+    id            = "MigrationHubStrategy"
+    arn_namespace = "migrationhubstrategy"
   }
 
   names {
@@ -5411,7 +6029,8 @@ service "migrationhubstrategy" {
 
 service "mobile" {
   sdk {
-    id = "Mobile"
+    id            = "Mobile"
+    arn_namespace = "mobile"
   }
 
   names {
@@ -5429,9 +6048,37 @@ service "mobile" {
   not_implemented          = true
 }
 
+service "mpa" {
+  sdk {
+    id            = "MPA"
+    arn_namespace = "mpa"
+  }
+
+  names {
+    provider_name_upper = "MPA"
+    human_friendly      = "Multi-party Approval"
+  }
+
+  endpoint_info {
+    endpoint_api_call = "ListApprovalTeams"
+    endpoint_region_overrides = {
+      "aws" = "us-east-1"
+    }
+  }
+
+  resource_prefix {
+    correct = "aws_mpa_"
+  }
+
+  provider_package_correct = "mpa"
+  doc_prefix               = ["mpa_"]
+  brand                    = "AWS"
+}
+
 service "mq" {
   sdk {
-    id = "mq"
+    id            = "mq"
+    arn_namespace = "mq"
   }
 
   names {
@@ -5454,7 +6101,8 @@ service "mq" {
 
 service "mturk" {
   sdk {
-    id = "MTurk"
+    id            = "MTurk"
+    arn_namespace = "mturk"
   }
 
   names {
@@ -5474,7 +6122,8 @@ service "mturk" {
 
 service "mwaa" {
   sdk {
-    id = "MWAA"
+    id            = "MWAA"
+    arn_namespace = "mwaa"
   }
 
   names {
@@ -5495,9 +6144,34 @@ service "mwaa" {
   brand                    = "AWS"
 }
 
+service "mwaaserverless" {
+  sdk {
+    id            = "MWAA Serverless"
+    arn_namespace = "airflow-serverless"
+  }
+
+  names {
+    provider_name_upper = "MWAAServerless"
+    human_friendly      = "MWAA (Managed Workflows for Apache Airflow) Serverless"
+  }
+
+  endpoint_info {
+    endpoint_api_call = "ListWorkflows"
+  }
+
+  resource_prefix {
+    correct = "aws_mwaaserverless_"
+  }
+
+  provider_package_correct = "mwaaserverless"
+  doc_prefix               = ["mwaaserverless_"]
+  brand                    = "AWS"
+}
+
 service "neptune" {
   sdk {
-    id = "Neptune"
+    id            = "Neptune"
+    arn_namespace = "rds"
   }
 
   names {
@@ -5530,7 +6204,8 @@ service "neptunegraph" {
   }
 
   sdk {
-    id = "Neptune Graph"
+    id            = "Neptune Graph"
+    arn_namespace = "neptunegraph"
   }
 
   names {
@@ -5558,7 +6233,8 @@ service "networkfirewall" {
   }
 
   sdk {
-    id = "Network Firewall"
+    id            = "Network Firewall"
+    arn_namespace = "network-firewall"
   }
 
   names {
@@ -5581,7 +6257,8 @@ service "networkfirewall" {
 
 service "networkmanager" {
   sdk {
-    id = "NetworkManager"
+    id            = "NetworkManager"
+    arn_namespace = "networkmanager"
   }
 
   names {
@@ -5600,6 +6277,8 @@ service "networkmanager" {
   provider_package_correct = "networkmanager"
   doc_prefix               = ["networkmanager_"]
   brand                    = "AWS"
+
+  is_global = true
 }
 
 service "nimble" {
@@ -5609,7 +6288,8 @@ service "nimble" {
   }
 
   sdk {
-    id = "nimble"
+    id            = "nimble"
+    arn_namespace = "nimble"
   }
 
   names {
@@ -5628,9 +6308,78 @@ service "nimble" {
   not_implemented          = true
 }
 
+service "notifications" {
+  go_packages {
+    v2_package = "notifications"
+  }
+
+  sdk {
+    id             = "notifications"
+    client_version = 2
+    arn_namespace  = "notifications"
+  }
+
+  names {
+    provider_name_upper = "Notifications"
+    human_friendly      = "User Notifications"
+  }
+
+  endpoint_info {
+    endpoint_api_call = "ListNotificationConfigurations"
+    endpoint_region_overrides = {
+      "aws" = "us-east-1"
+    }
+  }
+
+  resource_prefix {
+    correct = "aws_notifications_"
+  }
+
+  provider_package_correct = "notifications"
+  doc_prefix               = ["notifications_"]
+  brand                    = "AWS"
+
+  is_global = true
+}
+
+service "notificationscontacts" {
+  go_packages {
+    v2_package = "notificationscontacts"
+  }
+
+  sdk {
+    id             = "notificationscontacts"
+    client_version = 2
+    arn_namespace  = "notifications-contacts"
+  }
+
+  names {
+    provider_name_upper = "NotificationsContacts"
+    human_friendly      = "User Notifications Contacts"
+  }
+
+  endpoint_info {
+    endpoint_api_call = "ListEmailContacts"
+    endpoint_region_overrides = {
+      "aws" = "us-east-1"
+    }
+  }
+
+  resource_prefix {
+    correct = "aws_notificationscontacts_"
+  }
+
+  provider_package_correct = "notificationscontacts"
+  doc_prefix               = ["notificationscontacts_"]
+  brand                    = "AWS"
+
+  is_global = true
+}
+
 service "oam" {
   sdk {
-    id = "OAM"
+    id            = "OAM"
+    arn_namespace = "oam"
   }
 
   names {
@@ -5652,6 +6401,53 @@ service "oam" {
   brand                    = "AWS"
 }
 
+service "observabilityadmin" {
+  sdk {
+    id            = "ObservabilityAdmin"
+    arn_namespace = "observabilityadmin"
+  }
+
+  names {
+    provider_name_upper = "ObservabilityAdmin"
+    human_friendly      = "CloudWatch Observability Admin"
+  }
+
+  endpoint_info {
+    endpoint_api_call = "ListCentralizationRulesForOrganization"
+  }
+
+  resource_prefix {
+    correct = "aws_observabilityadmin_"
+  }
+
+  provider_package_correct = "observabilityadmin"
+  doc_prefix               = ["observabilityadmin_"]
+  brand                    = "AWS"
+}
+
+service "odb" {
+  sdk {
+    id            = "ODB"
+    arn_namespace = "odb"
+  }
+
+  names {
+    provider_name_upper = "ODB"
+    human_friendly      = "Oracle Database@AWS"
+  }
+
+  endpoint_info {
+    endpoint_api_call = "ListCloudExadataInfrastructures"
+  }
+
+  resource_prefix {
+    correct = "aws_odb_"
+  }
+
+  doc_prefix = ["odb_"]
+  brand      = "AWS"
+}
+
 service "opensearch" {
   go_packages {
     v1_package = "opensearchservice"
@@ -5659,7 +6455,8 @@ service "opensearch" {
   }
 
   sdk {
-    id = "OpenSearch"
+    id            = "OpenSearch"
+    arn_namespace = "es"
   }
 
   names {
@@ -5678,12 +6475,13 @@ service "opensearch" {
 
   provider_package_correct = "opensearch"
   doc_prefix               = ["opensearch_"]
-  brand                    = "AWS"
+  brand                    = "Amazon"
 }
 
 service "opensearchserverless" {
   sdk {
-    id = "OpenSearchServerless"
+    id            = "OpenSearchServerless"
+    arn_namespace = "opensearchserverless"
   }
 
   names {
@@ -5701,18 +6499,19 @@ service "opensearchserverless" {
 
   provider_package_correct = "opensearchserverless"
   doc_prefix               = ["opensearchserverless_"]
-  brand                    = "AWS"
+  brand                    = "Amazon"
 }
 
 service "osis" {
   sdk {
-    id = "OSIS"
+    id            = "OSIS"
+    arn_namespace = "osis"
   }
 
   names {
     aliases             = ["opensearchingestion"]
     provider_name_upper = "OpenSearchIngestion"
-    human_friendly      = "OpenSearch Ingestion"
+    human_friendly      = "OpenSearch Ingestion (OSIS)"
   }
 
   endpoint_info {
@@ -5725,12 +6524,13 @@ service "osis" {
 
   provider_package_correct = "osis"
   doc_prefix               = ["osis_"]
-  brand                    = "AWS"
+  brand                    = "Amazon"
 }
 
 service "opsworks" {
   sdk {
-    id = "OpsWorks"
+    id            = "OpsWorks"
+    arn_namespace = "opsworks"
   }
 
   names {
@@ -5749,6 +6549,7 @@ service "opsworks" {
   provider_package_correct = "opsworks"
   doc_prefix               = ["opsworks_"]
   brand                    = "AWS"
+  not_implemented          = true
 }
 
 service "opsworkscm" {
@@ -5758,7 +6559,8 @@ service "opsworkscm" {
   }
 
   sdk {
-    id = "OpsWorksCM"
+    id            = "OpsWorksCM"
+    arn_namespace = "opsworkscm"
   }
 
   names {
@@ -5778,7 +6580,8 @@ service "opsworkscm" {
 
 service "organizations" {
   sdk {
-    id = "Organizations"
+    id            = "Organizations"
+    arn_namespace = "organizations"
   }
 
   names {
@@ -5797,11 +6600,14 @@ service "organizations" {
   provider_package_correct = "organizations"
   doc_prefix               = ["organizations_"]
   brand                    = "AWS"
+
+  is_global = true
 }
 
 service "outposts" {
   sdk {
-    id = "Outposts"
+    id            = "Outposts"
+    arn_namespace = "outposts"
   }
 
   names {
@@ -5824,7 +6630,8 @@ service "outposts" {
 
 service "panorama" {
   sdk {
-    id = "Panorama"
+    id            = "Panorama"
+    arn_namespace = "panorama"
   }
 
   names {
@@ -5849,7 +6656,8 @@ service "paymentcryptography" {
   }
 
   sdk {
-    id = "PaymentCryptography"
+    id            = "PaymentCryptography"
+    arn_namespace = "paymentcryptography"
   }
 
   names {
@@ -5877,7 +6685,8 @@ service "pcaconnectorad" {
   }
 
   sdk {
-    id = "Pca Connector Ad"
+    id            = "Pca Connector Ad"
+    arn_namespace = "pcaconnectorad"
   }
 
   names {
@@ -5901,7 +6710,8 @@ service "pcaconnectorad" {
 service "pcs" {
 
   sdk {
-    id = "PCS"
+    id            = "PCS"
+    arn_namespace = "pcs"
   }
 
   names {
@@ -5924,7 +6734,8 @@ service "pcs" {
 
 service "personalize" {
   sdk {
-    id = "Personalize"
+    id            = "Personalize"
+    arn_namespace = "personalize"
   }
 
   names {
@@ -5949,7 +6760,8 @@ service "personalizeevents" {
   }
 
   sdk {
-    id = "Personalize Events"
+    id            = "Personalize Events"
+    arn_namespace = "personalizeevents"
   }
 
   names {
@@ -5974,7 +6786,8 @@ service "personalizeruntime" {
   }
 
   sdk {
-    id = "Personalize Runtime"
+    id            = "Personalize Runtime"
+    arn_namespace = "personalize"
   }
 
   names {
@@ -5994,12 +6807,13 @@ service "personalizeruntime" {
 
 service "pinpoint" {
   sdk {
-    id = "Pinpoint"
+    id            = "Pinpoint"
+    arn_namespace = "mobiletargeting"
   }
 
   names {
     provider_name_upper = "Pinpoint"
-    human_friendly      = "Pinpoint"
+    human_friendly      = "End User Messaging"
   }
 
   endpoint_info {
@@ -6022,7 +6836,8 @@ service "pinpointemail" {
   }
 
   sdk {
-    id = "Pinpoint Email"
+    id            = "Pinpoint Email"
+    arn_namespace = "ses"
   }
 
   names {
@@ -6047,7 +6862,8 @@ service "pinpointsmsvoice" {
   }
 
   sdk {
-    id = "Pinpoint SMS Voice"
+    id            = "Pinpoint SMS Voice"
+    arn_namespace = "pinpointsmsvoice"
   }
 
   names {
@@ -6072,7 +6888,8 @@ service "pinpointsmsvoicev2" {
   }
 
   sdk {
-    id = "Pinpoint SMS Voice v2"
+    id            = "Pinpoint SMS Voice v2"
+    arn_namespace = "pinpointsmsvoicev2"
   }
 
   names {
@@ -6095,7 +6912,8 @@ service "pinpointsmsvoicev2" {
 
 service "pipes" {
   sdk {
-    id = "Pipes"
+    id            = "Pipes"
+    arn_namespace = "pipes"
   }
 
   names {
@@ -6118,7 +6936,8 @@ service "pipes" {
 
 service "polly" {
   sdk {
-    id = "Polly"
+    id            = "Polly"
+    arn_namespace = "polly"
   }
 
   names {
@@ -6141,7 +6960,8 @@ service "polly" {
 
 service "pricing" {
   sdk {
-    id = "Pricing"
+    id            = "Pricing"
+    arn_namespace = "pricing"
   }
 
   names {
@@ -6160,11 +6980,14 @@ service "pricing" {
   provider_package_correct = "pricing"
   doc_prefix               = ["pricing_"]
   brand                    = "AWS"
+
+  is_global = true
 }
 
 service "proton" {
   sdk {
-    id = "Proton"
+    id            = "Proton"
+    arn_namespace = "proton"
   }
 
   names {
@@ -6184,7 +7007,8 @@ service "proton" {
 
 service "qbusiness" {
   sdk {
-    id = "QBusiness"
+    id            = "QBusiness"
+    arn_namespace = "qbusiness"
   }
 
   names {
@@ -6207,7 +7031,8 @@ service "qbusiness" {
 
 service "qldb" {
   sdk {
-    id = "QLDB"
+    id            = "QLDB"
+    arn_namespace = "qldb"
   }
 
   names {
@@ -6235,7 +7060,8 @@ service "qldbsession" {
   }
 
   sdk {
-    id = "QLDB Session"
+    id            = "QLDB Session"
+    arn_namespace = "qldbsession"
   }
 
   names {
@@ -6255,7 +7081,8 @@ service "qldbsession" {
 
 service "quicksight" {
   sdk {
-    id = "QuickSight"
+    id            = "QuickSight"
+    arn_namespace = "quicksight"
   }
 
   names {
@@ -6279,7 +7106,8 @@ service "quicksight" {
 
 service "ram" {
   sdk {
-    id = "RAM"
+    id            = "RAM"
+    arn_namespace = "ram"
   }
 
   names {
@@ -6302,7 +7130,8 @@ service "ram" {
 
 service "rds" {
   sdk {
-    id = "RDS"
+    id            = "RDS"
+    arn_namespace = "rds"
   }
 
   names {
@@ -6336,7 +7165,13 @@ service "rdsdata" {
   }
 
   sdk {
-    id = "RDS Data"
+    id            = "RDS Data"
+    arn_namespace = "rdsdata"
+  }
+
+  endpoint_info {
+    endpoint_api_call   = "ExecuteStatement"
+    endpoint_api_params = "ResourceArn: aws.String(\"arn:\" + acctest.Partition() + \":rds:\" + acctest.Region() + \":\" + acctest.Ct12Digit + \":cluster:test\"),\n\t\tSecretArn: aws.String(\"arn:\" + acctest.Partition() + \":secretsmanager:\" + acctest.Region() + \":\" + acctest.Ct12Digit + \":secret:test\"),\n\t\tSql: aws.String(\"SELECT 1\")"
   }
 
   names {
@@ -6352,12 +7187,12 @@ service "rdsdata" {
   provider_package_correct = "rdsdata"
   doc_prefix               = ["rdsdata_"]
   brand                    = "Amazon"
-  not_implemented          = true
 }
 
 service "pi" {
   sdk {
-    id = "PI"
+    id            = "PI"
+    arn_namespace = "pi"
   }
 
   names {
@@ -6382,7 +7217,8 @@ service "rbin" {
   }
 
   sdk {
-    id = "rbin"
+    id            = "rbin"
+    arn_namespace = "rbin"
   }
 
   names {
@@ -6407,7 +7243,8 @@ service "rbin" {
 
 service "redshift" {
   sdk {
-    id = "Redshift"
+    id            = "Redshift"
+    arn_namespace = "redshift"
   }
 
   names {
@@ -6440,7 +7277,8 @@ service "redshiftdata" {
   }
 
   sdk {
-    id = "Redshift Data"
+    id            = "Redshift Data"
+    arn_namespace = "redshiftdata"
   }
 
   names {
@@ -6470,7 +7308,8 @@ service "redshiftserverless" {
   }
 
   sdk {
-    id = "Redshift Serverless"
+    id            = "Redshift Serverless"
+    arn_namespace = "redshiftserverless"
   }
 
   names {
@@ -6493,7 +7332,8 @@ service "redshiftserverless" {
 
 service "rekognition" {
   sdk {
-    id = "Rekognition"
+    id            = "Rekognition"
+    arn_namespace = "rekognition"
   }
 
   names {
@@ -6516,7 +7356,8 @@ service "rekognition" {
 
 service "resiliencehub" {
   sdk {
-    id = "resiliencehub"
+    id            = "resiliencehub"
+    arn_namespace = "resiliencehub"
   }
 
   names {
@@ -6537,6 +7378,35 @@ service "resiliencehub" {
   brand                    = "AWS"
 }
 
+service "resiliencehubv2" {
+  cli_v2_command {
+    aws_cli_v2_command           = "resilience-hub-v2"
+    aws_cli_v2_command_no_dashes = "resiliencehubv2"
+  }
+
+  sdk {
+    id            = "resiliencehubv2"
+    arn_namespace = "resiliencehub"
+  }
+
+  names {
+    provider_name_upper = "ResilienceHubV2"
+    human_friendly      = "Resilience Hub V2"
+  }
+
+  endpoint_info {
+    endpoint_api_call = "ListPolicies"
+  }
+
+  resource_prefix {
+    correct = "aws_resiliencehubv2_"
+  }
+
+  provider_package_correct = "resiliencehubv2"
+  doc_prefix               = ["resiliencehubv2_"]
+  brand                    = "AWS"
+}
+
 service "resourceexplorer2" {
   cli_v2_command {
     aws_cli_v2_command           = "resource-explorer-2"
@@ -6544,14 +7414,14 @@ service "resourceexplorer2" {
   }
 
   sdk {
-    id = "Resource Explorer 2"
+    id            = "Resource Explorer 2"
+    arn_namespace = "resourceexplorer2"
   }
 
   names {
     provider_name_upper = "ResourceExplorer2"
     human_friendly      = "Resource Explorer"
   }
-
 
   endpoint_info {
     endpoint_api_call = "ListIndexes"
@@ -6573,7 +7443,8 @@ service "resourcegroups" {
   }
 
   sdk {
-    id = "Resource Groups"
+    id            = "Resource Groups"
+    arn_namespace = "resourcegroups"
   }
 
   names {
@@ -6596,7 +7467,8 @@ service "resourcegroups" {
 
 service "resourcegroupstaggingapi" {
   sdk {
-    id = "Resource Groups Tagging API"
+    id            = "Resource Groups Tagging API"
+    arn_namespace = "resourcegroupstaggingapi"
   }
 
   names {
@@ -6620,7 +7492,8 @@ service "resourcegroupstaggingapi" {
 
 service "robomaker" {
   sdk {
-    id = "RoboMaker"
+    id            = "RoboMaker"
+    arn_namespace = "robomaker"
   }
 
   names {
@@ -6640,7 +7513,8 @@ service "robomaker" {
 
 service "rolesanywhere" {
   sdk {
-    id = "RolesAnywhere"
+    id            = "RolesAnywhere"
+    arn_namespace = "rolesanywhere"
   }
 
   names {
@@ -6659,11 +7533,14 @@ service "rolesanywhere" {
   provider_package_correct = "rolesanywhere"
   doc_prefix               = ["rolesanywhere_"]
   brand                    = "AWS"
+
+  is_global = true
 }
 
 service "route53" {
   sdk {
-    id = "Route 53"
+    id            = "Route 53"
+    arn_namespace = "route53"
   }
 
   names {
@@ -6688,11 +7565,14 @@ service "route53" {
   provider_package_correct = "route53"
   doc_prefix               = ["route53_cidr_", "route53_delegation_", "route53_health_", "route53_hosted_", "route53_key_", "route53_query_", "route53_record", "route53_traffic_", "route53_vpc_", "route53_zone"]
   brand                    = "AWS"
+
+  is_global = true
 }
 
 service "route53domains" {
   sdk {
-    id = "Route 53 Domains"
+    id            = "Route 53 Domains"
+    arn_namespace = "route53domains"
   }
 
   names {
@@ -6714,11 +7594,14 @@ service "route53domains" {
   provider_package_correct = "route53domains"
   doc_prefix               = ["route53domains_"]
   brand                    = "AWS"
+
+  is_global = true
 }
 
 service "route53profiles" {
   sdk {
-    id = "Route 53 Profiles"
+    id            = "Route 53 Profiles"
+    arn_namespace = "route53profiles"
   }
 
   names {
@@ -6746,7 +7629,8 @@ service "route53recoverycluster" {
   }
 
   sdk {
-    id = "Route53 Recovery Cluster"
+    id            = "Route53 Recovery Cluster"
+    arn_namespace = "route53recoverycluster"
   }
 
   names {
@@ -6771,7 +7655,8 @@ service "route53recoverycontrolconfig" {
   }
 
   sdk {
-    id = "Route53 Recovery Control Config"
+    id            = "Route53 Recovery Control Config"
+    arn_namespace = "route53recoverycontrolconfig"
   }
 
   names {
@@ -6793,6 +7678,8 @@ service "route53recoverycontrolconfig" {
   provider_package_correct = "route53recoverycontrolconfig"
   doc_prefix               = ["route53recoverycontrolconfig_"]
   brand                    = "AWS"
+
+  is_global = true
 }
 
 service "route53recoveryreadiness" {
@@ -6802,7 +7689,8 @@ service "route53recoveryreadiness" {
   }
 
   sdk {
-    id = "Route53 Recovery Readiness"
+    id            = "Route53 Recovery Readiness"
+    arn_namespace = "route53recoveryreadiness"
   }
 
   names {
@@ -6824,11 +7712,14 @@ service "route53recoveryreadiness" {
   provider_package_correct = "route53recoveryreadiness"
   doc_prefix               = ["route53recoveryreadiness_"]
   brand                    = "AWS"
+
+  is_global = true
 }
 
 service "route53resolver" {
   sdk {
-    id = "Route53Resolver"
+    id            = "Route53Resolver"
+    arn_namespace = "route53resolver"
   }
 
   names {
@@ -6857,13 +7748,15 @@ service "s3" {
   }
 
   sdk {
-    id = "S3"
+    id            = "S3"
+    arn_namespace = "s3"
   }
 
   names {
-    aliases             = ["s3api"]
-    provider_name_upper = "S3"
-    human_friendly      = "S3 (Simple Storage)"
+    aliases              = ["s3api"]
+    provider_name_upper  = "S3"
+    human_friendly       = "S3 (Simple Storage)"
+    human_friendly_short = "S3"
   }
 
   env_var {
@@ -6886,7 +7779,8 @@ service "s3" {
 
 service "s3control" {
   sdk {
-    id = "S3 Control"
+    id            = "S3 Control"
+    arn_namespace = "s3"
   }
 
   names {
@@ -6910,7 +7804,8 @@ service "s3control" {
 
 service "s3tables" {
   sdk {
-    id = "S3Tables"
+    id            = "S3Tables"
+    arn_namespace = "s3tables"
   }
 
   names {
@@ -6930,9 +7825,57 @@ service "s3tables" {
   brand      = "Amazon"
 }
 
+service "s3files" {
+  sdk {
+    id            = "S3Files"
+    arn_namespace = "s3files"
+  }
+
+  names {
+    provider_name_upper = "S3Files"
+    human_friendly      = "S3 Files"
+  }
+
+  endpoint_info {
+    endpoint_api_call = "ListFileSystems"
+  }
+
+  resource_prefix {
+    correct = "aws_s3files_"
+  }
+
+  provider_package_correct = "s3files"
+  doc_prefix               = ["s3files_"]
+  brand                    = "AWS"
+}
+
+service "s3vectors" {
+  sdk {
+    id            = "S3Vectors"
+    arn_namespace = "s3vectors"
+  }
+
+  names {
+    provider_name_upper = "S3Vectors"
+    human_friendly      = "S3 Vectors"
+  }
+
+  endpoint_info {
+    endpoint_api_call = "ListVectorBuckets"
+  }
+
+  resource_prefix {
+    correct = "aws_s3vectors_"
+  }
+
+  doc_prefix = ["s3vectors_"]
+  brand      = "Amazon"
+}
+
 service "glacier" {
   sdk {
-    id = "Glacier"
+    id            = "Glacier"
+    arn_namespace = "glacier"
   }
 
   names {
@@ -6955,7 +7898,8 @@ service "glacier" {
 
 service "s3outposts" {
   sdk {
-    id = "S3Outposts"
+    id            = "S3Outposts"
+    arn_namespace = "s3-outposts"
   }
 
   names {
@@ -6978,7 +7922,8 @@ service "s3outposts" {
 
 service "sagemaker" {
   sdk {
-    id = "SageMaker"
+    id            = "SageMaker"
+    arn_namespace = "sagemaker"
   }
 
   names {
@@ -7011,7 +7956,8 @@ service "sagemakera2iruntime" {
   }
 
   sdk {
-    id = "SageMaker A2I Runtime"
+    id            = "SageMaker A2I Runtime"
+    arn_namespace = "sagemaker"
   }
 
   names {
@@ -7042,7 +7988,8 @@ service "sagemakeredge" {
   }
 
   sdk {
-    id = "Sagemaker Edge"
+    id            = "Sagemaker Edge"
+    arn_namespace = "sagemakeredge"
   }
 
   names {
@@ -7068,7 +8015,8 @@ service "sagemakerfeaturestoreruntime" {
   }
 
   sdk {
-    id = "SageMaker FeatureStore Runtime"
+    id            = "SageMaker FeatureStore Runtime"
+    arn_namespace = "sagemakerfeaturestoreruntime"
   }
 
   names {
@@ -7093,7 +8041,8 @@ service "sagemakerruntime" {
   }
 
   sdk {
-    id = "SageMaker Runtime"
+    id            = "SageMaker Runtime"
+    arn_namespace = "sagemakerruntime"
   }
 
   names {
@@ -7113,12 +8062,17 @@ service "sagemakerruntime" {
 
 service "savingsplans" {
   sdk {
-    id = "savingsplans"
+    id            = "savingsplans"
+    arn_namespace = "savingsplans"
   }
 
   names {
     provider_name_upper = "SavingsPlans"
     human_friendly      = "Savings Plans"
+  }
+
+  endpoint_info {
+    endpoint_api_call = "DescribeSavingsPlans"
   }
 
   resource_prefix {
@@ -7128,7 +8082,8 @@ service "savingsplans" {
   provider_package_correct = "savingsplans"
   doc_prefix               = ["savingsplans_"]
   brand                    = "AWS"
-  not_implemented          = true
+
+  is_global = true
 }
 
 service "simpledb" {
@@ -7145,6 +8100,7 @@ service "simpledb" {
   sdk {
     id             = "SimpleDB"
     client_version = 1
+    arn_namespace  = "sdb"
   }
 
   names {
@@ -7170,11 +8126,13 @@ service "simpledb" {
   provider_package_correct = "sdb"
   doc_prefix               = ["simpledb_"]
   brand                    = "AWS"
+  not_implemented          = true
 }
 
 service "scheduler" {
   sdk {
-    id = "Scheduler"
+    id            = "Scheduler"
+    arn_namespace = "scheduler"
   }
 
   names {
@@ -7197,7 +8155,8 @@ service "scheduler" {
 
 service "secretsmanager" {
   sdk {
-    id = "Secrets Manager"
+    id            = "Secrets Manager"
+    arn_namespace = "secretsmanager"
   }
 
   names {
@@ -7220,7 +8179,8 @@ service "secretsmanager" {
 
 service "securityhub" {
   sdk {
-    id = "SecurityHub"
+    id            = "SecurityHub"
+    arn_namespace = "securityhub"
   }
 
   names {
@@ -7243,7 +8203,8 @@ service "securityhub" {
 
 service "securitylake" {
   sdk {
-    id = "SecurityLake"
+    id            = "SecurityLake"
+    arn_namespace = "securitylake"
   }
 
   names {
@@ -7271,7 +8232,8 @@ service "serverlessrepo" {
   }
 
   sdk {
-    id = "ServerlessApplicationRepository"
+    id            = "ServerlessApplicationRepository"
+    arn_namespace = "serverlessrepo"
   }
 
   names {
@@ -7296,7 +8258,8 @@ service "serverlessrepo" {
 
 service "servicecatalog" {
   sdk {
-    id = "Service Catalog"
+    id            = "Service Catalog"
+    arn_namespace = "servicecatalog"
   }
 
   names {
@@ -7329,7 +8292,8 @@ service "servicecatalogappregistry" {
   }
 
   sdk {
-    id = "Service Catalog AppRegistry"
+    id            = "Service Catalog AppRegistry"
+    arn_namespace = "servicecatalogappregistry"
   }
 
   names {
@@ -7358,7 +8322,8 @@ service "servicequotas" {
   }
 
   sdk {
-    id = "Service Quotas"
+    id            = "Service Quotas"
+    arn_namespace = "servicequotas"
   }
 
   names {
@@ -7378,9 +8343,34 @@ service "servicequotas" {
   doc_prefix               = ["servicequotas_"]
 }
 
+service "mailmanager" {
+  sdk {
+    id            = "MailManager"
+    arn_namespace = "ses"
+  }
+
+  names {
+    provider_name_upper = "MailManager"
+    human_friendly      = "SES Mail Manager"
+  }
+
+  endpoint_info {
+    endpoint_api_call = "ListIngressPoints"
+  }
+
+  resource_prefix {
+    correct = "aws_mailmanager_"
+  }
+
+  provider_package_correct = "mailmanager"
+  doc_prefix               = ["mailmanager_"]
+  brand                    = "Amazon"
+}
+
 service "ses" {
   sdk {
-    id = "SES"
+    id            = "SES"
+    arn_namespace = "ses"
   }
 
   names {
@@ -7403,7 +8393,8 @@ service "ses" {
 
 service "sesv2" {
   sdk {
-    id = "SESv2"
+    id            = "SESv2"
+    arn_namespace = "sesv2"
   }
 
   names {
@@ -7431,7 +8422,8 @@ service "sfn" {
   }
 
   sdk {
-    id = "SFN"
+    id            = "SFN"
+    arn_namespace = "states"
   }
 
   names {
@@ -7455,7 +8447,8 @@ service "sfn" {
 
 service "shield" {
   sdk {
-    id = "Shield"
+    id            = "Shield"
+    arn_namespace = "shield"
   }
 
   names {
@@ -7477,11 +8470,14 @@ service "shield" {
   provider_package_correct = "shield"
   doc_prefix               = ["shield_"]
   brand                    = "AWS"
+
+  is_global = true
 }
 
 service "signer" {
   sdk {
-    id = "signer"
+    id            = "signer"
+    arn_namespace = "signer"
   }
 
   names {
@@ -7504,7 +8500,8 @@ service "signer" {
 
 service "sms" {
   sdk {
-    id = "SMS"
+    id            = "SMS"
+    arn_namespace = "sms"
   }
 
   names {
@@ -7529,7 +8526,8 @@ service "snowdevicemanagement" {
   }
 
   sdk {
-    id = "Snow Device Management"
+    id            = "Snow Device Management"
+    arn_namespace = "snowdevicemanagement"
   }
 
   names {
@@ -7549,7 +8547,8 @@ service "snowdevicemanagement" {
 
 service "snowball" {
   sdk {
-    id = "Snowball"
+    id            = "Snowball"
+    arn_namespace = "snowball"
   }
 
   names {
@@ -7569,7 +8568,8 @@ service "snowball" {
 
 service "sns" {
   sdk {
-    id = "SNS"
+    id            = "SNS"
+    arn_namespace = "sns"
   }
 
   names {
@@ -7592,7 +8592,8 @@ service "sns" {
 
 service "sqs" {
   sdk {
-    id = "SQS"
+    id            = "SQS"
+    arn_namespace = "sqs"
   }
 
   names {
@@ -7615,7 +8616,8 @@ service "sqs" {
 
 service "ssm" {
   sdk {
-    id = "SSM"
+    id            = "SSM"
+    arn_namespace = "ssm"
   }
 
   names {
@@ -7643,7 +8645,8 @@ service "ssmcontacts" {
   }
 
   sdk {
-    id = "SSM Contacts"
+    id            = "SSM Contacts"
+    arn_namespace = "ssmcontacts"
   }
 
   names {
@@ -7671,7 +8674,8 @@ service "ssmincidents" {
   }
 
   sdk {
-    id = "SSM Incidents"
+    id            = "SSM Incidents"
+    arn_namespace = "ssmincidents"
   }
 
   names {
@@ -7699,7 +8703,8 @@ service "ssmsap" {
   }
 
   sdk {
-    id = "Ssm Sap"
+    id            = "Ssm Sap"
+    arn_namespace = "ssmsap"
   }
 
   names {
@@ -7727,7 +8732,8 @@ service "ssmquicksetup" {
   }
 
   sdk {
-    id = "SSM QuickSetup"
+    id            = "SSM QuickSetup"
+    arn_namespace = "ssmquicksetup"
   }
 
   names {
@@ -7750,7 +8756,8 @@ service "ssmquicksetup" {
 
 service "sso" {
   sdk {
-    id = "SSO"
+    id            = "SSO"
+    arn_namespace = "sso"
   }
 
   names {
@@ -7781,7 +8788,8 @@ service "ssoadmin" {
   }
 
   sdk {
-    id = "SSO Admin"
+    id            = "SSO Admin"
+    arn_namespace = "ssoadmin"
   }
 
   names {
@@ -7804,7 +8812,8 @@ service "ssoadmin" {
 
 service "identitystore" {
   sdk {
-    id = "identitystore"
+    id            = "identitystore"
+    arn_namespace = "identitystore"
   }
 
   names {
@@ -7833,7 +8842,8 @@ service "ssooidc" {
   }
 
   sdk {
-    id = "SSO OIDC"
+    id            = "SSO OIDC"
+    arn_namespace = "ssooidc"
   }
 
   names {
@@ -7853,7 +8863,8 @@ service "ssooidc" {
 
 service "storagegateway" {
   sdk {
-    id = "Storage Gateway"
+    id            = "Storage Gateway"
+    arn_namespace = "storagegateway"
   }
 
   names {
@@ -7876,7 +8887,8 @@ service "storagegateway" {
 
 service "sts" {
   sdk {
-    id = "STS"
+    id            = "STS"
+    arn_namespace = "sts"
   }
 
   names {
@@ -7901,11 +8913,14 @@ service "sts" {
   provider_package_correct = "sts"
   doc_prefix               = ["caller_identity"]
   brand                    = "AWS"
+
+  is_global = true
 }
 
 service "support" {
   sdk {
-    id = "Support"
+    id            = "Support"
+    arn_namespace = "support"
   }
 
   names {
@@ -7925,7 +8940,8 @@ service "support" {
 
 service "swf" {
   sdk {
-    id = "SWF"
+    id            = "SWF"
+    arn_namespace = "swf"
   }
 
   names {
@@ -7949,7 +8965,8 @@ service "swf" {
 
 service "taxsettings" {
   sdk {
-    id = "TaxSettings"
+    id            = "TaxSettings"
+    arn_namespace = "taxsettings"
   }
 
   names {
@@ -7972,7 +8989,8 @@ service "taxsettings" {
 
 service "textract" {
   sdk {
-    id = "Textract"
+    id            = "Textract"
+    arn_namespace = "textract"
   }
 
   names {
@@ -7997,7 +9015,8 @@ service "timestreaminfluxdb" {
   }
 
   sdk {
-    id = "Timestream InfluxDB"
+    id            = "Timestream InfluxDB"
+    arn_namespace = "timestreaminfluxdb"
   }
 
   names {
@@ -8025,7 +9044,8 @@ service "timestreamquery" {
   }
 
   sdk {
-    id = "Timestream Query"
+    id            = "Timestream Query"
+    arn_namespace = "timestreamquery"
   }
 
   names {
@@ -8053,7 +9073,8 @@ service "timestreamwrite" {
   }
 
   sdk {
-    id = "Timestream Write"
+    id            = "Timestream Write"
+    arn_namespace = "timestreamwrite"
   }
 
   names {
@@ -8081,7 +9102,8 @@ service "transcribe" {
   }
 
   sdk {
-    id = "Transcribe"
+    id            = "Transcribe"
+    arn_namespace = "transcribe"
   }
 
   names {
@@ -8110,7 +9132,8 @@ service "transcribestreaming" {
   }
 
   sdk {
-    id = "Transcribe Streaming"
+    id            = "Transcribe Streaming"
+    arn_namespace = "transcribestreaming"
   }
 
   names {
@@ -8131,14 +9154,14 @@ service "transcribestreaming" {
 
 service "transfer" {
   sdk {
-    id = "Transfer"
+    id            = "Transfer"
+    arn_namespace = "transfer"
   }
 
   names {
     provider_name_upper = "Transfer"
     human_friendly      = "Transfer Family"
   }
-
 
   endpoint_info {
     endpoint_api_call = "ListConnectors"
@@ -8155,7 +9178,8 @@ service "transfer" {
 
 service "translate" {
   sdk {
-    id = "Translate"
+    id            = "Translate"
+    arn_namespace = "translate"
   }
 
   names {
@@ -8173,6 +9197,34 @@ service "translate" {
   not_implemented          = true
 }
 
+service "uxc" {
+  sdk {
+    id            = "UXC"
+    arn_namespace = "uxc"
+  }
+
+  names {
+    provider_name_upper = "UXC"
+    human_friendly      = "User Experience Customization"
+  }
+
+  endpoint_info {
+    endpoint_api_call = "ListServices"
+    endpoint_region_overrides = {
+      "aws" = "us-east-1"
+    }
+  }
+
+  resource_prefix {
+    correct = "aws_uxc_"
+  }
+
+  provider_package_correct = "uxc"
+  doc_prefix               = ["uxc_"]
+  brand                    = "Amazon"
+  is_global                = true
+}
+
 service "vpclattice" {
   cli_v2_command {
     aws_cli_v2_command           = "vpc-lattice"
@@ -8180,7 +9232,8 @@ service "vpclattice" {
   }
 
   sdk {
-    id = "VPC Lattice"
+    id            = "VPC Lattice"
+    arn_namespace = "vpclattice"
   }
 
   names {
@@ -8203,7 +9256,8 @@ service "vpclattice" {
 
 service "wafv2" {
   sdk {
-    id = "WAFV2"
+    id            = "WAFV2"
+    arn_namespace = "wafv2"
   }
 
   names {
@@ -8227,7 +9281,8 @@ service "wafv2" {
 
 service "waf" {
   sdk {
-    id = "WAF"
+    id            = "WAF"
+    arn_namespace = "waf"
   }
 
   names {
@@ -8246,6 +9301,8 @@ service "waf" {
   provider_package_correct = "waf"
   doc_prefix               = ["waf_"]
   brand                    = "AWS"
+
+  is_global = true
 }
 
 service "wafregional" {
@@ -8255,7 +9312,8 @@ service "wafregional" {
   }
 
   sdk {
-    id = "WAF Regional"
+    id            = "WAF Regional"
+    arn_namespace = "wafregional"
   }
 
   names {
@@ -8278,7 +9336,8 @@ service "wafregional" {
 
 service "budgets" {
   sdk {
-    id = "Budgets"
+    id            = "Budgets"
+    arn_namespace = "budgets"
   }
 
   names {
@@ -8298,11 +9357,14 @@ service "budgets" {
   provider_package_correct = "budgets"
   doc_prefix               = ["budgets_"]
   brand                    = "AWS"
+
+  is_global = true
 }
 
 service "wellarchitected" {
   sdk {
-    id = "WellArchitected"
+    id            = "WellArchitected"
+    arn_namespace = "wellarchitected"
   }
 
   names {
@@ -8325,7 +9387,8 @@ service "wellarchitected" {
 
 service "workdocs" {
   sdk {
-    id = "WorkDocs"
+    id            = "WorkDocs"
+    arn_namespace = "workdocs"
   }
 
   names {
@@ -8345,7 +9408,8 @@ service "workdocs" {
 
 service "worklink" {
   sdk {
-    id = "WorkLink"
+    id            = "WorkLink"
+    arn_namespace = "worklink"
   }
 
   names {
@@ -8364,16 +9428,23 @@ service "worklink" {
   provider_package_correct = "worklink"
   doc_prefix               = ["worklink_"]
   brand                    = "AWS"
+  not_implemented          = true
 }
 
 service "workmail" {
   sdk {
-    id = "WorkMail"
+    id            = "WorkMail"
+    arn_namespace = "workmail"
   }
 
   names {
     provider_name_upper = "WorkMail"
     human_friendly      = "WorkMail"
+  }
+
+  endpoint_info {
+    endpoint_api_call   = "ListResources"
+    endpoint_api_params = "OrganizationId: aws.String(\"m-12345678901234567890123456789012\")"
   }
 
   resource_prefix {
@@ -8383,12 +9454,12 @@ service "workmail" {
   provider_package_correct = "workmail"
   doc_prefix               = ["workmail_"]
   brand                    = "Amazon"
-  not_implemented          = true
 }
 
 service "workmailmessageflow" {
   sdk {
-    id = "WorkMailMessageFlow"
+    id            = "WorkMailMessageFlow"
+    arn_namespace = "workmailmessageflow"
   }
 
   names {
@@ -8408,7 +9479,8 @@ service "workmailmessageflow" {
 
 service "workspaces" {
   sdk {
-    id = "WorkSpaces"
+    id            = "WorkSpaces"
+    arn_namespace = "workspaces"
   }
 
   names {
@@ -8436,7 +9508,8 @@ service "workspacesweb" {
   }
 
   sdk {
-    id = "WorkSpaces Web"
+    id            = "WorkSpaces Web"
+    arn_namespace = "workspacesweb"
   }
 
   names {
@@ -8459,7 +9532,8 @@ service "workspacesweb" {
 
 service "xray" {
   sdk {
-    id = "XRay"
+    id            = "XRay"
+    arn_namespace = "xray"
   }
 
   names {
@@ -8482,7 +9556,8 @@ service "xray" {
 
 service "verifiedpermissions" {
   sdk {
-    id = "VerifiedPermissions"
+    id            = "VerifiedPermissions"
+    arn_namespace = "verifiedpermissions"
   }
 
   names {
@@ -8505,7 +9580,8 @@ service "verifiedpermissions" {
 
 service "codecatalyst" {
   sdk {
-    id = "CodeCatalyst"
+    id            = "CodeCatalyst"
+    arn_namespace = "codecatalyst"
   }
 
   names {
@@ -8528,7 +9604,8 @@ service "codecatalyst" {
 
 service "mediapackagev2" {
   sdk {
-    id = "MediaPackageV2"
+    id            = "MediaPackageV2"
+    arn_namespace = "mediapackagev2"
   }
 
   names {
@@ -8552,7 +9629,8 @@ service "mediapackagev2" {
 
 service "iot" {
   sdk {
-    id = "IoT"
+    id            = "IoT"
+    arn_namespace = "iot"
   }
 
   names {
@@ -8575,7 +9653,8 @@ service "iot" {
 
 service "dynamodb" {
   sdk {
-    id = "DynamoDB"
+    id            = "DynamoDB"
+    arn_namespace = "dynamodb"
   }
 
   names {
@@ -8603,12 +9682,14 @@ service "dynamodb" {
 
 service "ec2" {
   sdk {
-    id = "EC2"
+    id            = "EC2"
+    arn_namespace = "ec2"
   }
 
   names {
-    provider_name_upper = "EC2"
-    human_friendly      = "EC2 (Elastic Compute Cloud)"
+    provider_name_upper  = "EC2"
+    human_friendly       = "EC2 (Elastic Compute Cloud)"
+    human_friendly_short = "EC2"
   }
 
   endpoint_info {
@@ -8616,7 +9697,7 @@ service "ec2" {
   }
 
   resource_prefix {
-    actual  = "aws_(ami|availability_zone|ec2_(availability|capacity|fleet|host|instance|public_ipv4_pool|serial|spot|tag)|eip|instance|key_pair|launch_template|placement_group|spot)"
+    actual  = "aws_(ami|availability_zone|ec2_(allowed_images_settings|availability|capacity|default_credit_specification|fleet|host|instance|public_ipv4_pool|secondary_network|secondary_subnet|serial|spot|tag)|eip|instance|key_pair|launch_template|placement_group|spot)"
     correct = "aws_ec2_"
   }
 
@@ -8681,7 +9762,7 @@ service "ec2" {
 
     split_package       = "ec2"
     file_prefix         = "outposts_"
-    doc_prefix          = ["ec2_coip_pool", "ec2_local_gateway"]
+    doc_prefix          = ["ec2_coip_pool", "ec2_local_gateway", "ec2_service_link_virtual_interface"]
     brand               = "AWS"
     exclude             = true
     allowed_subcategory = true
@@ -8772,8 +9853,9 @@ service "ec2" {
     }
 
     names {
-      provider_name_upper = "VPC"
-      human_friendly      = "VPC (Virtual Private Cloud)"
+      provider_name_upper  = "VPC"
+      human_friendly       = "VPC (Virtual Private Cloud)"
+      human_friendly_short = "VPC"
     }
 
     resource_prefix {
@@ -8783,7 +9865,7 @@ service "ec2" {
 
     split_package       = "ec2"
     file_prefix         = "vpc_"
-    doc_prefix          = ["default_network_", "default_route_", "default_security_", "default_subnet", "default_vpc", "ec2_managed_", "ec2_network_", "ec2_subnet_", "ec2_traffic_", "egress_only_", "flow_log", "internet_gateway", "main_route_", "nat_", "network_", "prefix_list", "route_", "route\\.", "security_group", "subnet", "vpc_dhcp_", "vpc_endpoint", "vpc_ipv", "vpc_network_performance", "vpc_peering_", "vpc_security_group_", "vpc\\.", "vpcs\\.", "vpc_block_public_access_"]
+    doc_prefix          = ["default_network_", "default_route_", "default_security_", "default_subnet", "default_vpc", "ec2_managed_", "ec2_network_", "ec2_subnet_", "ec2_traffic_", "egress_only_", "flow_log", "internet_gateway", "main_route_", "nat_", "network_", "prefix_list", "route_", "route\\.", "security_group", "subnet", "vpc_dhcp_", "vpc_encryption_", "vpc_endpoint", "vpc_ipv", "vpc_network_performance", "vpc_peering_", "vpc_security_group_", "vpc\\.", "vpcs\\.", "vpc_block_public_access_", "vpc_route_server"]
     brand               = "Amazon"
     exclude             = true
     allowed_subcategory = true
@@ -8926,6 +10008,30 @@ service "ec2" {
   provider_package_correct = "ec2"
   split_package            = "ec2"
   file_prefix              = "ec2_"
-  doc_prefix               = ["ami", "availability_zone", "ec2_availability_", "ec2_capacity_", "ec2_fleet", "ec2_host", "ec2_image_", "ec2_instance_", "ec2_public_ipv4_pool", "ec2_serial_", "ec2_spot_", "ec2_tag", "eip", "instance", "key_pair", "launch_template", "placement_group", "spot_"]
+  doc_prefix               = ["ami", "availability_zone", "ec2_allowed_images_settings", "ec2_availability_", "ec2_capacity_", "ec2_default_credit_specification", "ec2_fleet", "ec2_host", "ec2_image_", "ec2_instance_", "ec2_public_ipv4_pool", "ec2_secondary_network", "ec2_secondary_subnet", "ec2_serial_", "ec2_spot_", "ec2_tag", "eip", "instance", "key_pair", "launch_template", "placement_group", "spot_"]
+  brand                    = "Amazon"
+}
+
+service "evs" {
+  sdk {
+    id            = "EVS"
+    arn_namespace = "evs"
+  }
+
+  names {
+    provider_name_upper = "EVS"
+    human_friendly      = "Elastic VMware"
+  }
+
+  endpoint_info {
+    endpoint_api_call = "ListEnvironments"
+  }
+
+  resource_prefix {
+    correct = "aws_evs_"
+  }
+
+  provider_package_correct = "evs"
+  doc_prefix               = ["evs_"]
   brand                    = "Amazon"
 }

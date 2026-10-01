@@ -1,5 +1,7 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
+
+// DONOTCOPY: Copying old resources spreads bad habits. Use skaff instead.
 
 package apigateway
 
@@ -13,12 +15,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/apigateway"
 	"github.com/aws/aws-sdk-go-v2/service/apigateway/types"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-provider-aws/internal/conns"
 	"github.com/hashicorp/terraform-provider-aws/internal/errs"
 	"github.com/hashicorp/terraform-provider-aws/internal/errs/sdkdiag"
 	"github.com/hashicorp/terraform-provider-aws/internal/flex"
+	"github.com/hashicorp/terraform-provider-aws/internal/retry"
 	"github.com/hashicorp/terraform-provider-aws/internal/tfresource"
 	"github.com/hashicorp/terraform-provider-aws/names"
 )
@@ -32,7 +34,7 @@ func resourceGatewayResponse() *schema.Resource {
 		DeleteWithoutTimeout: resourceGatewayResponseDelete,
 
 		Importer: &schema.ResourceImporter{
-			StateContext: func(ctx context.Context, d *schema.ResourceData, meta interface{}) ([]*schema.ResourceData, error) {
+			StateContext: func(ctx context.Context, d *schema.ResourceData, meta any) ([]*schema.ResourceData, error) {
 				idParts := strings.Split(d.Id(), "/")
 				if len(idParts) != 2 || idParts[0] == "" || idParts[1] == "" {
 					return nil, fmt.Errorf("Unexpected format of ID (%q), expected REST-API-ID/RESPONSE-TYPE", d.Id())
@@ -40,56 +42,58 @@ func resourceGatewayResponse() *schema.Resource {
 				restApiID := idParts[0]
 				responseType := idParts[1]
 				d.Set("response_type", responseType)
-				d.Set("rest_api_id", restApiID)
+				d.Set(attrRestAPIID, restApiID)
 				d.SetId(fmt.Sprintf("aggr-%s-%s", restApiID, responseType))
 				return []*schema.ResourceData{d}, nil
 			},
 		},
 
-		Schema: map[string]*schema.Schema{
-			"response_parameters": {
-				Type:     schema.TypeMap,
-				Elem:     &schema.Schema{Type: schema.TypeString},
-				Optional: true,
-			},
-			"response_templates": {
-				Type:     schema.TypeMap,
-				Elem:     &schema.Schema{Type: schema.TypeString},
-				Optional: true,
-			},
-			"response_type": {
-				Type:     schema.TypeString,
-				Required: true,
-				ForceNew: true,
-			},
-			"rest_api_id": {
-				Type:     schema.TypeString,
-				Required: true,
-				ForceNew: true,
-			},
-			names.AttrStatusCode: {
-				Type:     schema.TypeString,
-				Optional: true,
-			},
+		SchemaFunc: func() map[string]*schema.Schema {
+			return map[string]*schema.Schema{
+				"response_parameters": {
+					Type:     schema.TypeMap,
+					Elem:     &schema.Schema{Type: schema.TypeString},
+					Optional: true,
+				},
+				"response_templates": {
+					Type:     schema.TypeMap,
+					Elem:     &schema.Schema{Type: schema.TypeString},
+					Optional: true,
+				},
+				"response_type": {
+					Type:     schema.TypeString,
+					Required: true,
+					ForceNew: true,
+				},
+				attrRestAPIID: {
+					Type:     schema.TypeString,
+					Required: true,
+					ForceNew: true,
+				},
+				names.AttrStatusCode: {
+					Type:     schema.TypeString,
+					Optional: true,
+				},
+			}
 		},
 	}
 }
 
-func resourceGatewayResponsePut(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceGatewayResponsePut(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).APIGatewayClient(ctx)
 
 	input := apigateway.PutGatewayResponseInput{
 		ResponseType: types.GatewayResponseType(d.Get("response_type").(string)),
-		RestApiId:    aws.String(d.Get("rest_api_id").(string)),
+		RestApiId:    aws.String(d.Get(attrRestAPIID).(string)),
 	}
 
-	if v, ok := d.GetOk("response_parameters"); ok && len(v.(map[string]interface{})) > 0 {
-		input.ResponseParameters = flex.ExpandStringValueMap(v.(map[string]interface{}))
+	if v, ok := d.GetOk("response_parameters"); ok && len(v.(map[string]any)) > 0 {
+		input.ResponseParameters = flex.ExpandStringValueMap(v.(map[string]any))
 	}
 
-	if v, ok := d.GetOk("response_templates"); ok && len(v.(map[string]interface{})) > 0 {
-		input.ResponseTemplates = flex.ExpandStringValueMap(v.(map[string]interface{}))
+	if v, ok := d.GetOk("response_templates"); ok && len(v.(map[string]any)) > 0 {
+		input.ResponseTemplates = flex.ExpandStringValueMap(v.(map[string]any))
 	}
 
 	if v, ok := d.GetOk(names.AttrStatusCode); ok {
@@ -103,19 +107,19 @@ func resourceGatewayResponsePut(ctx context.Context, d *schema.ResourceData, met
 	}
 
 	if d.IsNewResource() {
-		d.SetId(fmt.Sprintf("aggr-%s-%s", d.Get("rest_api_id").(string), d.Get("response_type").(string)))
+		d.SetId(fmt.Sprintf("aggr-%s-%s", d.Get(attrRestAPIID).(string), d.Get("response_type").(string)))
 	}
 
 	return append(diags, resourceGatewayResponseRead(ctx, d, meta)...)
 }
 
-func resourceGatewayResponseRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceGatewayResponseRead(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).APIGatewayClient(ctx)
 
-	gatewayResponse, err := findGatewayResponseByTwoPartKey(ctx, conn, d.Get("response_type").(string), d.Get("rest_api_id").(string))
+	gatewayResponse, err := findGatewayResponseByTwoPartKey(ctx, conn, d.Get("response_type").(string), d.Get(attrRestAPIID).(string))
 
-	if !d.IsNewResource() && tfresource.NotFound(err) {
+	if !d.IsNewResource() && retry.NotFound(err) {
 		log.Printf("[WARN] API Gateway Gateway Response (%s) not found, removing from state", d.Id())
 		d.SetId("")
 		return diags
@@ -133,14 +137,14 @@ func resourceGatewayResponseRead(ctx context.Context, d *schema.ResourceData, me
 	return diags
 }
 
-func resourceGatewayResponseDelete(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceGatewayResponseDelete(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).APIGatewayClient(ctx)
 
 	log.Printf("[DEBUG] Deleting API Gateway Gateway Response: %s", d.Id())
 	input := apigateway.DeleteGatewayResponseInput{
 		ResponseType: types.GatewayResponseType(d.Get("response_type").(string)),
-		RestApiId:    aws.String(d.Get("rest_api_id").(string)),
+		RestApiId:    aws.String(d.Get(attrRestAPIID).(string)),
 	}
 	_, err := conn.DeleteGatewayResponse(ctx, &input)
 
@@ -165,8 +169,7 @@ func findGatewayResponseByTwoPartKey(ctx context.Context, conn *apigateway.Clien
 
 	if errs.IsA[*types.NotFoundException](err) {
 		return nil, &retry.NotFoundError{
-			LastError:   err,
-			LastRequest: input,
+			LastError: err,
 		}
 	}
 
@@ -175,7 +178,7 @@ func findGatewayResponseByTwoPartKey(ctx context.Context, conn *apigateway.Clien
 	}
 
 	if output == nil {
-		return nil, tfresource.NewEmptyResultError(input)
+		return nil, tfresource.NewEmptyResultError()
 	}
 
 	return output, nil

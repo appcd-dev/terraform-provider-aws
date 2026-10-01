@@ -158,13 +158,27 @@ resource "aws_route53_record" "example" {
 }
 ```
 
+### Batched reads for zones with many records
+
+!> Batched reads is an experimental feature. The behavior may change without notice, and it is not subject to the backwards compatibility guarantee of the provider.
+
+AWS Route 53 enforces a [5 requests-per-second rate limit](https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/DNSLimitations.html#limits-api-requests) on all AWS Route 53 APIs for an AWS account. Plans that manage many records in the same AWS account trigger throttling and cause slow plan and apply times because each record issues its own API calls during read/write operations.
+
+Setting the `TF_AWS_ROUTE53_RECORD_BATCH_READS` environment variable to `true` causes the provider to fetch all records for hosted zones referenced by `aws_route53_record` once and cache the results in memory for the duration of the plan or apply, regardless of how many records are managed. No per-resource configuration is required.
+
+```console
+% TF_AWS_ROUTE53_RECORD_BATCH_READS=true terraform plan
+```
+
+~> **Warning:** When `TF_AWS_ROUTE53_RECORD_BATCH_READS` is set to a true value, the provider caches a zone's full record set the first time a record in that zone is read, then serves all subsequent reads from that cache. The caching layer ensures removal of cache entries for any records that are updated during Terraform apply operations; however, any changes made to records outside of Terraform (e.g. via the AWS Console or CLI) after the cache is populated will not be detected for the duration of that plan or apply. To pick up out-of-band changes, run `terraform refresh` or a new `terraform plan` to start with a fresh cache.
+
 ## Argument Reference
 
 This resource supports the following arguments:
 
 * `zone_id` - (Required) The ID of the hosted zone to contain this record.
 * `name` - (Required) The name of the record.
-* `type` - (Required) The record type. Valid values are `A`, `AAAA`, `CAA`, `CNAME`, `DS`, `MX`, `NAPTR`, `NS`, `PTR`, `SOA`, `SPF`, `SRV` and `TXT`.
+* `type` - (Required) The record type. Valid values are `A`, `AAAA`, `CAA`, `CNAME`, `DS`, `HTTPS`, `MX`, `NAPTR`, `NS`, `PTR`, `SOA`, `SPF`, `SRV`, `SSHFP`, `SVCB`, `TLSA`, and `TXT`.
 * `ttl` - (Required for non-alias records) The TTL of the record.
 * `records` - (Required for non-alias records) A string list of records. To specify a single record value longer than 255 characters such as a TXT record for DKIM, add `\"\"` inside the Terraform configuration string (e.g., `"first255characters\"\"morecharacters"`).
 * `set_identifier` - (Optional) Unique identifier to differentiate records with routing policies from one another. Required if using `cidr_routing_policy`, `failover_routing_policy`, `geolocation_routing_policy`,`geoproximity_routing_policy`, `latency_routing_policy`, `multivalue_answer_routing_policy`, or `weighted_routing_policy`.
@@ -236,18 +250,55 @@ Weighted routing policies support the following:
 
 This resource exports the following attributes in addition to the arguments above:
 
-* `name` - The name of the record.
-* `fqdn` - [FQDN](https://en.wikipedia.org/wiki/Fully_qualified_domain_name) built using the zone domain and `name`.
+* `fqdn` - [FQDN](https://en.wikipedia.org/wiki/Fully_qualified_domain_name) built using the zone domain and `name`. Does not include trailing `.`.
+
+## Timeouts
+
+[Configuration options](https://developer.hashicorp.com/terraform/language/resources/syntax#operation-timeouts):
+
+* `create` - (Default `30m`)
+* `update` - (Default `30m`)
+* `delete` - (Default `30m`)
 
 ## Import
 
-In Terraform v1.5.0 and later, use an [`import` block](https://developer.hashicorp.com/terraform/language/import) to import Route53 Records using the ID of the record, record name, record type, and set identifier. For example:
-
-Using the ID of the record, which is the zone identifier, record name, and record type, separated by underscores (`_`):
+In Terraform v1.12.0 and later, the [`import` block](https://developer.hashicorp.com/terraform/language/import) can be used with the `identity` attribute. For example:
 
 ```terraform
 import {
-  to = aws_route53_record.myrecord
+  to = aws_route53_record.example
+  identity = {
+    zone_id = "Z4KAPRWWNC7JR"
+    name    = "dev.example.com"
+    type    = "NS"
+  }
+}
+
+resource "aws_route53_record" "example" {
+  ### Configuration omitted for brevity ###
+}
+```
+
+### Identity Schema
+
+#### Required
+
+* `zone_id` (String) Hosted zone ID for the record.
+* `name` (String) Name of the record.
+* `type` (String) Record type.
+
+#### Optional
+
+* `account_id` (String) AWS Account where this resource is managed.
+* `set_identifier` (String) Set identifier for the record.
+
+In Terraform v1.5.0 and later, use an [`import` block](https://developer.hashicorp.com/terraform/language/import) to import Route53 Records using the hosted zone ID, record name, record type, and set identifier. For example:
+
+Using the hosted zone ID, record name, and record type, separated by underscores (`_`):
+
+```terraform
+import {
+  to = aws_route53_record.example
   id = "Z4KAPRWWNC7JR_dev.example.com_NS"
 }
 ```
@@ -256,7 +307,7 @@ If the record also contains a set identifier, append it:
 
 ```terraform
 import {
-  to = aws_route53_record.myrecord
+  to = aws_route53_record.example
   id = "Z4KAPRWWNC7JR_dev.example.com_NS_dev"
 }
 ```
@@ -265,21 +316,21 @@ If the record name is the empty string, it can be omitted:
 
 ```terraform
 import {
-  to = aws_route53_record.myrecord
+  to = aws_route53_record.example
   id = "Z4KAPRWWNC7JR__NS"
 }
 ```
 
-**Using `terraform import` to import** Route53 Records using the ID of the record, record name, record type, and set identifier. For example:
+**Using `terraform import` to import** Route53 Records using the hosted zone ID, record name, record type, and set identifier. For example:
 
-Using the ID of the record, which is the zone identifier, record name, and record type, separated by underscores (`_`):
+Using the hosted zone ID, record name, and record type, separated by underscores (`_`):
 
 ```console
-% terraform import aws_route53_record.myrecord Z4KAPRWWNC7JR_dev_NS
+% terraform import aws_route53_record.example Z4KAPRWWNC7JR_dev_NS
 ```
 
 If the record also contains a set identifier, append it:
 
 ```console
-% terraform import aws_route53_record.myrecord Z4KAPRWWNC7JR_dev_NS_dev
+% terraform import aws_route53_record.example Z4KAPRWWNC7JR_dev_NS_dev
 ```

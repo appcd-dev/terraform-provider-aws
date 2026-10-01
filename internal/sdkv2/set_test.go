@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
 
 package sdkv2
@@ -26,30 +26,30 @@ func TestStringCaseInsensitiveSetFunc(t *testing.T) {
 func TestSimpleSchemaSetFuncNil(t *testing.T) {
 	t.Parallel()
 
-	var v interface{}
+	var v any
 	f := SimpleSchemaSetFunc("key1", "key3", "key4")
 
 	if got, want := f(v), 0; got != want {
-		t.Errorf("SimpleSchemaSetFunc(%q) got %q, want %q", v, got, want)
+		t.Errorf("SimpleSchemaSetFunc(%q) got %v, want %v", v, got, want)
 	}
 }
 
 func TestSimpleSchemaSetFunc(t *testing.T) {
 	t.Parallel()
 
-	v1 := map[string]interface{}{
+	v1 := map[string]any{
 		"key1": "value1",
 		"key2": "value2",
 		"key3": 3,
 		"key4": true,
 	}
-	v2 := map[string]interface{}{
+	v2 := map[string]any{
 		"key1": "value1",
 		"key2": "value2-new",
 		"key3": 3,
 		"key4": true,
 	}
-	v3 := map[string]interface{}{
+	v3 := map[string]any{
 		"key1": "value1",
 		"key2": "value2",
 		"key3": 4,

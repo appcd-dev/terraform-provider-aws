@@ -1,5 +1,7 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
+
+// DONOTCOPY: Copying old resources spreads bad habits. Use skaff instead.
 
 package directconnect
 
@@ -18,8 +20,8 @@ import (
 	"github.com/hashicorp/terraform-provider-aws/internal/conns"
 	"github.com/hashicorp/terraform-provider-aws/internal/enum"
 	"github.com/hashicorp/terraform-provider-aws/internal/errs/sdkdiag"
+	"github.com/hashicorp/terraform-provider-aws/internal/retry"
 	tftags "github.com/hashicorp/terraform-provider-aws/internal/tags"
-	"github.com/hashicorp/terraform-provider-aws/internal/tfresource"
 	"github.com/hashicorp/terraform-provider-aws/names"
 )
 
@@ -36,18 +38,20 @@ func resourceHostedPublicVirtualInterfaceAccepter() *schema.Resource {
 			StateContext: resourceHostedPublicVirtualInterfaceAccepterImport,
 		},
 
-		Schema: map[string]*schema.Schema{
-			names.AttrARN: {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			names.AttrTags:    tftags.TagsSchema(),
-			names.AttrTagsAll: tftags.TagsSchemaComputed(),
-			"virtual_interface_id": {
-				Type:     schema.TypeString,
-				Required: true,
-				ForceNew: true,
-			},
+		SchemaFunc: func() map[string]*schema.Schema {
+			return map[string]*schema.Schema{
+				names.AttrARN: {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				names.AttrTags:    tftags.TagsSchema(),
+				names.AttrTagsAll: tftags.TagsSchemaComputed(),
+				"virtual_interface_id": {
+					Type:     schema.TypeString,
+					Required: true,
+					ForceNew: true,
+				},
+			}
 		},
 
 		Timeouts: &schema.ResourceTimeout{
@@ -57,7 +61,7 @@ func resourceHostedPublicVirtualInterfaceAccepter() *schema.Resource {
 	}
 }
 
-func resourceHostedPublicVirtualInterfaceAccepterCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceHostedPublicVirtualInterfaceAccepterCreate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).DirectConnectClient(ctx)
 
@@ -93,13 +97,13 @@ func resourceHostedPublicVirtualInterfaceAccepterCreate(ctx context.Context, d *
 	return append(diags, resourceHostedPublicVirtualInterfaceAccepterUpdate(ctx, d, meta)...)
 }
 
-func resourceHostedPublicVirtualInterfaceAccepterRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceHostedPublicVirtualInterfaceAccepterRead(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).DirectConnectClient(ctx)
 
 	vif, err := findVirtualInterfaceByID(ctx, conn, d.Id())
 
-	if !d.IsNewResource() && tfresource.NotFound(err) {
+	if !d.IsNewResource() && retry.NotFound(err) {
 		log.Printf("[WARN] Direct Connect Hosted Public Virtual Interface (%s) not found, removing from state", d.Id())
 		d.SetId("")
 		return diags
@@ -120,7 +124,7 @@ func resourceHostedPublicVirtualInterfaceAccepterRead(ctx context.Context, d *sc
 	return diags
 }
 
-func resourceHostedPublicVirtualInterfaceAccepterUpdate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceHostedPublicVirtualInterfaceAccepterUpdate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 
 	diags = append(diags, virtualInterfaceUpdate(ctx, d, meta)...)
@@ -131,7 +135,7 @@ func resourceHostedPublicVirtualInterfaceAccepterUpdate(ctx context.Context, d *
 	return append(diags, resourceHostedPublicVirtualInterfaceAccepterRead(ctx, d, meta)...)
 }
 
-func resourceHostedPublicVirtualInterfaceAccepterImport(ctx context.Context, d *schema.ResourceData, meta interface{}) ([]*schema.ResourceData, error) {
+func resourceHostedPublicVirtualInterfaceAccepterImport(ctx context.Context, d *schema.ResourceData, meta any) ([]*schema.ResourceData, error) {
 	conn := meta.(*conns.AWSClient).DirectConnectClient(ctx)
 
 	vif, err := findVirtualInterfaceByID(ctx, conn, d.Id())

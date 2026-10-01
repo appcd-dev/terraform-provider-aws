@@ -1,5 +1,7 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
+
+// DONOTCOPY: Copying old resources spreads bad habits. Use skaff instead.
 
 package networkmanager
 
@@ -13,13 +15,13 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/networkmanager"
 	awstypes "github.com/aws/aws-sdk-go-v2/service/networkmanager/types"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
 	"github.com/hashicorp/terraform-provider-aws/internal/conns"
 	"github.com/hashicorp/terraform-provider-aws/internal/enum"
 	"github.com/hashicorp/terraform-provider-aws/internal/errs"
 	"github.com/hashicorp/terraform-provider-aws/internal/errs/sdkdiag"
+	"github.com/hashicorp/terraform-provider-aws/internal/retry"
 	tftags "github.com/hashicorp/terraform-provider-aws/internal/tags"
 	"github.com/hashicorp/terraform-provider-aws/internal/tfresource"
 	"github.com/hashicorp/terraform-provider-aws/names"
@@ -27,6 +29,10 @@ import (
 
 // @SDKResource("aws_networkmanager_connect_attachment", name="Connect Attachment")
 // @Tags(identifierAttribute="arn")
+// @Testing(existsType="github.com/aws/aws-sdk-go-v2/service/networkmanager/types;awstypes;awstypes.ConnectAttachment")
+// @Testing(skipEmptyTags=true)
+// @Testing(importIgnore="state")
+// @Testing(generator=false)
 func resourceConnectAttachment() *schema.Resource {
 	return &schema.Resource{
 		CreateWithoutTimeout: resourceConnectAttachmentCreate,
@@ -43,91 +49,99 @@ func resourceConnectAttachment() *schema.Resource {
 			Delete: schema.DefaultTimeout(10 * time.Minute),
 		},
 
-		Schema: map[string]*schema.Schema{
-			names.AttrARN: {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"attachment_id": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"attachment_policy_rule_number": {
-				Type:     schema.TypeInt,
-				Computed: true,
-			},
-			"attachment_type": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"core_network_arn": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"core_network_id": {
-				Type:     schema.TypeString,
-				Required: true,
-				ForceNew: true,
-				ValidateFunc: validation.All(
-					validation.StringLenBetween(0, 50),
-					validation.StringMatch(regexache.MustCompile(`^core-network-([0-9a-f]{8,17})$`), "Must start with core-network and then have 8 to 17 characters"),
-				),
-			},
-			"edge_location": {
-				Type:     schema.TypeString,
-				Required: true,
-				ForceNew: true,
-				ValidateFunc: validation.All(
-					validation.StringLenBetween(1, 63),
-					validation.StringMatch(regexache.MustCompile(`[\s\S]*`), "Anything but whitespace"),
-				),
-			},
-			"options": {
-				Type:     schema.TypeList,
-				Required: true,
-				MaxItems: 1,
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						names.AttrProtocol: {
-							Type:             schema.TypeString,
-							Optional:         true,
-							ValidateDiagFunc: enum.Validate[awstypes.TunnelProtocol](),
+		SchemaFunc: func() map[string]*schema.Schema {
+			return map[string]*schema.Schema{
+				names.AttrARN: {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				"attachment_id": {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				"attachment_policy_rule_number": {
+					Type:     schema.TypeInt,
+					Computed: true,
+				},
+				"attachment_type": {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				"core_network_arn": {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				"core_network_id": {
+					Type:     schema.TypeString,
+					Required: true,
+					ForceNew: true,
+					ValidateFunc: validation.All(
+						validation.StringLenBetween(0, 50),
+						validation.StringMatch(regexache.MustCompile(`^core-network-([0-9a-f]{8,17})$`), "Must start with core-network and then have 8 to 17 characters"),
+					),
+				},
+				"edge_location": {
+					Type:     schema.TypeString,
+					Required: true,
+					ForceNew: true,
+					ValidateFunc: validation.All(
+						validation.StringLenBetween(1, 63),
+						validation.StringMatch(regexache.MustCompile(`[\s\S]*`), "Anything but whitespace"),
+					),
+				},
+				"options": {
+					Type:     schema.TypeList,
+					Required: true,
+					MaxItems: 1,
+					Elem: &schema.Resource{
+						Schema: map[string]*schema.Schema{
+							names.AttrProtocol: {
+								Type:             schema.TypeString,
+								Optional:         true,
+								ValidateDiagFunc: enum.Validate[awstypes.TunnelProtocol](),
+							},
 						},
 					},
 				},
-			},
-			names.AttrOwnerAccountID: {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			names.AttrResourceARN: {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"segment_name": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			names.AttrState: {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			names.AttrTags:    tftags.TagsSchema(),
-			names.AttrTagsAll: tftags.TagsSchemaComputed(),
-			"transport_attachment_id": {
-				Type:     schema.TypeString,
-				Required: true,
-				ForceNew: true,
-				ValidateFunc: validation.All(
-					validation.StringLenBetween(0, 50),
-					validation.StringMatch(regexache.MustCompile(`^attachment-([0-9a-f]{8,17})$`), "Must start with attachment- and then have 8 to 17 characters"),
-				),
-			},
+				names.AttrOwnerAccountID: {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				names.AttrResourceARN: {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				"routing_policy_label": {
+					Type:         schema.TypeString,
+					Optional:     true,
+					ForceNew:     true,
+					ValidateFunc: validation.StringLenBetween(0, 256),
+				},
+				"segment_name": {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				names.AttrState: {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				names.AttrTags:    tftags.TagsSchema(),
+				names.AttrTagsAll: tftags.TagsSchemaComputed(),
+				"transport_attachment_id": {
+					Type:     schema.TypeString,
+					Required: true,
+					ForceNew: true,
+					ValidateFunc: validation.All(
+						validation.StringLenBetween(0, 50),
+						validation.StringMatch(regexache.MustCompile(`^attachment-([0-9a-f]{8,17})$`), "Must start with attachment- and then have 8 to 17 characters"),
+					),
+				},
+			}
 		},
 	}
 }
 
-func resourceConnectAttachmentCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceConnectAttachmentCreate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).NetworkManagerClient(ctx)
 
@@ -135,11 +149,11 @@ func resourceConnectAttachmentCreate(ctx context.Context, d *schema.ResourceData
 	edgeLocation := d.Get("edge_location").(string)
 	transportAttachmentID := d.Get("transport_attachment_id").(string)
 	options := &awstypes.ConnectAttachmentOptions{}
-	if v, ok := d.GetOk("options"); ok && len(v.([]interface{})) > 0 && v.([]interface{})[0] != nil {
-		options = expandConnectAttachmentOptions(v.([]interface{})[0].(map[string]interface{}))
+	if v, ok := d.GetOk("options"); ok && len(v.([]any)) > 0 && v.([]any)[0] != nil {
+		options = expandConnectAttachmentOptions(v.([]any)[0].(map[string]any))
 	}
 
-	input := &networkmanager.CreateConnectAttachmentInput{
+	input := networkmanager.CreateConnectAttachmentInput{
 		CoreNetworkId:         aws.String(coreNetworkID),
 		EdgeLocation:          aws.String(edgeLocation),
 		Options:               options,
@@ -147,9 +161,13 @@ func resourceConnectAttachmentCreate(ctx context.Context, d *schema.ResourceData
 		TransportAttachmentId: aws.String(transportAttachmentID),
 	}
 
+	if v, ok := d.GetOk("routing_policy_label"); ok {
+		input.RoutingPolicyLabel = aws.String(v.(string))
+	}
+
 	outputRaw, err := tfresource.RetryWhen(ctx, d.Timeout(schema.TimeoutCreate),
-		func() (interface{}, error) {
-			return conn.CreateConnectAttachment(ctx, input)
+		func(ctx context.Context) (any, error) {
+			return conn.CreateConnectAttachment(ctx, &input)
 		},
 		func(err error) (bool, error) {
 			// Connect attachment doesn't have direct dependency to VPC attachment state when using Attachment Accepter.
@@ -189,13 +207,13 @@ func resourceConnectAttachmentCreate(ctx context.Context, d *schema.ResourceData
 	return append(diags, resourceConnectAttachmentRead(ctx, d, meta)...)
 }
 
-func resourceConnectAttachmentRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceConnectAttachmentRead(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).NetworkManagerClient(ctx)
 
 	connectAttachment, err := findConnectAttachmentByID(ctx, conn, d.Id())
 
-	if !d.IsNewResource() && tfresource.NotFound(err) {
+	if !d.IsNewResource() && retry.NotFound(err) {
 		log.Printf("[WARN] Network Manager Connect Attachment %s not found, removing from state", d.Id())
 		d.SetId("")
 		return diags
@@ -211,10 +229,11 @@ func resourceConnectAttachmentRead(ctx context.Context, d *schema.ResourceData, 
 	d.Set("attachment_id", attachment.AttachmentId)
 	d.Set("attachment_type", attachment.AttachmentType)
 	d.Set("core_network_arn", attachment.CoreNetworkArn)
-	d.Set("core_network_id", attachment.CoreNetworkId)
+	coreNetworkID := aws.ToString(attachment.CoreNetworkId)
+	d.Set("core_network_id", coreNetworkID)
 	d.Set("edge_location", attachment.EdgeLocation)
 	if connectAttachment.Options != nil {
-		if err := d.Set("options", []interface{}{flattenConnectAttachmentOptions(connectAttachment.Options)}); err != nil {
+		if err := d.Set("options", []any{flattenConnectAttachmentOptions(connectAttachment.Options)}); err != nil {
 			return sdkdiag.AppendErrorf(diags, "setting options: %s", err)
 		}
 	} else {
@@ -222,6 +241,11 @@ func resourceConnectAttachmentRead(ctx context.Context, d *schema.ResourceData, 
 	}
 	d.Set(names.AttrOwnerAccountID, attachment.OwnerAccountId)
 	d.Set(names.AttrResourceARN, attachment.ResourceArn)
+	if routingPolicyLabel, err := findAttachmentRoutingPolicyAssociationLabelByTwoPartKey(ctx, conn, coreNetworkID, d.Id()); err != nil && !retry.NotFound(err) {
+		return sdkdiag.AppendErrorf(diags, "reading Network Manager Connect Attachment (%s) routing policy label: %s", d.Id(), err)
+	} else {
+		d.Set("routing_policy_label", routingPolicyLabel)
+	}
 	d.Set("segment_name", attachment.SegmentName)
 	d.Set(names.AttrState, attachment.State)
 	d.Set("transport_attachment_id", connectAttachment.TransportAttachmentId)
@@ -231,12 +255,12 @@ func resourceConnectAttachmentRead(ctx context.Context, d *schema.ResourceData, 
 	return diags
 }
 
-func resourceConnectAttachmentUpdate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceConnectAttachmentUpdate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	// Tags only.
 	return resourceConnectAttachmentRead(ctx, d, meta)
 }
 
-func resourceConnectAttachmentDelete(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceConnectAttachmentDelete(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).NetworkManagerClient(ctx)
 
@@ -257,9 +281,10 @@ func resourceConnectAttachmentDelete(ctx context.Context, d *schema.ResourceData
 	}
 
 	log.Printf("[DEBUG] Deleting Network Manager Connect Attachment: %s", d.Id())
-	_, err = conn.DeleteAttachment(ctx, &networkmanager.DeleteAttachmentInput{
+	input := networkmanager.DeleteAttachmentInput{
 		AttachmentId: aws.String(d.Id()),
-	})
+	}
+	_, err = conn.DeleteAttachment(ctx, &input)
 
 	if errs.IsA[*awstypes.ResourceNotFoundException](err) {
 		return diags
@@ -277,16 +302,19 @@ func resourceConnectAttachmentDelete(ctx context.Context, d *schema.ResourceData
 }
 
 func findConnectAttachmentByID(ctx context.Context, conn *networkmanager.Client, id string) (*awstypes.ConnectAttachment, error) {
-	input := &networkmanager.GetConnectAttachmentInput{
+	input := networkmanager.GetConnectAttachmentInput{
 		AttachmentId: aws.String(id),
 	}
 
+	return findConnectAttachment(ctx, conn, &input)
+}
+
+func findConnectAttachment(ctx context.Context, conn *networkmanager.Client, input *networkmanager.GetConnectAttachmentInput) (*awstypes.ConnectAttachment, error) {
 	output, err := conn.GetConnectAttachment(ctx, input)
 
 	if errs.IsA[*awstypes.ResourceNotFoundException](err) {
 		return nil, &retry.NotFoundError{
-			LastError:   err,
-			LastRequest: input,
+			LastError: err,
 		}
 	}
 
@@ -295,17 +323,17 @@ func findConnectAttachmentByID(ctx context.Context, conn *networkmanager.Client,
 	}
 
 	if output == nil || output.ConnectAttachment == nil || output.ConnectAttachment.Attachment == nil {
-		return nil, tfresource.NewEmptyResultError(input)
+		return nil, tfresource.NewEmptyResultError()
 	}
 
 	return output.ConnectAttachment, nil
 }
 
-func statusConnectAttachment(ctx context.Context, conn *networkmanager.Client, id string) retry.StateRefreshFunc {
-	return func() (interface{}, string, error) {
+func statusConnectAttachment(conn *networkmanager.Client, id string) retry.StateRefreshFunc {
+	return func(ctx context.Context) (any, string, error) {
 		output, err := findConnectAttachmentByID(ctx, conn, id)
 
-		if tfresource.NotFound(err) {
+		if retry.NotFound(err) {
 			return nil, "", nil
 		}
 
@@ -322,14 +350,14 @@ func waitConnectAttachmentCreated(ctx context.Context, conn *networkmanager.Clie
 		Pending:                   enum.Slice(awstypes.AttachmentStateCreating, awstypes.AttachmentStatePendingNetworkUpdate),
 		Target:                    enum.Slice(awstypes.AttachmentStateAvailable, awstypes.AttachmentStatePendingAttachmentAcceptance),
 		Timeout:                   timeout,
-		Refresh:                   statusConnectAttachment(ctx, conn, id),
+		Refresh:                   statusConnectAttachment(conn, id),
 		ContinuousTargetOccurence: 2,
 	}
 
 	outputRaw, err := stateConf.WaitForStateContext(ctx)
 
 	if output, ok := outputRaw.(*awstypes.ConnectAttachment); ok {
-		tfresource.SetLastError(err, attachmentsError(output.Attachment.LastModificationErrors))
+		retry.SetLastError(err, attachmentsError(output.Attachment.LastModificationErrors))
 
 		return output, err
 	}
@@ -339,17 +367,19 @@ func waitConnectAttachmentCreated(ctx context.Context, conn *networkmanager.Clie
 
 func waitConnectAttachmentDeleted(ctx context.Context, conn *networkmanager.Client, id string, timeout time.Duration) (*awstypes.ConnectAttachment, error) {
 	stateConf := &retry.StateChangeConf{
-		Pending:        enum.Slice(awstypes.AttachmentStateDeleting),
+		Pending:        enum.Slice(awstypes.AttachmentStateDeleting, awstypes.AttachmentStatePendingNetworkUpdate),
 		Target:         []string{},
 		Timeout:        timeout,
-		Refresh:        statusConnectAttachment(ctx, conn, id),
+		Refresh:        statusConnectAttachment(conn, id),
+		Delay:          2 * time.Minute,
+		PollInterval:   10 * time.Second,
 		NotFoundChecks: 1,
 	}
 
 	outputRaw, err := stateConf.WaitForStateContext(ctx)
 
 	if output, ok := outputRaw.(*awstypes.ConnectAttachment); ok {
-		tfresource.SetLastError(err, attachmentsError(output.Attachment.LastModificationErrors))
+		retry.SetLastError(err, attachmentsError(output.Attachment.LastModificationErrors))
 
 		return output, err
 	}
@@ -362,13 +392,13 @@ func waitConnectAttachmentAvailable(ctx context.Context, conn *networkmanager.Cl
 		Pending: enum.Slice(awstypes.AttachmentStateCreating, awstypes.AttachmentStatePendingNetworkUpdate, awstypes.AttachmentStatePendingAttachmentAcceptance),
 		Target:  enum.Slice(awstypes.AttachmentStateAvailable),
 		Timeout: timeout,
-		Refresh: statusConnectAttachment(ctx, conn, id),
+		Refresh: statusConnectAttachment(conn, id),
 	}
 
 	outputRaw, err := stateConf.WaitForStateContext(ctx)
 
 	if output, ok := outputRaw.(*awstypes.ConnectAttachment); ok {
-		tfresource.SetLastError(err, attachmentsError(output.Attachment.LastModificationErrors))
+		retry.SetLastError(err, attachmentsError(output.Attachment.LastModificationErrors))
 
 		return output, err
 	}
@@ -376,7 +406,7 @@ func waitConnectAttachmentAvailable(ctx context.Context, conn *networkmanager.Cl
 	return nil, err
 }
 
-func expandConnectAttachmentOptions(tfMap map[string]interface{}) *awstypes.ConnectAttachmentOptions {
+func expandConnectAttachmentOptions(tfMap map[string]any) *awstypes.ConnectAttachmentOptions {
 	if tfMap == nil {
 		return nil
 	}
@@ -390,12 +420,12 @@ func expandConnectAttachmentOptions(tfMap map[string]interface{}) *awstypes.Conn
 	return apiObject
 }
 
-func flattenConnectAttachmentOptions(apiObject *awstypes.ConnectAttachmentOptions) map[string]interface{} { // nosemgrep:ci.caps5-in-func-name
+func flattenConnectAttachmentOptions(apiObject *awstypes.ConnectAttachmentOptions) map[string]any { // nosemgrep:ci.caps5-in-func-name
 	if apiObject == nil {
 		return nil
 	}
 
-	tfMap := map[string]interface{}{
+	tfMap := map[string]any{
 		names.AttrProtocol: apiObject.Protocol,
 	}
 

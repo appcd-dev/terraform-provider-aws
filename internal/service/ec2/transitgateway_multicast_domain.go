@@ -1,5 +1,7 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
+
+// DONOTCOPY: Copying old resources spreads bad habits. Use skaff instead.
 
 package ec2
 
@@ -17,8 +19,8 @@ import (
 	"github.com/hashicorp/terraform-provider-aws/internal/conns"
 	"github.com/hashicorp/terraform-provider-aws/internal/enum"
 	"github.com/hashicorp/terraform-provider-aws/internal/errs/sdkdiag"
+	"github.com/hashicorp/terraform-provider-aws/internal/retry"
 	tftags "github.com/hashicorp/terraform-provider-aws/internal/tags"
-	"github.com/hashicorp/terraform-provider-aws/internal/tfresource"
 	"github.com/hashicorp/terraform-provider-aws/names"
 )
 
@@ -41,48 +43,50 @@ func resourceTransitGatewayMulticastDomain() *schema.Resource {
 			Delete: schema.DefaultTimeout(10 * time.Minute),
 		},
 
-		Schema: map[string]*schema.Schema{
-			names.AttrARN: {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"auto_accept_shared_associations": {
-				Type:             schema.TypeString,
-				Optional:         true,
-				ForceNew:         true,
-				Default:          awstypes.AutoAcceptSharedAssociationsValueDisable,
-				ValidateDiagFunc: enum.Validate[awstypes.AutoAcceptSharedAssociationsValue](),
-			},
-			"igmpv2_support": {
-				Type:             schema.TypeString,
-				Optional:         true,
-				ForceNew:         true,
-				Default:          awstypes.Igmpv2SupportValueDisable,
-				ValidateDiagFunc: enum.Validate[awstypes.Igmpv2SupportValue](),
-			},
-			names.AttrOwnerID: {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"static_sources_support": {
-				Type:             schema.TypeString,
-				Optional:         true,
-				ForceNew:         true,
-				Default:          awstypes.StaticSourcesSupportValueDisable,
-				ValidateDiagFunc: enum.Validate[awstypes.StaticSourcesSupportValue](),
-			},
-			names.AttrTags:    tftags.TagsSchema(),
-			names.AttrTagsAll: tftags.TagsSchemaComputed(),
-			names.AttrTransitGatewayID: {
-				Type:     schema.TypeString,
-				ForceNew: true,
-				Required: true,
-			},
+		SchemaFunc: func() map[string]*schema.Schema {
+			return map[string]*schema.Schema{
+				names.AttrARN: {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				"auto_accept_shared_associations": {
+					Type:             schema.TypeString,
+					Optional:         true,
+					ForceNew:         true,
+					Default:          awstypes.AutoAcceptSharedAssociationsValueDisable,
+					ValidateDiagFunc: enum.Validate[awstypes.AutoAcceptSharedAssociationsValue](),
+				},
+				"igmpv2_support": {
+					Type:             schema.TypeString,
+					Optional:         true,
+					ForceNew:         true,
+					Default:          awstypes.Igmpv2SupportValueDisable,
+					ValidateDiagFunc: enum.Validate[awstypes.Igmpv2SupportValue](),
+				},
+				names.AttrOwnerID: {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				"static_sources_support": {
+					Type:             schema.TypeString,
+					Optional:         true,
+					ForceNew:         true,
+					Default:          awstypes.StaticSourcesSupportValueDisable,
+					ValidateDiagFunc: enum.Validate[awstypes.StaticSourcesSupportValue](),
+				},
+				names.AttrTags:    tftags.TagsSchema(),
+				names.AttrTagsAll: tftags.TagsSchemaComputed(),
+				names.AttrTransitGatewayID: {
+					Type:     schema.TypeString,
+					ForceNew: true,
+					Required: true,
+				},
+			}
 		},
 	}
 }
 
-func resourceTransitGatewayMulticastDomainCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceTransitGatewayMulticastDomainCreate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 
 	conn := meta.(*conns.AWSClient).EC2Client(ctx)
@@ -113,14 +117,14 @@ func resourceTransitGatewayMulticastDomainCreate(ctx context.Context, d *schema.
 	return append(diags, resourceTransitGatewayMulticastDomainRead(ctx, d, meta)...)
 }
 
-func resourceTransitGatewayMulticastDomainRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceTransitGatewayMulticastDomainRead(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 
 	conn := meta.(*conns.AWSClient).EC2Client(ctx)
 
 	multicastDomain, err := findTransitGatewayMulticastDomainByID(ctx, conn, d.Id())
 
-	if !d.IsNewResource() && tfresource.NotFound(err) {
+	if !d.IsNewResource() && retry.NotFound(err) {
 		log.Printf("[WARN] EC2 Transit Gateway Multicast Domain %s not found, removing from state", d.Id())
 		d.SetId("")
 		return diags
@@ -142,12 +146,12 @@ func resourceTransitGatewayMulticastDomainRead(ctx context.Context, d *schema.Re
 	return diags
 }
 
-func resourceTransitGatewayMulticastDomainUpdate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceTransitGatewayMulticastDomainUpdate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	// Tags only.
 	return resourceTransitGatewayMulticastDomainRead(ctx, d, meta)
 }
 
-func resourceTransitGatewayMulticastDomainDelete(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceTransitGatewayMulticastDomainDelete(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 
 	conn := meta.(*conns.AWSClient).EC2Client(ctx)
@@ -156,7 +160,7 @@ func resourceTransitGatewayMulticastDomainDelete(ctx context.Context, d *schema.
 		TransitGatewayMulticastDomainId: aws.String(d.Id()),
 	})
 
-	if tfresource.NotFound(err) {
+	if retry.NotFound(err) {
 		err = nil
 	}
 
@@ -188,7 +192,7 @@ func resourceTransitGatewayMulticastDomainDelete(ctx context.Context, d *schema.
 		TransitGatewayMulticastDomainId: aws.String(d.Id()),
 	})
 
-	if tfresource.NotFound(err) {
+	if retry.NotFound(err) {
 		err = nil
 	}
 

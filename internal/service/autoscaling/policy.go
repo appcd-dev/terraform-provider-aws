@@ -1,5 +1,7 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
+
+// DONOTCOPY: Copying old resources spreads bad habits. Use skaff instead.
 
 package autoscaling
 
@@ -14,29 +16,32 @@ import (
 	awstypes "github.com/aws/aws-sdk-go-v2/service/autoscaling/types"
 	"github.com/hashicorp/aws-sdk-go-base/v2/tfawserr"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
 	"github.com/hashicorp/terraform-provider-aws/internal/conns"
 	"github.com/hashicorp/terraform-provider-aws/internal/enum"
 	"github.com/hashicorp/terraform-provider-aws/internal/errs/sdkdiag"
 	"github.com/hashicorp/terraform-provider-aws/internal/flex"
+	"github.com/hashicorp/terraform-provider-aws/internal/retry"
 	"github.com/hashicorp/terraform-provider-aws/internal/sdkv2/types/nullable"
 	"github.com/hashicorp/terraform-provider-aws/internal/tfresource"
+	inttypes "github.com/hashicorp/terraform-provider-aws/internal/types"
 	"github.com/hashicorp/terraform-provider-aws/names"
 )
 
 // @SDKResource("aws_autoscaling_policy", name="Policy")
+// @IdentityAttribute("autoscaling_group_name")
+// @IdentityAttribute("name")
+// @ImportIDHandler("policyImportID")
+// @Testing(existsType="github.com/aws/aws-sdk-go-v2/service/autoscaling/types;awstypes;awstypes.ScalingPolicy")
+// @Testing(importStateIdFunc=testAccPolicyImportStateIDFunc)
+// @Testing(preIdentityVersion="v6.40.0")
 func resourcePolicy() *schema.Resource {
 	return &schema.Resource{
 		CreateWithoutTimeout: resourcePolicyCreate,
 		ReadWithoutTimeout:   resourcePolicyRead,
 		UpdateWithoutTimeout: resourcePolicyUpdate,
 		DeleteWithoutTimeout: resourcePolicyDelete,
-
-		Importer: &schema.ResourceImporter{
-			StateContext: resourcePolicyImport,
-		},
 
 		SchemaFunc: func() map[string]*schema.Schema {
 			// All predictive scaling customized metrics shares same metric data query schema
@@ -510,7 +515,7 @@ func resourcePolicy() *schema.Resource {
 	}
 }
 
-func resourcePolicyCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourcePolicyCreate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).AutoScalingClient(ctx)
 
@@ -531,13 +536,13 @@ func resourcePolicyCreate(ctx context.Context, d *schema.ResourceData, meta inte
 	return append(diags, resourcePolicyRead(ctx, d, meta)...)
 }
 
-func resourcePolicyRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourcePolicyRead(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).AutoScalingClient(ctx)
 
 	p, err := findScalingPolicyByTwoPartKey(ctx, conn, d.Get("autoscaling_group_name").(string), d.Id())
 
-	if !d.IsNewResource() && tfresource.NotFound(err) {
+	if !d.IsNewResource() && retry.NotFound(err) {
 		log.Printf("[WARN] Auto Scaling Policy %s not found, removing from state", d.Id())
 		d.SetId("")
 		return diags
@@ -571,7 +576,7 @@ func resourcePolicyRead(ctx context.Context, d *schema.ResourceData, meta interf
 	return diags
 }
 
-func resourcePolicyUpdate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourcePolicyUpdate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).AutoScalingClient(ctx)
 
@@ -589,7 +594,7 @@ func resourcePolicyUpdate(ctx context.Context, d *schema.ResourceData, meta inte
 	return append(diags, resourcePolicyRead(ctx, d, meta)...)
 }
 
-func resourcePolicyDelete(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourcePolicyDelete(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).AutoScalingClient(ctx)
 
@@ -611,22 +616,6 @@ func resourcePolicyDelete(ctx context.Context, d *schema.ResourceData, meta inte
 	return diags
 }
 
-func resourcePolicyImport(ctx context.Context, d *schema.ResourceData, meta interface{}) ([]*schema.ResourceData, error) {
-	idParts := strings.SplitN(d.Id(), "/", 2)
-	if len(idParts) != 2 || idParts[0] == "" || idParts[1] == "" {
-		return nil, fmt.Errorf("unexpected format (%q), expected <asg-name>/<policy-name>", d.Id())
-	}
-
-	asgName := idParts[0]
-	policyName := idParts[1]
-
-	d.Set(names.AttrName, policyName)
-	d.Set("autoscaling_group_name", asgName)
-	d.SetId(policyName)
-
-	return []*schema.ResourceData{d}, nil
-}
-
 func findScalingPolicy(ctx context.Context, conn *autoscaling.Client, input *autoscaling.DescribePoliciesInput) (*awstypes.ScalingPolicy, error) {
 	output, err := findScalingPolicies(ctx, conn, input)
 
@@ -646,8 +635,7 @@ func findScalingPolicies(ctx context.Context, conn *autoscaling.Client, input *a
 
 		if tfawserr.ErrMessageContains(err, errCodeValidationError, "not found") {
 			return nil, &retry.NotFoundError{
-				LastError:   err,
-				LastRequest: input,
+				LastError: err,
 			}
 		}
 
@@ -662,12 +650,12 @@ func findScalingPolicies(ctx context.Context, conn *autoscaling.Client, input *a
 }
 
 func findScalingPolicyByTwoPartKey(ctx context.Context, conn *autoscaling.Client, asgName, policyName string) (*awstypes.ScalingPolicy, error) {
-	input := &autoscaling.DescribePoliciesInput{
+	input := autoscaling.DescribePoliciesInput{
 		AutoScalingGroupName: aws.String(asgName),
 		PolicyNames:          []string{policyName},
 	}
 
-	return findScalingPolicy(ctx, conn, input)
+	return findScalingPolicy(ctx, conn, &input)
 }
 
 // PutScalingPolicy can safely resend all parameters without destroying the
@@ -719,7 +707,7 @@ func expandPutScalingPolicyInput(d *schema.ResourceData) (*autoscaling.PutScalin
 		input.MinAdjustmentMagnitude = aws.Int32(int32(v.(int)))
 	}
 
-	if v := d.Get("predictive_scaling_configuration").([]interface{}); len(v) > 0 {
+	if v := d.Get("predictive_scaling_configuration").([]any); len(v) > 0 {
 		input.PredictiveScalingConfiguration = expandPredictiveScalingConfiguration(v)
 	}
 
@@ -751,7 +739,7 @@ func expandPutScalingPolicyInput(d *schema.ResourceData) (*autoscaling.PutScalin
 
 	// This parameter is required if the policy type is TargetTrackingScaling and not supported otherwise.
 	if v, ok := d.GetOk("target_tracking_configuration"); ok {
-		input.TargetTrackingConfiguration = expandTargetTrackingConfiguration(v.([]interface{}))
+		input.TargetTrackingConfiguration = expandTargetTrackingConfiguration(v.([]any))
 		if policyType != policyTypeTargetTrackingScaling {
 			return input, fmt.Errorf("target_tracking_configuration is only supported for policy type TargetTrackingScaling")
 		}
@@ -762,20 +750,20 @@ func expandPutScalingPolicyInput(d *schema.ResourceData) (*autoscaling.PutScalin
 	return input, nil
 }
 
-func expandTargetTrackingConfiguration(tfList []interface{}) *awstypes.TargetTrackingConfiguration {
+func expandTargetTrackingConfiguration(tfList []any) *awstypes.TargetTrackingConfiguration {
 	if len(tfList) < 1 {
 		return nil
 	}
 
-	tfMap := tfList[0].(map[string]interface{})
+	tfMap := tfList[0].(map[string]any)
 	apiObject := &awstypes.TargetTrackingConfiguration{}
 
 	apiObject.TargetValue = aws.Float64(tfMap["target_value"].(float64))
 	if v, ok := tfMap["disable_scale_in"]; ok {
 		apiObject.DisableScaleIn = aws.Bool(v.(bool))
 	}
-	if v, ok := tfMap["predefined_metric_specification"]; ok && len(v.([]interface{})) > 0 {
-		tfMap := v.([]interface{})[0].(map[string]interface{})
+	if v, ok := tfMap["predefined_metric_specification"]; ok && len(v.([]any)) > 0 {
+		tfMap := v.([]any)[0].(map[string]any)
 		predefinedMetricSpecification := &awstypes.PredefinedMetricSpecification{
 			PredefinedMetricType: awstypes.MetricType(tfMap["predefined_metric_type"].(string)),
 		}
@@ -784,17 +772,17 @@ func expandTargetTrackingConfiguration(tfList []interface{}) *awstypes.TargetTra
 		}
 		apiObject.PredefinedMetricSpecification = predefinedMetricSpecification
 	}
-	if v, ok := tfMap["customized_metric_specification"]; ok && len(v.([]interface{})) > 0 {
-		tfMap := v.([]interface{})[0].(map[string]interface{})
+	if v, ok := tfMap["customized_metric_specification"]; ok && len(v.([]any)) > 0 {
+		tfMap := v.([]any)[0].(map[string]any)
 		customizedMetricSpecification := &awstypes.CustomizedMetricSpecification{}
 		if v, ok := tfMap["metrics"].(*schema.Set); ok && v.Len() > 0 {
 			customizedMetricSpecification.Metrics = expandTargetTrackingMetricDataQueries(v.List())
 		} else {
 			if v, ok := tfMap["metric_dimension"]; ok {
-				tfList := v.([]interface{})
+				tfList := v.([]any)
 				metricDimensions := make([]awstypes.MetricDimension, len(tfList))
 				for i := range metricDimensions {
-					tfMap := tfList[i].(map[string]interface{})
+					tfMap := tfList[i].(map[string]any)
 					metricDimensions[i] = awstypes.MetricDimension{
 						Name:  aws.String(tfMap[names.AttrName].(string)),
 						Value: aws.String(tfMap[names.AttrValue].(string)),
@@ -818,7 +806,7 @@ func expandTargetTrackingConfiguration(tfList []interface{}) *awstypes.TargetTra
 	return apiObject
 }
 
-func expandTargetTrackingMetricDataQueries(tfList []interface{}) []awstypes.TargetTrackingMetricDataQuery {
+func expandTargetTrackingMetricDataQueries(tfList []any) []awstypes.TargetTrackingMetricDataQuery {
 	if len(tfList) < 1 {
 		return nil
 	}
@@ -826,7 +814,7 @@ func expandTargetTrackingMetricDataQueries(tfList []interface{}) []awstypes.Targ
 	apiObjects := make([]awstypes.TargetTrackingMetricDataQuery, len(tfList))
 
 	for i := range apiObjects {
-		tfMap := tfList[i].(map[string]interface{})
+		tfMap := tfList[i].(map[string]any)
 		apiObject := awstypes.TargetTrackingMetricDataQuery{
 			Id: aws.String(tfMap[names.AttrID].(string)),
 		}
@@ -836,9 +824,9 @@ func expandTargetTrackingMetricDataQueries(tfList []interface{}) []awstypes.Targ
 		if v, ok := tfMap["label"]; ok && v.(string) != "" {
 			apiObject.Label = aws.String(v.(string))
 		}
-		if v, ok := tfMap["metric_stat"]; ok && len(v.([]interface{})) > 0 {
-			tfMapMetricStat := v.([]interface{})[0].(map[string]interface{})
-			tfMapMetric := tfMapMetricStat["metric"].([]interface{})[0].(map[string]interface{})
+		if v, ok := tfMap["metric_stat"]; ok && len(v.([]any)) > 0 {
+			tfMapMetricStat := v.([]any)[0].(map[string]any)
+			tfMapMetric := tfMapMetricStat["metric"].([]any)[0].(map[string]any)
 			metric := &awstypes.Metric{
 				MetricName: aws.String(tfMapMetric[names.AttrMetricName].(string)),
 				Namespace:  aws.String(tfMapMetric[names.AttrNamespace].(string)),
@@ -847,7 +835,7 @@ func expandTargetTrackingMetricDataQueries(tfList []interface{}) []awstypes.Targ
 				tfList := v.(*schema.Set).List()
 				metricDimensions := make([]awstypes.MetricDimension, len(tfList))
 				for i := range metricDimensions {
-					tfMap := tfList[i].(map[string]interface{})
+					tfMap := tfList[i].(map[string]any)
 					metricDimensions[i] = awstypes.MetricDimension{
 						Name:  aws.String(tfMap[names.AttrName].(string)),
 						Value: aws.String(tfMap[names.AttrValue].(string)),
@@ -876,15 +864,15 @@ func expandTargetTrackingMetricDataQueries(tfList []interface{}) []awstypes.Targ
 	return apiObjects
 }
 
-func expandPredictiveScalingConfiguration(tfList []interface{}) *awstypes.PredictiveScalingConfiguration {
+func expandPredictiveScalingConfiguration(tfList []any) *awstypes.PredictiveScalingConfiguration {
 	if len(tfList) < 1 {
 		return nil
 	}
 
-	tfMap := tfList[0].(map[string]interface{})
+	tfMap := tfList[0].(map[string]any)
 	apiObject := &awstypes.PredictiveScalingConfiguration{
 		MaxCapacityBreachBehavior: awstypes.PredictiveScalingMaxCapacityBreachBehavior(tfMap["max_capacity_breach_behavior"].(string)),
-		MetricSpecifications:      expandPredictiveScalingMetricSpecifications(tfMap["metric_specification"].([]interface{})),
+		MetricSpecifications:      expandPredictiveScalingMetricSpecifications(tfMap["metric_specification"].([]any)),
 		Mode:                      awstypes.PredictiveScalingMode(tfMap[names.AttrMode].(string)),
 	}
 	if v, null, _ := nullable.Int(tfMap["max_capacity_buffer"].(string)).ValueInt32(); !null {
@@ -897,31 +885,31 @@ func expandPredictiveScalingConfiguration(tfList []interface{}) *awstypes.Predic
 	return apiObject
 }
 
-func expandPredictiveScalingMetricSpecifications(tfList []interface{}) []awstypes.PredictiveScalingMetricSpecification {
+func expandPredictiveScalingMetricSpecifications(tfList []any) []awstypes.PredictiveScalingMetricSpecification {
 	if len(tfList) < 1 {
 		return nil
 	}
 
-	tfMap := tfList[0].(map[string]interface{})
+	tfMap := tfList[0].(map[string]any)
 	apiObject := awstypes.PredictiveScalingMetricSpecification{
-		CustomizedCapacityMetricSpecification: expandPredictiveScalingCustomizedCapacityMetric(tfMap["customized_capacity_metric_specification"].([]interface{})),
-		CustomizedLoadMetricSpecification:     expandPredictiveScalingCustomizedLoadMetric(tfMap["customized_load_metric_specification"].([]interface{})),
-		CustomizedScalingMetricSpecification:  expandPredictiveScalingCustomizedScalingMetric(tfMap["customized_scaling_metric_specification"].([]interface{})),
-		PredefinedLoadMetricSpecification:     expandPredictiveScalingPredefinedLoadMetric(tfMap["predefined_load_metric_specification"].([]interface{})),
-		PredefinedMetricPairSpecification:     expandPredictiveScalingPredefinedMetricPair(tfMap["predefined_metric_pair_specification"].([]interface{})),
-		PredefinedScalingMetricSpecification:  expandPredictiveScalingPredefinedScalingMetric(tfMap["predefined_scaling_metric_specification"].([]interface{})),
+		CustomizedCapacityMetricSpecification: expandPredictiveScalingCustomizedCapacityMetric(tfMap["customized_capacity_metric_specification"].([]any)),
+		CustomizedLoadMetricSpecification:     expandPredictiveScalingCustomizedLoadMetric(tfMap["customized_load_metric_specification"].([]any)),
+		CustomizedScalingMetricSpecification:  expandPredictiveScalingCustomizedScalingMetric(tfMap["customized_scaling_metric_specification"].([]any)),
+		PredefinedLoadMetricSpecification:     expandPredictiveScalingPredefinedLoadMetric(tfMap["predefined_load_metric_specification"].([]any)),
+		PredefinedMetricPairSpecification:     expandPredictiveScalingPredefinedMetricPair(tfMap["predefined_metric_pair_specification"].([]any)),
+		PredefinedScalingMetricSpecification:  expandPredictiveScalingPredefinedScalingMetric(tfMap["predefined_scaling_metric_specification"].([]any)),
 		TargetValue:                           aws.Float64(tfMap["target_value"].(float64)),
 	}
 
 	return []awstypes.PredictiveScalingMetricSpecification{apiObject}
 }
 
-func expandPredictiveScalingPredefinedLoadMetric(tfList []interface{}) *awstypes.PredictiveScalingPredefinedLoadMetric {
+func expandPredictiveScalingPredefinedLoadMetric(tfList []any) *awstypes.PredictiveScalingPredefinedLoadMetric {
 	if len(tfList) < 1 {
 		return nil
 	}
 
-	tfMap := tfList[0].(map[string]interface{})
+	tfMap := tfList[0].(map[string]any)
 	apiObject := &awstypes.PredictiveScalingPredefinedLoadMetric{
 		PredefinedMetricType: awstypes.PredefinedLoadMetricType(tfMap["predefined_metric_type"].(string)),
 	}
@@ -932,12 +920,12 @@ func expandPredictiveScalingPredefinedLoadMetric(tfList []interface{}) *awstypes
 	return apiObject
 }
 
-func expandPredictiveScalingPredefinedMetricPair(tfList []interface{}) *awstypes.PredictiveScalingPredefinedMetricPair {
+func expandPredictiveScalingPredefinedMetricPair(tfList []any) *awstypes.PredictiveScalingPredefinedMetricPair {
 	if len(tfList) < 1 {
 		return nil
 	}
 
-	tfMap := tfList[0].(map[string]interface{})
+	tfMap := tfList[0].(map[string]any)
 	apiObject := &awstypes.PredictiveScalingPredefinedMetricPair{
 		PredefinedMetricType: awstypes.PredefinedMetricPairType(tfMap["predefined_metric_type"].(string)),
 	}
@@ -948,12 +936,12 @@ func expandPredictiveScalingPredefinedMetricPair(tfList []interface{}) *awstypes
 	return apiObject
 }
 
-func expandPredictiveScalingPredefinedScalingMetric(tfList []interface{}) *awstypes.PredictiveScalingPredefinedScalingMetric {
+func expandPredictiveScalingPredefinedScalingMetric(tfList []any) *awstypes.PredictiveScalingPredefinedScalingMetric {
 	if len(tfList) < 1 {
 		return nil
 	}
 
-	tfMap := tfList[0].(map[string]interface{})
+	tfMap := tfList[0].(map[string]any)
 	apiObject := &awstypes.PredictiveScalingPredefinedScalingMetric{
 		PredefinedMetricType: awstypes.PredefinedScalingMetricType(tfMap["predefined_metric_type"].(string)),
 	}
@@ -964,46 +952,46 @@ func expandPredictiveScalingPredefinedScalingMetric(tfList []interface{}) *awsty
 	return apiObject
 }
 
-func expandPredictiveScalingCustomizedScalingMetric(tfList []interface{}) *awstypes.PredictiveScalingCustomizedScalingMetric {
+func expandPredictiveScalingCustomizedScalingMetric(tfList []any) *awstypes.PredictiveScalingCustomizedScalingMetric {
 	if len(tfList) < 1 {
 		return nil
 	}
 
-	tfMap := tfList[0].(map[string]interface{})
+	tfMap := tfList[0].(map[string]any)
 	apiObject := &awstypes.PredictiveScalingCustomizedScalingMetric{
-		MetricDataQueries: expandMetricDataQueries(tfMap["metric_data_queries"].([]interface{})),
+		MetricDataQueries: expandMetricDataQueries(tfMap["metric_data_queries"].([]any)),
 	}
 
 	return apiObject
 }
 
-func expandPredictiveScalingCustomizedLoadMetric(tfList []interface{}) *awstypes.PredictiveScalingCustomizedLoadMetric {
+func expandPredictiveScalingCustomizedLoadMetric(tfList []any) *awstypes.PredictiveScalingCustomizedLoadMetric {
 	if len(tfList) < 1 {
 		return nil
 	}
 
-	tfMap := tfList[0].(map[string]interface{})
+	tfMap := tfList[0].(map[string]any)
 	apiObject := &awstypes.PredictiveScalingCustomizedLoadMetric{
-		MetricDataQueries: expandMetricDataQueries(tfMap["metric_data_queries"].([]interface{})),
+		MetricDataQueries: expandMetricDataQueries(tfMap["metric_data_queries"].([]any)),
 	}
 
 	return apiObject
 }
 
-func expandPredictiveScalingCustomizedCapacityMetric(tfList []interface{}) *awstypes.PredictiveScalingCustomizedCapacityMetric {
+func expandPredictiveScalingCustomizedCapacityMetric(tfList []any) *awstypes.PredictiveScalingCustomizedCapacityMetric {
 	if len(tfList) < 1 {
 		return nil
 	}
 
-	tfMap := tfList[0].(map[string]interface{})
+	tfMap := tfList[0].(map[string]any)
 	apiObject := &awstypes.PredictiveScalingCustomizedCapacityMetric{
-		MetricDataQueries: expandMetricDataQueries(tfMap["metric_data_queries"].([]interface{})),
+		MetricDataQueries: expandMetricDataQueries(tfMap["metric_data_queries"].([]any)),
 	}
 
 	return apiObject
 }
 
-func expandMetricDataQueries(tfList []interface{}) []awstypes.MetricDataQuery {
+func expandMetricDataQueries(tfList []any) []awstypes.MetricDataQuery {
 	if len(tfList) < 1 {
 		return nil
 	}
@@ -1011,7 +999,7 @@ func expandMetricDataQueries(tfList []interface{}) []awstypes.MetricDataQuery {
 	apiObjects := make([]awstypes.MetricDataQuery, len(tfList))
 
 	for i := range apiObjects {
-		tfMap := tfList[i].(map[string]interface{})
+		tfMap := tfList[i].(map[string]any)
 		apiObject := awstypes.MetricDataQuery{
 			Id: aws.String(tfMap[names.AttrID].(string)),
 		}
@@ -1021,9 +1009,9 @@ func expandMetricDataQueries(tfList []interface{}) []awstypes.MetricDataQuery {
 		if v, ok := tfMap["label"]; ok && v.(string) != "" {
 			apiObject.Label = aws.String(v.(string))
 		}
-		if v, ok := tfMap["metric_stat"]; ok && len(v.([]interface{})) > 0 {
-			tfMapMetricStat := v.([]interface{})[0].(map[string]interface{})
-			tfMapMetric := tfMapMetricStat["metric"].([]interface{})[0].(map[string]interface{})
+		if v, ok := tfMap["metric_stat"]; ok && len(v.([]any)) > 0 {
+			tfMapMetricStat := v.([]any)[0].(map[string]any)
+			tfMapMetric := tfMapMetricStat["metric"].([]any)[0].(map[string]any)
 			metric := &awstypes.Metric{
 				MetricName: aws.String(tfMapMetric[names.AttrMetricName].(string)),
 				Namespace:  aws.String(tfMapMetric[names.AttrNamespace].(string)),
@@ -1032,7 +1020,7 @@ func expandMetricDataQueries(tfList []interface{}) []awstypes.MetricDataQuery {
 				tfList := v.(*schema.Set).List()
 				metricDimensions := make([]awstypes.MetricDimension, len(tfList))
 				for i := range metricDimensions {
-					tfMap := tfList[i].(map[string]interface{})
+					tfMap := tfList[i].(map[string]any)
 					metricDimensions[i] = awstypes.MetricDimension{
 						Name:  aws.String(tfMap[names.AttrName].(string)),
 						Value: aws.String(tfMap[names.AttrValue].(string)),
@@ -1058,7 +1046,7 @@ func expandMetricDataQueries(tfList []interface{}) []awstypes.MetricDataQuery {
 	return apiObjects
 }
 
-func expandStepAdjustments(tfList []interface{}) []awstypes.StepAdjustment {
+func expandStepAdjustments(tfList []any) []awstypes.StepAdjustment {
 	if len(tfList) == 0 {
 		return nil
 	}
@@ -1066,7 +1054,7 @@ func expandStepAdjustments(tfList []interface{}) []awstypes.StepAdjustment {
 	var apiObjects []awstypes.StepAdjustment
 
 	for _, tfMapRaw := range tfList {
-		tfMap, ok := tfMapRaw.(map[string]interface{})
+		tfMap, ok := tfMapRaw.(map[string]any)
 		if !ok {
 			continue
 		}
@@ -1093,21 +1081,21 @@ func expandStepAdjustments(tfList []interface{}) []awstypes.StepAdjustment {
 	return apiObjects
 }
 
-func flattenTargetTrackingConfiguration(apiObject *awstypes.TargetTrackingConfiguration) []interface{} {
+func flattenTargetTrackingConfiguration(apiObject *awstypes.TargetTrackingConfiguration) []any {
 	if apiObject == nil {
-		return []interface{}{}
+		return []any{}
 	}
 
-	tfMap := map[string]interface{}{}
+	tfMap := map[string]any{}
 	if apiObject := apiObject.CustomizedMetricSpecification; apiObject != nil {
-		tfMapCustomizedMetricSpecification := map[string]interface{}{}
+		tfMapCustomizedMetricSpecification := map[string]any{}
 		if v := apiObject.Metrics; v != nil {
 			tfMapCustomizedMetricSpecification["metrics"] = flattenTargetTrackingMetricDataQueries(v)
 		} else {
 			if apiObjects := apiObject.Dimensions; apiObjects != nil {
-				tfList := make([]interface{}, len(apiObjects))
+				tfList := make([]any, len(apiObjects))
 				for i := range tfList {
-					tfMap := map[string]interface{}{}
+					tfMap := map[string]any{}
 					apiObject := apiObjects[i]
 					tfMap[names.AttrName] = aws.ToString(apiObject.Name)
 					tfMap[names.AttrValue] = aws.ToString(apiObject.Value)
@@ -1125,27 +1113,27 @@ func flattenTargetTrackingConfiguration(apiObject *awstypes.TargetTrackingConfig
 				tfMapCustomizedMetricSpecification[names.AttrUnit] = aws.ToString(v)
 			}
 		}
-		tfMap["customized_metric_specification"] = []map[string]interface{}{tfMapCustomizedMetricSpecification}
+		tfMap["customized_metric_specification"] = []map[string]any{tfMapCustomizedMetricSpecification}
 	}
 	tfMap["disable_scale_in"] = aws.ToBool(apiObject.DisableScaleIn)
 	if apiObject := apiObject.PredefinedMetricSpecification; apiObject != nil {
-		tfMapPredefinedMetricSpecification := map[string]interface{}{}
+		tfMapPredefinedMetricSpecification := map[string]any{}
 		tfMapPredefinedMetricSpecification["predefined_metric_type"] = apiObject.PredefinedMetricType
 		if v := apiObject.ResourceLabel; v != nil {
 			tfMapPredefinedMetricSpecification["resource_label"] = aws.ToString(v)
 		}
-		tfMap["predefined_metric_specification"] = []map[string]interface{}{tfMapPredefinedMetricSpecification}
+		tfMap["predefined_metric_specification"] = []map[string]any{tfMapPredefinedMetricSpecification}
 	}
 	tfMap["target_value"] = aws.ToFloat64(apiObject.TargetValue)
 
-	return []interface{}{tfMap}
+	return []any{tfMap}
 }
 
-func flattenTargetTrackingMetricDataQueries(apiObjects []awstypes.TargetTrackingMetricDataQuery) []interface{} {
-	tfList := make([]interface{}, len(apiObjects))
+func flattenTargetTrackingMetricDataQueries(apiObjects []awstypes.TargetTrackingMetricDataQuery) []any {
+	tfList := make([]any, len(apiObjects))
 
 	for i := range tfList {
-		tfMap := map[string]interface{}{}
+		tfMap := map[string]any{}
 		apiObject := apiObjects[i]
 		if v := apiObject.Expression; v != nil {
 			tfMap[names.AttrExpression] = aws.ToString(v)
@@ -1155,13 +1143,13 @@ func flattenTargetTrackingMetricDataQueries(apiObjects []awstypes.TargetTracking
 			tfMap["label"] = aws.ToString(v)
 		}
 		if apiObject := apiObject.MetricStat; apiObject != nil {
-			tfMapMetricStat := map[string]interface{}{}
+			tfMapMetricStat := map[string]any{}
 			if apiObject := apiObject.Metric; apiObject != nil {
-				tfMapMetric := map[string]interface{}{}
+				tfMapMetric := map[string]any{}
 				if apiObjects := apiObject.Dimensions; apiObjects != nil {
-					tfList := make([]interface{}, len(apiObjects))
+					tfList := make([]any, len(apiObjects))
 					for i := range tfList {
-						tfMap := map[string]interface{}{}
+						tfMap := map[string]any{}
 						apiObject := apiObject.Dimensions[i]
 						tfMap[names.AttrName] = aws.ToString(apiObject.Name)
 						tfMap[names.AttrValue] = aws.ToString(apiObject.Value)
@@ -1171,7 +1159,7 @@ func flattenTargetTrackingMetricDataQueries(apiObjects []awstypes.TargetTracking
 				}
 				tfMapMetric[names.AttrMetricName] = aws.ToString(apiObject.MetricName)
 				tfMapMetric[names.AttrNamespace] = aws.ToString(apiObject.Namespace)
-				tfMapMetricStat["metric"] = []map[string]interface{}{tfMapMetric}
+				tfMapMetricStat["metric"] = []map[string]any{tfMapMetric}
 			}
 			if v := apiObject.Period; v != nil {
 				tfMapMetricStat["period"] = aws.ToInt32(v)
@@ -1180,7 +1168,7 @@ func flattenTargetTrackingMetricDataQueries(apiObjects []awstypes.TargetTracking
 			if v := apiObject.Unit; v != nil {
 				tfMapMetricStat[names.AttrUnit] = aws.ToString(v)
 			}
-			tfMap["metric_stat"] = []map[string]interface{}{tfMapMetricStat}
+			tfMap["metric_stat"] = []map[string]any{tfMapMetricStat}
 		}
 		if v := apiObject.ReturnData; v != nil {
 			tfMap["return_data"] = aws.ToBool(v)
@@ -1191,12 +1179,12 @@ func flattenTargetTrackingMetricDataQueries(apiObjects []awstypes.TargetTracking
 	return tfList
 }
 
-func flattenPredictiveScalingConfiguration(apiObject *awstypes.PredictiveScalingConfiguration) []interface{} {
+func flattenPredictiveScalingConfiguration(apiObject *awstypes.PredictiveScalingConfiguration) []any {
 	if apiObject == nil {
 		return nil
 	}
 
-	tfMap := map[string]interface{}{}
+	tfMap := map[string]any{}
 	tfMap["max_capacity_breach_behavior"] = string(apiObject.MaxCapacityBreachBehavior)
 	if v := apiObject.MaxCapacityBuffer; v != nil {
 		tfMap["max_capacity_buffer"] = flex.Int32ToStringValue(v)
@@ -1209,13 +1197,13 @@ func flattenPredictiveScalingConfiguration(apiObject *awstypes.PredictiveScaling
 		tfMap["scheduling_buffer_time"] = flex.Int32ToStringValue(v)
 	}
 
-	return []interface{}{tfMap}
+	return []any{tfMap}
 }
 
-func flattenPredictiveScalingMetricSpecifications(apiObjects []awstypes.PredictiveScalingMetricSpecification) []interface{} {
-	tfMap := map[string]interface{}{}
+func flattenPredictiveScalingMetricSpecifications(apiObjects []awstypes.PredictiveScalingMetricSpecification) []any {
+	tfMap := map[string]any{}
 	if len(apiObjects) < 1 {
-		return []interface{}{tfMap}
+		return []any{tfMap}
 	}
 
 	apiObject := apiObjects[0]
@@ -1241,83 +1229,83 @@ func flattenPredictiveScalingMetricSpecifications(apiObjects []awstypes.Predicti
 		tfMap["target_value"] = aws.ToFloat64(v)
 	}
 
-	return []interface{}{tfMap}
+	return []any{tfMap}
 }
 
-func flattenPredictiveScalingPredefinedScalingMetric(apiObject *awstypes.PredictiveScalingPredefinedScalingMetric) []interface{} {
-	tfMap := map[string]interface{}{}
+func flattenPredictiveScalingPredefinedScalingMetric(apiObject *awstypes.PredictiveScalingPredefinedScalingMetric) []any {
+	tfMap := map[string]any{}
 	if apiObject == nil {
-		return []interface{}{tfMap}
+		return []any{tfMap}
 	}
 
 	tfMap["predefined_metric_type"] = apiObject.PredefinedMetricType
 	tfMap["resource_label"] = aws.ToString(apiObject.ResourceLabel)
 
-	return []interface{}{tfMap}
+	return []any{tfMap}
 }
 
-func flattenPredictiveScalingPredefinedLoadMetric(apiObject *awstypes.PredictiveScalingPredefinedLoadMetric) []interface{} {
-	tfMap := map[string]interface{}{}
+func flattenPredictiveScalingPredefinedLoadMetric(apiObject *awstypes.PredictiveScalingPredefinedLoadMetric) []any {
+	tfMap := map[string]any{}
 	if apiObject == nil {
-		return []interface{}{tfMap}
+		return []any{tfMap}
 	}
 
 	tfMap["predefined_metric_type"] = apiObject.PredefinedMetricType
 	tfMap["resource_label"] = aws.ToString(apiObject.ResourceLabel)
 
-	return []interface{}{tfMap}
+	return []any{tfMap}
 }
 
-func flattenPredictiveScalingPredefinedMetricPair(apiObject *awstypes.PredictiveScalingPredefinedMetricPair) []interface{} {
-	tfMap := map[string]interface{}{}
+func flattenPredictiveScalingPredefinedMetricPair(apiObject *awstypes.PredictiveScalingPredefinedMetricPair) []any {
+	tfMap := map[string]any{}
 	if apiObject == nil {
-		return []interface{}{tfMap}
+		return []any{tfMap}
 	}
 
 	tfMap["predefined_metric_type"] = apiObject.PredefinedMetricType
 	tfMap["resource_label"] = aws.ToString(apiObject.ResourceLabel)
 
-	return []interface{}{tfMap}
+	return []any{tfMap}
 }
 
-func flattenPredictiveScalingCustomizedScalingMetric(apiObject *awstypes.PredictiveScalingCustomizedScalingMetric) []interface{} {
-	tfMap := map[string]interface{}{}
+func flattenPredictiveScalingCustomizedScalingMetric(apiObject *awstypes.PredictiveScalingCustomizedScalingMetric) []any {
+	tfMap := map[string]any{}
 	if apiObject == nil {
-		return []interface{}{tfMap}
+		return []any{tfMap}
 	}
 
 	tfMap["metric_data_queries"] = flattenMetricDataQueries(apiObject.MetricDataQueries)
 
-	return []interface{}{tfMap}
+	return []any{tfMap}
 }
 
-func flattenPredictiveScalingCustomizedLoadMetric(apiObject *awstypes.PredictiveScalingCustomizedLoadMetric) []interface{} {
-	tfMap := map[string]interface{}{}
+func flattenPredictiveScalingCustomizedLoadMetric(apiObject *awstypes.PredictiveScalingCustomizedLoadMetric) []any {
+	tfMap := map[string]any{}
 	if apiObject == nil {
-		return []interface{}{tfMap}
+		return []any{tfMap}
 	}
 
 	tfMap["metric_data_queries"] = flattenMetricDataQueries(apiObject.MetricDataQueries)
 
-	return []interface{}{tfMap}
+	return []any{tfMap}
 }
 
-func flattenPredictiveScalingCustomizedCapacityMetric(apiObject *awstypes.PredictiveScalingCustomizedCapacityMetric) []interface{} {
-	tfMap := map[string]interface{}{}
+func flattenPredictiveScalingCustomizedCapacityMetric(apiObject *awstypes.PredictiveScalingCustomizedCapacityMetric) []any {
+	tfMap := map[string]any{}
 	if apiObject == nil {
-		return []interface{}{tfMap}
+		return []any{tfMap}
 	}
 
 	tfMap["metric_data_queries"] = flattenMetricDataQueries(apiObject.MetricDataQueries)
 
-	return []interface{}{tfMap}
+	return []any{tfMap}
 }
 
-func flattenMetricDataQueries(apiObjects []awstypes.MetricDataQuery) []interface{} {
-	tfList := make([]interface{}, len(apiObjects))
+func flattenMetricDataQueries(apiObjects []awstypes.MetricDataQuery) []any {
+	tfList := make([]any, len(apiObjects))
 
 	for i := range tfList {
-		tfMap := map[string]interface{}{}
+		tfMap := map[string]any{}
 		apiObject := apiObjects[i]
 
 		if v := apiObject.Expression; v != nil {
@@ -1328,13 +1316,13 @@ func flattenMetricDataQueries(apiObjects []awstypes.MetricDataQuery) []interface
 			tfMap["label"] = aws.ToString(v)
 		}
 		if apiObject := apiObject.MetricStat; apiObject != nil {
-			tfMapMetricStat := map[string]interface{}{}
+			tfMapMetricStat := map[string]any{}
 			if apiObject := apiObject.Metric; apiObject != nil {
-				tfMapMetric := map[string]interface{}{}
+				tfMapMetric := map[string]any{}
 				if apiObjects := apiObject.Dimensions; apiObjects != nil {
-					tfList := make([]interface{}, len(apiObjects))
+					tfList := make([]any, len(apiObjects))
 					for i := range tfList {
-						tfMap := map[string]interface{}{}
+						tfMap := map[string]any{}
 						apiObject := apiObject.Dimensions[i]
 						tfMap[names.AttrName] = aws.ToString(apiObject.Name)
 						tfMap[names.AttrValue] = aws.ToString(apiObject.Value)
@@ -1344,13 +1332,13 @@ func flattenMetricDataQueries(apiObjects []awstypes.MetricDataQuery) []interface
 				}
 				tfMapMetric[names.AttrMetricName] = aws.ToString(apiObject.MetricName)
 				tfMapMetric[names.AttrNamespace] = aws.ToString(apiObject.Namespace)
-				tfMapMetricStat["metric"] = []map[string]interface{}{tfMapMetric}
+				tfMapMetricStat["metric"] = []map[string]any{tfMapMetric}
 			}
 			tfMapMetricStat["stat"] = aws.ToString(apiObject.Stat)
 			if v := apiObject.Unit; v != nil {
 				tfMapMetricStat[names.AttrUnit] = aws.ToString(v)
 			}
-			tfMap["metric_stat"] = []map[string]interface{}{tfMapMetricStat}
+			tfMap["metric_stat"] = []map[string]any{tfMapMetricStat}
 		}
 		if v := apiObject.ReturnData; v != nil {
 			tfMap["return_data"] = aws.ToBool(v)
@@ -1361,15 +1349,15 @@ func flattenMetricDataQueries(apiObjects []awstypes.MetricDataQuery) []interface
 	return tfList
 }
 
-func flattenStepAdjustments(apiObjects []awstypes.StepAdjustment) []interface{} {
+func flattenStepAdjustments(apiObjects []awstypes.StepAdjustment) []any {
 	if len(apiObjects) == 0 {
 		return nil
 	}
 
-	var tfList []interface{}
+	var tfList []any
 
 	for _, apiObject := range apiObjects {
-		tfMap := map[string]interface{}{
+		tfMap := map[string]any{
 			"scaling_adjustment": aws.ToInt32(apiObject.ScalingAdjustment),
 		}
 
@@ -1385,4 +1373,40 @@ func flattenStepAdjustments(apiObjects []awstypes.StepAdjustment) []interface{} 
 	}
 
 	return tfList
+}
+
+const policyImportIDSeparator = "/"
+
+func policyParseImportID(id string) (string, string, error) {
+	parts := strings.Split(id, policyImportIDSeparator)
+
+	if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
+		return parts[0], parts[1], nil
+	}
+
+	return "", "", fmt.Errorf("unexpected format for ID (%[1]s), expected auto-scaling-group-name%[2]spolicy-name", id, policyImportIDSeparator)
+}
+
+var (
+	_ inttypes.SDKv2ImportID = policyImportID{}
+)
+
+type policyImportID struct{}
+
+func (policyImportID) Parse(id string) (string, map[string]any, error) {
+	asgName, policyName, err := policyParseImportID(id)
+	if err != nil {
+		return "", nil, err
+	}
+
+	result := map[string]any{
+		"autoscaling_group_name": asgName,
+		names.AttrName:           policyName,
+	}
+
+	return policyName, result, nil
+}
+
+func (policyImportID) Create(d *schema.ResourceData) string {
+	return d.Get(names.AttrName).(string)
 }

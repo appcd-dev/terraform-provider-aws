@@ -1,5 +1,7 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
+
+// DONOTCOPY: Copying old resources spreads bad habits. Use skaff instead.
 
 package sesv2
 
@@ -14,7 +16,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sesv2/types"
 	"github.com/hashicorp/go-cty/cty"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
 	"github.com/hashicorp/terraform-provider-aws/internal/conns"
@@ -23,6 +24,7 @@ import (
 	"github.com/hashicorp/terraform-provider-aws/internal/errs"
 	"github.com/hashicorp/terraform-provider-aws/internal/errs/sdkdiag"
 	"github.com/hashicorp/terraform-provider-aws/internal/flex"
+	"github.com/hashicorp/terraform-provider-aws/internal/retry"
 	tftags "github.com/hashicorp/terraform-provider-aws/internal/tags"
 	"github.com/hashicorp/terraform-provider-aws/internal/tfresource"
 	"github.com/hashicorp/terraform-provider-aws/names"
@@ -41,148 +43,150 @@ func resourceConfigurationSet() *schema.Resource {
 			StateContext: schema.ImportStatePassthroughContext,
 		},
 
-		Schema: map[string]*schema.Schema{
-			names.AttrARN: {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"configuration_set_name": {
-				Type:         schema.TypeString,
-				Required:     true,
-				ForceNew:     true,
-				ValidateFunc: validation.StringLenBetween(1, 64),
-			},
-			"delivery_options": {
-				Type:     schema.TypeList,
-				Optional: true,
-				MaxItems: 1,
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						"max_delivery_seconds": {
-							Type:         schema.TypeInt,
-							Optional:     true,
-							ValidateFunc: validation.IntBetween(300, 50400),
-						},
-						"sending_pool_name": {
-							Type:     schema.TypeString,
-							Optional: true,
-						},
-						"tls_policy": {
-							Type:             schema.TypeString,
-							Optional:         true,
-							ValidateDiagFunc: enum.Validate[types.TlsPolicy](),
-						},
-					},
+		SchemaFunc: func() map[string]*schema.Schema {
+			return map[string]*schema.Schema{
+				names.AttrARN: {
+					Type:     schema.TypeString,
+					Computed: true,
 				},
-			},
-			"reputation_options": {
-				Type:     schema.TypeList,
-				Optional: true,
-				Computed: true,
-				MaxItems: 1,
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						"last_fresh_start": {
-							Type:     schema.TypeString,
-							Computed: true,
-						},
-						"reputation_metrics_enabled": {
-							Type:     schema.TypeBool,
-							Optional: true,
-							Computed: true,
-						},
-					},
+				"configuration_set_name": {
+					Type:         schema.TypeString,
+					Required:     true,
+					ForceNew:     true,
+					ValidateFunc: validation.StringLenBetween(1, 64),
 				},
-			},
-			"sending_options": {
-				Type:     schema.TypeList,
-				Optional: true,
-				Computed: true,
-				MaxItems: 1,
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						"sending_enabled": {
-							Type:     schema.TypeBool,
-							Optional: true,
-							Computed: true,
-						},
-					},
-				},
-			},
-			"suppression_options": {
-				Type:     schema.TypeList,
-				Optional: true,
-				MaxItems: 1,
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						"suppressed_reasons": {
-							Type:     schema.TypeList,
-							Optional: true,
-							Elem: &schema.Schema{
+				"delivery_options": {
+					Type:     schema.TypeList,
+					Optional: true,
+					MaxItems: 1,
+					Elem: &schema.Resource{
+						Schema: map[string]*schema.Schema{
+							"max_delivery_seconds": {
+								Type:         schema.TypeInt,
+								Optional:     true,
+								ValidateFunc: validation.IntBetween(300, 50400),
+							},
+							"sending_pool_name": {
+								Type:     schema.TypeString,
+								Optional: true,
+							},
+							"tls_policy": {
 								Type:             schema.TypeString,
-								ValidateDiagFunc: enum.Validate[types.SuppressionListReason](),
+								Optional:         true,
+								ValidateDiagFunc: enum.Validate[types.TlsPolicy](),
 							},
 						},
 					},
 				},
-			},
-			names.AttrTags:    tftags.TagsSchema(),
-			names.AttrTagsAll: tftags.TagsSchemaComputed(),
-			"tracking_options": {
-				Type:     schema.TypeList,
-				Optional: true,
-				MaxItems: 1,
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						"custom_redirect_domain": {
-							Type:     schema.TypeString,
-							Required: true,
-						},
-						"https_policy": {
-							Type:             schema.TypeString,
-							Optional:         true,
-							ValidateDiagFunc: enum.Validate[types.HttpsPolicy](),
+				"reputation_options": {
+					Type:     schema.TypeList,
+					Optional: true,
+					Computed: true,
+					MaxItems: 1,
+					Elem: &schema.Resource{
+						Schema: map[string]*schema.Schema{
+							"last_fresh_start": {
+								Type:     schema.TypeString,
+								Computed: true,
+							},
+							"reputation_metrics_enabled": {
+								Type:     schema.TypeBool,
+								Optional: true,
+								Computed: true,
+							},
 						},
 					},
 				},
-			},
-			"vdm_options": {
-				Type:     schema.TypeList,
-				Optional: true,
-				MaxItems: 1,
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						"dashboard_options": {
-							Type:     schema.TypeList,
-							Optional: true,
-							MaxItems: 1,
-							Elem: &schema.Resource{
-								Schema: map[string]*schema.Schema{
-									"engagement_metrics": {
-										Type:             schema.TypeString,
-										Optional:         true,
-										ValidateDiagFunc: enum.Validate[types.FeatureStatus](),
-									},
-								},
+				"sending_options": {
+					Type:     schema.TypeList,
+					Optional: true,
+					Computed: true,
+					MaxItems: 1,
+					Elem: &schema.Resource{
+						Schema: map[string]*schema.Schema{
+							"sending_enabled": {
+								Type:     schema.TypeBool,
+								Optional: true,
+								Computed: true,
 							},
 						},
-						"guardian_options": {
-							Type:     schema.TypeList,
-							Optional: true,
-							MaxItems: 1,
-							Elem: &schema.Resource{
-								Schema: map[string]*schema.Schema{
-									"optimized_shared_delivery": {
-										Type:             schema.TypeString,
-										Optional:         true,
-										ValidateDiagFunc: enum.Validate[types.FeatureStatus](),
-									},
+					},
+				},
+				"suppression_options": {
+					Type:     schema.TypeList,
+					Optional: true,
+					MaxItems: 1,
+					Elem: &schema.Resource{
+						Schema: map[string]*schema.Schema{
+							"suppressed_reasons": {
+								Type:     schema.TypeList,
+								Optional: true,
+								Elem: &schema.Schema{
+									Type:             schema.TypeString,
+									ValidateDiagFunc: enum.Validate[types.SuppressionListReason](),
 								},
 							},
 						},
 					},
 				},
-			},
+				names.AttrTags:    tftags.TagsSchema(),
+				names.AttrTagsAll: tftags.TagsSchemaComputed(),
+				"tracking_options": {
+					Type:     schema.TypeList,
+					Optional: true,
+					MaxItems: 1,
+					Elem: &schema.Resource{
+						Schema: map[string]*schema.Schema{
+							"custom_redirect_domain": {
+								Type:     schema.TypeString,
+								Required: true,
+							},
+							"https_policy": {
+								Type:             schema.TypeString,
+								Optional:         true,
+								ValidateDiagFunc: enum.Validate[types.HttpsPolicy](),
+							},
+						},
+					},
+				},
+				"vdm_options": {
+					Type:     schema.TypeList,
+					Optional: true,
+					MaxItems: 1,
+					Elem: &schema.Resource{
+						Schema: map[string]*schema.Schema{
+							"dashboard_options": {
+								Type:     schema.TypeList,
+								Optional: true,
+								MaxItems: 1,
+								Elem: &schema.Resource{
+									Schema: map[string]*schema.Schema{
+										"engagement_metrics": {
+											Type:             schema.TypeString,
+											Optional:         true,
+											ValidateDiagFunc: enum.Validate[types.FeatureStatus](),
+										},
+									},
+								},
+							},
+							"guardian_options": {
+								Type:     schema.TypeList,
+								Optional: true,
+								MaxItems: 1,
+								Elem: &schema.Resource{
+									Schema: map[string]*schema.Schema{
+										"optimized_shared_delivery": {
+											Type:             schema.TypeString,
+											Optional:         true,
+											ValidateDiagFunc: enum.Validate[types.FeatureStatus](),
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
 		},
 	}
 }
@@ -191,7 +195,7 @@ const (
 	resNameConfigurationSet = "Configuration Set"
 )
 
-func resourceConfigurationSetCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceConfigurationSetCreate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).SESV2Client(ctx)
 
@@ -201,38 +205,38 @@ func resourceConfigurationSetCreate(ctx context.Context, d *schema.ResourceData,
 		Tags:                 getTagsIn(ctx),
 	}
 
-	if v, ok := d.GetOk("delivery_options"); ok && len(v.([]interface{})) > 0 && v.([]interface{})[0] != nil {
-		input.DeliveryOptions = expandDeliveryOptions(v.([]interface{})[0].(map[string]interface{}))
+	if v, ok := d.GetOk("delivery_options"); ok && len(v.([]any)) > 0 && v.([]any)[0] != nil {
+		input.DeliveryOptions = expandDeliveryOptions(v.([]any)[0].(map[string]any))
 	}
 
-	if v, ok := d.GetOk("reputation_options"); ok && len(v.([]interface{})) > 0 && v.([]interface{})[0] != nil {
-		input.ReputationOptions = expandReputationOptions(v.([]interface{})[0].(map[string]interface{}))
+	if v, ok := d.GetOk("reputation_options"); ok && len(v.([]any)) > 0 && v.([]any)[0] != nil {
+		input.ReputationOptions = expandReputationOptions(v.([]any)[0].(map[string]any))
 	}
 
-	if v, ok := d.GetOk("sending_options"); ok && len(v.([]interface{})) > 0 && v.([]interface{})[0] != nil {
-		input.SendingOptions = expandSendingOptions(v.([]interface{})[0].(map[string]interface{}))
+	if v, ok := d.GetOk("sending_options"); ok && len(v.([]any)) > 0 && v.([]any)[0] != nil {
+		input.SendingOptions = expandSendingOptions(v.([]any)[0].(map[string]any))
 	}
 
 	if v, ok := d.GetRawConfig().AsValueMap()["suppression_options"]; ok && v.LengthInt() > 0 {
 		if v, ok := v.Index(cty.NumberIntVal(0)).AsValueMap()["suppressed_reasons"]; ok && !v.IsNull() {
-			tfMap := map[string]interface{}{
-				"suppressed_reasons": []interface{}{},
+			tfMap := map[string]any{
+				"suppressed_reasons": []any{},
 			}
 
 			for _, v := range v.AsValueSlice() {
-				tfMap["suppressed_reasons"] = append(tfMap["suppressed_reasons"].([]interface{}), v.AsString())
+				tfMap["suppressed_reasons"] = append(tfMap["suppressed_reasons"].([]any), v.AsString())
 			}
 
 			input.SuppressionOptions = expandSuppressionOptions(tfMap)
 		}
 	}
 
-	if v, ok := d.GetOk("tracking_options"); ok && len(v.([]interface{})) > 0 && v.([]interface{})[0] != nil {
-		input.TrackingOptions = expandTrackingOptions(v.([]interface{})[0].(map[string]interface{}))
+	if v, ok := d.GetOk("tracking_options"); ok && len(v.([]any)) > 0 && v.([]any)[0] != nil {
+		input.TrackingOptions = expandTrackingOptions(v.([]any)[0].(map[string]any))
 	}
 
-	if v, ok := d.GetOk("vdm_options"); ok && len(v.([]interface{})) > 0 && v.([]interface{})[0] != nil {
-		input.VdmOptions = expandVDMOptions(v.([]interface{})[0].(map[string]interface{}))
+	if v, ok := d.GetOk("vdm_options"); ok && len(v.([]any)) > 0 && v.([]any)[0] != nil {
+		input.VdmOptions = expandVDMOptions(v.([]any)[0].(map[string]any))
 	}
 
 	_, err := conn.CreateConfigurationSet(ctx, input)
@@ -246,13 +250,13 @@ func resourceConfigurationSetCreate(ctx context.Context, d *schema.ResourceData,
 	return append(diags, resourceConfigurationSetRead(ctx, d, meta)...)
 }
 
-func resourceConfigurationSetRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceConfigurationSetRead(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).SESV2Client(ctx)
 
 	output, err := findConfigurationSetByID(ctx, conn, d.Id())
 
-	if !d.IsNewResource() && tfresource.NotFound(err) {
+	if !d.IsNewResource() && retry.NotFound(err) {
 		log.Printf("[WARN] SESV2 ConfigurationSet (%s) not found, removing from state", d.Id())
 		d.SetId("")
 		return diags
@@ -265,42 +269,42 @@ func resourceConfigurationSetRead(ctx context.Context, d *schema.ResourceData, m
 	d.Set(names.AttrARN, configurationSetARN(ctx, meta.(*conns.AWSClient), aws.ToString(output.ConfigurationSetName)))
 	d.Set("configuration_set_name", output.ConfigurationSetName)
 	if output.DeliveryOptions != nil {
-		if err := d.Set("delivery_options", []interface{}{flattenDeliveryOptions(output.DeliveryOptions)}); err != nil {
+		if err := d.Set("delivery_options", []any{flattenDeliveryOptions(output.DeliveryOptions)}); err != nil {
 			return sdkdiag.AppendErrorf(diags, "setting delivery_options: %s", err)
 		}
 	} else {
 		d.Set("delivery_options", nil)
 	}
 	if output.ReputationOptions != nil {
-		if err := d.Set("reputation_options", []interface{}{flattenReputationOptions(output.ReputationOptions)}); err != nil {
+		if err := d.Set("reputation_options", []any{flattenReputationOptions(output.ReputationOptions)}); err != nil {
 			return sdkdiag.AppendErrorf(diags, "setting reputation_options: %s", err)
 		}
 	} else {
 		d.Set("reputation_options", nil)
 	}
 	if output.SendingOptions != nil {
-		if err := d.Set("sending_options", []interface{}{flattenSendingOptions(output.SendingOptions)}); err != nil {
+		if err := d.Set("sending_options", []any{flattenSendingOptions(output.SendingOptions)}); err != nil {
 			return sdkdiag.AppendErrorf(diags, "setting sending_options: %s", err)
 		}
 	} else {
 		d.Set("sending_options", nil)
 	}
 	if output.SuppressionOptions != nil {
-		if err := d.Set("suppression_options", []interface{}{flattenSuppressionOptions(output.SuppressionOptions)}); err != nil {
+		if err := d.Set("suppression_options", []any{flattenSuppressionOptions(output.SuppressionOptions)}); err != nil {
 			return sdkdiag.AppendErrorf(diags, "setting suppression_options: %s", err)
 		}
 	} else {
 		d.Set("suppression_options", nil)
 	}
 	if output.TrackingOptions != nil {
-		if err := d.Set("tracking_options", []interface{}{flattenTrackingOptions(output.TrackingOptions)}); err != nil {
+		if err := d.Set("tracking_options", []any{flattenTrackingOptions(output.TrackingOptions)}); err != nil {
 			return sdkdiag.AppendErrorf(diags, "setting tracking_options: %s", err)
 		}
 	} else {
 		d.Set("tracking_options", nil)
 	}
 	if output.VdmOptions != nil {
-		if err := d.Set("vdm_options", []interface{}{flattenVDMOptions(output.VdmOptions)}); err != nil {
+		if err := d.Set("vdm_options", []any{flattenVDMOptions(output.VdmOptions)}); err != nil {
 			return sdkdiag.AppendErrorf(diags, "setting vdm_options: %s", err)
 		}
 	} else {
@@ -310,7 +314,7 @@ func resourceConfigurationSetRead(ctx context.Context, d *schema.ResourceData, m
 	return diags
 }
 
-func resourceConfigurationSetUpdate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceConfigurationSetUpdate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).SESV2Client(ctx)
 
@@ -319,8 +323,8 @@ func resourceConfigurationSetUpdate(ctx context.Context, d *schema.ResourceData,
 			ConfigurationSetName: aws.String(d.Id()),
 		}
 
-		if v, ok := d.GetOk("delivery_options"); ok && len(v.([]interface{})) > 0 && v.([]interface{})[0] != nil {
-			tfMap := v.([]interface{})[0].(map[string]interface{})
+		if v, ok := d.GetOk("delivery_options"); ok && len(v.([]any)) > 0 && v.([]any)[0] != nil {
+			tfMap := v.([]any)[0].(map[string]any)
 
 			if v, ok := tfMap["max_delivery_seconds"].(int); ok && v != 0 {
 				input.MaxDeliverySeconds = aws.Int64(int64(v))
@@ -347,8 +351,8 @@ func resourceConfigurationSetUpdate(ctx context.Context, d *schema.ResourceData,
 			ConfigurationSetName: aws.String(d.Id()),
 		}
 
-		if v, ok := d.GetOk("reputation_options"); ok && len(v.([]interface{})) > 0 && v.([]interface{})[0] != nil {
-			tfMap := v.([]interface{})[0].(map[string]interface{})
+		if v, ok := d.GetOk("reputation_options"); ok && len(v.([]any)) > 0 && v.([]any)[0] != nil {
+			tfMap := v.([]any)[0].(map[string]any)
 
 			if v, ok := tfMap["reputation_metrics_enabled"].(bool); ok {
 				input.ReputationMetricsEnabled = v
@@ -367,8 +371,8 @@ func resourceConfigurationSetUpdate(ctx context.Context, d *schema.ResourceData,
 			ConfigurationSetName: aws.String(d.Id()),
 		}
 
-		if v, ok := d.GetOk("sending_options"); ok && len(v.([]interface{})) > 0 && v.([]interface{})[0] != nil {
-			tfMap := v.([]interface{})[0].(map[string]interface{})
+		if v, ok := d.GetOk("sending_options"); ok && len(v.([]any)) > 0 && v.([]any)[0] != nil {
+			tfMap := v.([]any)[0].(map[string]any)
 
 			if v, ok := tfMap["sending_enabled"].(bool); ok {
 				input.SendingEnabled = v
@@ -387,10 +391,10 @@ func resourceConfigurationSetUpdate(ctx context.Context, d *schema.ResourceData,
 			ConfigurationSetName: aws.String(d.Id()),
 		}
 
-		if v, ok := d.GetOk("suppression_options"); ok && len(v.([]interface{})) > 0 && v.([]interface{})[0] != nil {
-			tfMap := v.([]interface{})[0].(map[string]interface{})
+		if v, ok := d.GetOk("suppression_options"); ok && len(v.([]any)) > 0 && v.([]any)[0] != nil {
+			tfMap := v.([]any)[0].(map[string]any)
 
-			if v, ok := tfMap["suppressed_reasons"].([]interface{}); ok && len(v) > 0 {
+			if v, ok := tfMap["suppressed_reasons"].([]any); ok && len(v) > 0 {
 				input.SuppressedReasons = flex.ExpandStringyValueList[types.SuppressionListReason](v)
 			}
 		}
@@ -407,8 +411,8 @@ func resourceConfigurationSetUpdate(ctx context.Context, d *schema.ResourceData,
 			ConfigurationSetName: aws.String(d.Id()),
 		}
 
-		if v, ok := d.GetOk("tracking_options"); ok && len(v.([]interface{})) > 0 && v.([]interface{})[0] != nil {
-			tfMap := v.([]interface{})[0].(map[string]interface{})
+		if v, ok := d.GetOk("tracking_options"); ok && len(v.([]any)) > 0 && v.([]any)[0] != nil {
+			tfMap := v.([]any)[0].(map[string]any)
 
 			if v, ok := tfMap["custom_redirect_domain"].(string); ok && v != "" {
 				input.CustomRedirectDomain = aws.String(v)
@@ -431,8 +435,8 @@ func resourceConfigurationSetUpdate(ctx context.Context, d *schema.ResourceData,
 			ConfigurationSetName: aws.String(d.Id()),
 		}
 
-		if v, ok := d.GetOk("vdm_options"); ok && len(v.([]interface{})) > 0 && v.([]interface{})[0] != nil {
-			input.VdmOptions = expandVDMOptions(v.([]interface{})[0].(map[string]interface{}))
+		if v, ok := d.GetOk("vdm_options"); ok && len(v.([]any)) > 0 && v.([]any)[0] != nil {
+			input.VdmOptions = expandVDMOptions(v.([]any)[0].(map[string]any))
 		}
 
 		_, err := conn.PutConfigurationSetVdmOptions(ctx, input)
@@ -445,7 +449,7 @@ func resourceConfigurationSetUpdate(ctx context.Context, d *schema.ResourceData,
 	return append(diags, resourceConfigurationSetRead(ctx, d, meta)...)
 }
 
-func resourceConfigurationSetDelete(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceConfigurationSetDelete(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).SESV2Client(ctx)
 
@@ -478,8 +482,7 @@ func findConfigurationSet(ctx context.Context, conn *sesv2.Client, input *sesv2.
 
 	if errs.IsA[*types.NotFoundException](err) {
 		return nil, &retry.NotFoundError{
-			LastError:   err,
-			LastRequest: input,
+			LastError: err,
 		}
 	}
 
@@ -488,18 +491,18 @@ func findConfigurationSet(ctx context.Context, conn *sesv2.Client, input *sesv2.
 	}
 
 	if output == nil {
-		return nil, tfresource.NewEmptyResultError(input)
+		return nil, tfresource.NewEmptyResultError()
 	}
 
 	return output, nil
 }
 
-func flattenDeliveryOptions(apiObject *types.DeliveryOptions) map[string]interface{} {
+func flattenDeliveryOptions(apiObject *types.DeliveryOptions) map[string]any {
 	if apiObject == nil {
 		return nil
 	}
 
-	tfMap := map[string]interface{}{
+	tfMap := map[string]any{
 		"tls_policy": apiObject.TlsPolicy,
 	}
 
@@ -514,12 +517,12 @@ func flattenDeliveryOptions(apiObject *types.DeliveryOptions) map[string]interfa
 	return tfMap
 }
 
-func flattenReputationOptions(apiObject *types.ReputationOptions) map[string]interface{} {
+func flattenReputationOptions(apiObject *types.ReputationOptions) map[string]any {
 	if apiObject == nil {
 		return nil
 	}
 
-	tfMap := map[string]interface{}{
+	tfMap := map[string]any{
 		"reputation_metrics_enabled": apiObject.ReputationMetricsEnabled,
 	}
 
@@ -530,24 +533,24 @@ func flattenReputationOptions(apiObject *types.ReputationOptions) map[string]int
 	return tfMap
 }
 
-func flattenSendingOptions(apiObject *types.SendingOptions) map[string]interface{} {
+func flattenSendingOptions(apiObject *types.SendingOptions) map[string]any {
 	if apiObject == nil {
 		return nil
 	}
 
-	tfMap := map[string]interface{}{
+	tfMap := map[string]any{
 		"sending_enabled": apiObject.SendingEnabled,
 	}
 
 	return tfMap
 }
 
-func flattenSuppressionOptions(apiObject *types.SuppressionOptions) map[string]interface{} {
+func flattenSuppressionOptions(apiObject *types.SuppressionOptions) map[string]any {
 	if apiObject == nil {
 		return nil
 	}
 
-	tfMap := map[string]interface{}{}
+	tfMap := map[string]any{}
 
 	if v := apiObject.SuppressedReasons; v != nil {
 		tfMap["suppressed_reasons"] = apiObject.SuppressedReasons
@@ -556,12 +559,12 @@ func flattenSuppressionOptions(apiObject *types.SuppressionOptions) map[string]i
 	return tfMap
 }
 
-func flattenTrackingOptions(apiObject *types.TrackingOptions) map[string]interface{} {
+func flattenTrackingOptions(apiObject *types.TrackingOptions) map[string]any {
 	if apiObject == nil {
 		return nil
 	}
 
-	tfMap := map[string]interface{}{
+	tfMap := map[string]any{
 		"https_policy": apiObject.HttpsPolicy,
 	}
 
@@ -572,49 +575,49 @@ func flattenTrackingOptions(apiObject *types.TrackingOptions) map[string]interfa
 	return tfMap
 }
 
-func flattenVDMOptions(apiObject *types.VdmOptions) map[string]interface{} {
+func flattenVDMOptions(apiObject *types.VdmOptions) map[string]any {
 	if apiObject == nil {
 		return nil
 	}
 
-	tfMap := map[string]interface{}{}
+	tfMap := map[string]any{}
 
 	if v := apiObject.DashboardOptions; v != nil {
-		tfMap["dashboard_options"] = []interface{}{flattenDashboardOptions(v)}
+		tfMap["dashboard_options"] = []any{flattenDashboardOptions(v)}
 	}
 
 	if v := apiObject.GuardianOptions; v != nil {
-		tfMap["guardian_options"] = []interface{}{flattenGuardianOptions(v)}
+		tfMap["guardian_options"] = []any{flattenGuardianOptions(v)}
 	}
 
 	return tfMap
 }
 
-func flattenDashboardOptions(apiObject *types.DashboardOptions) map[string]interface{} {
+func flattenDashboardOptions(apiObject *types.DashboardOptions) map[string]any {
 	if apiObject == nil {
 		return nil
 	}
 
-	tfMap := map[string]interface{}{
+	tfMap := map[string]any{
 		"engagement_metrics": apiObject.EngagementMetrics,
 	}
 
 	return tfMap
 }
 
-func flattenGuardianOptions(apiObject *types.GuardianOptions) map[string]interface{} {
+func flattenGuardianOptions(apiObject *types.GuardianOptions) map[string]any {
 	if apiObject == nil {
 		return nil
 	}
 
-	tfMap := map[string]interface{}{
+	tfMap := map[string]any{
 		"optimized_shared_delivery": apiObject.OptimizedSharedDelivery,
 	}
 
 	return tfMap
 }
 
-func expandDeliveryOptions(tfMap map[string]interface{}) *types.DeliveryOptions {
+func expandDeliveryOptions(tfMap map[string]any) *types.DeliveryOptions {
 	if tfMap == nil {
 		return nil
 	}
@@ -636,7 +639,7 @@ func expandDeliveryOptions(tfMap map[string]interface{}) *types.DeliveryOptions 
 	return apiObject
 }
 
-func expandReputationOptions(tfMap map[string]interface{}) *types.ReputationOptions {
+func expandReputationOptions(tfMap map[string]any) *types.ReputationOptions {
 	if tfMap == nil {
 		return nil
 	}
@@ -650,7 +653,7 @@ func expandReputationOptions(tfMap map[string]interface{}) *types.ReputationOpti
 	return apiObject
 }
 
-func expandSendingOptions(tfMap map[string]interface{}) *types.SendingOptions {
+func expandSendingOptions(tfMap map[string]any) *types.SendingOptions {
 	if tfMap == nil {
 		return nil
 	}
@@ -664,14 +667,14 @@ func expandSendingOptions(tfMap map[string]interface{}) *types.SendingOptions {
 	return apiObject
 }
 
-func expandSuppressionOptions(tfMap map[string]interface{}) *types.SuppressionOptions {
+func expandSuppressionOptions(tfMap map[string]any) *types.SuppressionOptions {
 	if tfMap == nil {
 		return nil
 	}
 
 	apiObject := &types.SuppressionOptions{}
 
-	if v, ok := tfMap["suppressed_reasons"].([]interface{}); ok {
+	if v, ok := tfMap["suppressed_reasons"].([]any); ok {
 		if len(v) > 0 {
 			apiObject.SuppressedReasons = flex.ExpandStringyValueList[types.SuppressionListReason](v)
 		} else {
@@ -682,7 +685,7 @@ func expandSuppressionOptions(tfMap map[string]interface{}) *types.SuppressionOp
 	return apiObject
 }
 
-func expandTrackingOptions(tfMap map[string]interface{}) *types.TrackingOptions {
+func expandTrackingOptions(tfMap map[string]any) *types.TrackingOptions {
 	if tfMap == nil {
 		return nil
 	}
@@ -700,25 +703,25 @@ func expandTrackingOptions(tfMap map[string]interface{}) *types.TrackingOptions 
 	return apiObject
 }
 
-func expandVDMOptions(tfMap map[string]interface{}) *types.VdmOptions {
+func expandVDMOptions(tfMap map[string]any) *types.VdmOptions {
 	if tfMap == nil {
 		return nil
 	}
 
 	apiObject := &types.VdmOptions{}
 
-	if v, ok := tfMap["dashboard_options"].([]interface{}); ok && len(v) > 0 && v[0] != nil {
-		apiObject.DashboardOptions = expandDashboardOptions(v[0].(map[string]interface{}))
+	if v, ok := tfMap["dashboard_options"].([]any); ok && len(v) > 0 && v[0] != nil {
+		apiObject.DashboardOptions = expandDashboardOptions(v[0].(map[string]any))
 	}
 
-	if v, ok := tfMap["guardian_options"].([]interface{}); ok && len(v) > 0 && v[0] != nil {
-		apiObject.GuardianOptions = expandGuardianOptions(v[0].(map[string]interface{}))
+	if v, ok := tfMap["guardian_options"].([]any); ok && len(v) > 0 && v[0] != nil {
+		apiObject.GuardianOptions = expandGuardianOptions(v[0].(map[string]any))
 	}
 
 	return apiObject
 }
 
-func expandDashboardOptions(tfMap map[string]interface{}) *types.DashboardOptions {
+func expandDashboardOptions(tfMap map[string]any) *types.DashboardOptions {
 	if tfMap == nil {
 		return nil
 	}
@@ -732,7 +735,7 @@ func expandDashboardOptions(tfMap map[string]interface{}) *types.DashboardOption
 	return apiObject
 }
 
-func expandGuardianOptions(tfMap map[string]interface{}) *types.GuardianOptions {
+func expandGuardianOptions(tfMap map[string]any) *types.GuardianOptions {
 	if tfMap == nil {
 		return nil
 	}

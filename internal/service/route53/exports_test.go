@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
 
 package route53
@@ -30,13 +30,14 @@ var (
 	FindKeySigningKeyByTwoPartKey               = findKeySigningKeyByTwoPartKey
 	FindQueryLoggingConfigByID                  = findQueryLoggingConfigByID
 	FindResourceRecordSetByFourPartKey          = findResourceRecordSetByFourPartKey
+	FindResourceRecordSetsForHostedZone         = findResourceRecordSetsForHostedZone
 	FindTrafficPolicyByID                       = findTrafficPolicyByID
 	FindTrafficPolicyInstanceByID               = findTrafficPolicyInstanceByID
 	FindVPCAssociationAuthorizationByTwoPartKey = findVPCAssociationAuthorizationByTwoPartKey
 	FindZoneAssociationByThreePartKey           = findZoneAssociationByThreePartKey
 	KeySigningKeyStatusActive                   = keySigningKeyStatusActive
 	KeySigningKeyStatusInactive                 = keySigningKeyStatusInactive
-	RecordParseResourceID                       = recordParseResourceID
+	RecordBatchReadEnvVar                       = recordBatchReadEnvVar
 	ServeSignatureNotSigning                    = serveSignatureNotSigning
 	ServeSignatureSigning                       = serveSignatureSigning
 	WaitChangeInsync                            = waitChangeInsync

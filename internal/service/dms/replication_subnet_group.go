@@ -1,5 +1,7 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
+
+// DONOTCOPY: Copying old resources spreads bad habits. Use skaff instead.
 
 package dms
 
@@ -13,12 +15,12 @@ import (
 	dms "github.com/aws/aws-sdk-go-v2/service/databasemigrationservice"
 	awstypes "github.com/aws/aws-sdk-go-v2/service/databasemigrationservice/types"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-provider-aws/internal/conns"
 	"github.com/hashicorp/terraform-provider-aws/internal/errs"
 	"github.com/hashicorp/terraform-provider-aws/internal/errs/sdkdiag"
 	"github.com/hashicorp/terraform-provider-aws/internal/flex"
+	"github.com/hashicorp/terraform-provider-aws/internal/retry"
 	tfslices "github.com/hashicorp/terraform-provider-aws/internal/slices"
 	tftags "github.com/hashicorp/terraform-provider-aws/internal/tags"
 	"github.com/hashicorp/terraform-provider-aws/internal/tfresource"
@@ -38,38 +40,40 @@ func resourceReplicationSubnetGroup() *schema.Resource {
 			StateContext: schema.ImportStatePassthroughContext,
 		},
 
-		Schema: map[string]*schema.Schema{
-			"replication_subnet_group_arn": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"replication_subnet_group_description": {
-				Type:     schema.TypeString,
-				Required: true,
-			},
-			"replication_subnet_group_id": {
-				Type:         schema.TypeString,
-				Required:     true,
-				ForceNew:     true,
-				ValidateFunc: validReplicationSubnetGroupID,
-			},
-			names.AttrSubnetIDs: {
-				Type:     schema.TypeSet,
-				MinItems: 2,
-				Required: true,
-				Elem:     &schema.Schema{Type: schema.TypeString},
-			},
-			names.AttrTags:    tftags.TagsSchema(),
-			names.AttrTagsAll: tftags.TagsSchemaComputed(),
-			names.AttrVPCID: {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
+		SchemaFunc: func() map[string]*schema.Schema {
+			return map[string]*schema.Schema{
+				"replication_subnet_group_arn": {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				"replication_subnet_group_description": {
+					Type:     schema.TypeString,
+					Required: true,
+				},
+				"replication_subnet_group_id": {
+					Type:         schema.TypeString,
+					Required:     true,
+					ForceNew:     true,
+					ValidateFunc: validReplicationSubnetGroupID,
+				},
+				names.AttrSubnetIDs: {
+					Type:     schema.TypeSet,
+					MinItems: 2,
+					Required: true,
+					Elem:     &schema.Schema{Type: schema.TypeString},
+				},
+				names.AttrTags:    tftags.TagsSchema(),
+				names.AttrTagsAll: tftags.TagsSchemaComputed(),
+				names.AttrVPCID: {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+			}
 		},
 	}
 }
 
-func resourceReplicationSubnetGroupCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceReplicationSubnetGroupCreate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).DMSClient(ctx)
 
@@ -81,7 +85,7 @@ func resourceReplicationSubnetGroupCreate(ctx context.Context, d *schema.Resourc
 		Tags:                              getTagsIn(ctx),
 	}
 
-	_, err := tfresource.RetryWhenIsA[*awstypes.AccessDeniedFault](ctx, propagationTimeout, func() (interface{}, error) {
+	_, err := tfresource.RetryWhenIsA[any, *awstypes.AccessDeniedFault](ctx, propagationTimeout, func(ctx context.Context) (any, error) {
 		return conn.CreateReplicationSubnetGroup(ctx, input)
 	})
 	if err != nil {
@@ -93,13 +97,13 @@ func resourceReplicationSubnetGroupCreate(ctx context.Context, d *schema.Resourc
 	return append(diags, resourceReplicationSubnetGroupRead(ctx, d, meta)...)
 }
 
-func resourceReplicationSubnetGroupRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceReplicationSubnetGroupRead(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).DMSClient(ctx)
 
 	group, err := findReplicationSubnetGroupByID(ctx, conn, d.Id())
 
-	if !d.IsNewResource() && tfresource.NotFound(err) {
+	if !d.IsNewResource() && retry.NotFound(err) {
 		log.Printf("[WARN] DMS Replication Subnet Group (%s) not found, removing from state", d.Id())
 		d.SetId("")
 		return diags
@@ -130,7 +134,7 @@ func resourceReplicationSubnetGroupRead(ctx context.Context, d *schema.ResourceD
 	return diags
 }
 
-func resourceReplicationSubnetGroupUpdate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceReplicationSubnetGroupUpdate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).DMSClient(ctx)
 
@@ -156,7 +160,7 @@ func resourceReplicationSubnetGroupUpdate(ctx context.Context, d *schema.Resourc
 	return append(diags, resourceReplicationSubnetGroupRead(ctx, d, meta)...)
 }
 
-func resourceReplicationSubnetGroupDelete(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceReplicationSubnetGroupDelete(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).DMSClient(ctx)
 
@@ -209,8 +213,7 @@ func findReplicationSubnetGroups(ctx context.Context, conn *dms.Client, input *d
 
 		if errs.IsA[*awstypes.ResourceNotFoundFault](err) {
 			return nil, &retry.NotFoundError{
-				LastError:   err,
-				LastRequest: input,
+				LastError: err,
 			}
 		}
 

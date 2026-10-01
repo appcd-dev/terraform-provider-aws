@@ -1,5 +1,7 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
+
+// DONOTCOPY: Copying old resources spreads bad habits. Use skaff instead.
 
 package s3
 
@@ -24,15 +26,15 @@ import (
 	"github.com/hashicorp/terraform-provider-aws/internal/enum"
 	"github.com/hashicorp/terraform-provider-aws/internal/errs/sdkdiag"
 	"github.com/hashicorp/terraform-provider-aws/internal/flex"
+	"github.com/hashicorp/terraform-provider-aws/internal/retry"
 	tftags "github.com/hashicorp/terraform-provider-aws/internal/tags"
-	"github.com/hashicorp/terraform-provider-aws/internal/tfresource"
 	"github.com/hashicorp/terraform-provider-aws/internal/verify"
 	"github.com/hashicorp/terraform-provider-aws/names"
 )
 
 // @SDKResource("aws_s3_object_copy", name="Object Copy")
 // @Tags(identifierAttribute="arn", resourceType="ObjectCopy")
-// @Testing(noImport=true)
+// @NoImport
 func resourceObjectCopy() *schema.Resource {
 	return &schema.Resource{
 		CreateWithoutTimeout: resourceObjectCopyCreate,
@@ -40,334 +42,336 @@ func resourceObjectCopy() *schema.Resource {
 		UpdateWithoutTimeout: resourceObjectCopyUpdate,
 		DeleteWithoutTimeout: resourceObjectCopyDelete,
 
-		CustomizeDiff: func(ctx context.Context, d *schema.ResourceDiff, meta interface{}) error {
+		CustomizeDiff: func(ctx context.Context, d *schema.ResourceDiff, meta any) error {
 			if ignoreProviderDefaultTags(ctx, d) {
 				return d.SetNew(names.AttrTagsAll, d.Get(names.AttrTags))
 			}
 			return nil
 		},
 
-		Schema: map[string]*schema.Schema{
-			"acl": {
-				Type:             schema.TypeString,
-				Optional:         true,
-				Computed:         true,
-				ValidateDiagFunc: enum.Validate[types.ObjectCannedACL](),
-				ConflictsWith:    []string{"grant"},
-			},
-			names.AttrARN: {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			names.AttrBucket: {
-				Type:         schema.TypeString,
-				Required:     true,
-				ForceNew:     true,
-				ValidateFunc: validation.NoZeroValues,
-			},
-			"bucket_key_enabled": {
-				Type:     schema.TypeBool,
-				Optional: true,
-				Computed: true,
-			},
-			"cache_control": {
-				Type:     schema.TypeString,
-				Optional: true,
-				Computed: true,
-			},
-			"checksum_algorithm": {
-				Type:             schema.TypeString,
-				Optional:         true,
-				ValidateDiagFunc: enum.Validate[types.ChecksumAlgorithm](),
-			},
-			"checksum_crc32": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"checksum_crc32c": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"checksum_crc64nvme": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"checksum_sha1": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"checksum_sha256": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"content_disposition": {
-				Type:     schema.TypeString,
-				Optional: true,
-				Computed: true,
-			},
-			"content_encoding": {
-				Type:     schema.TypeString,
-				Optional: true,
-				Computed: true,
-			},
-			"content_language": {
-				Type:     schema.TypeString,
-				Optional: true,
-				Computed: true,
-			},
-			names.AttrContentType: {
-				Type:     schema.TypeString,
-				Optional: true,
-				Computed: true,
-			},
-			"copy_if_match": {
-				Type:     schema.TypeString,
-				Optional: true,
-			},
-			"copy_if_modified_since": {
-				Type:         schema.TypeString,
-				Optional:     true,
-				ValidateFunc: validation.IsRFC3339Time,
-			},
-			"copy_if_none_match": {
-				Type:     schema.TypeString,
-				Optional: true,
-			},
-			"copy_if_unmodified_since": {
-				Type:         schema.TypeString,
-				Optional:     true,
-				ValidateFunc: validation.IsRFC3339Time,
-			},
-			"customer_algorithm": {
-				Type:     schema.TypeString,
-				Optional: true,
-				Computed: true,
-			},
-			"customer_key": {
-				Type:      schema.TypeString,
-				Optional:  true,
-				Sensitive: true,
-			},
-			"customer_key_md5": {
-				Type:     schema.TypeString,
-				Optional: true,
-				Computed: true,
-			},
-			"etag": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			names.AttrExpectedBucketOwner: {
-				Type:     schema.TypeString,
-				Optional: true,
-			},
-			"expected_source_bucket_owner": {
-				Type:     schema.TypeString,
-				Optional: true,
-			},
-			"expiration": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"expires": {
-				Type:         schema.TypeString,
-				Optional:     true,
-				ValidateFunc: validation.IsRFC3339Time,
-			},
-			names.AttrForceDestroy: {
-				Type:     schema.TypeBool,
-				Optional: true,
-				Default:  false,
-			},
-			"grant": {
-				Type:          schema.TypeSet,
-				Optional:      true,
-				Set:           grantHash,
-				ConflictsWith: []string{"acl"},
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						names.AttrEmail: {
-							Type:     schema.TypeString,
-							Optional: true,
-						},
-						names.AttrID: {
-							Type:     schema.TypeString,
-							Optional: true,
-						},
-						names.AttrPermissions: {
-							Type:     schema.TypeSet,
-							Required: true,
-							Elem: &schema.Schema{
-								Type: schema.TypeString,
-								ValidateDiagFunc: validation.ToDiagFunc(validation.StringInSlice(enum.Slice(
-									//write permission not valid here
-									types.PermissionFullControl,
-									types.PermissionRead,
-									types.PermissionReadAcp,
-									types.PermissionWriteAcp,
-								), false)),
+		SchemaFunc: func() map[string]*schema.Schema {
+			return map[string]*schema.Schema{
+				"acl": {
+					Type:             schema.TypeString,
+					Optional:         true,
+					Computed:         true,
+					ValidateDiagFunc: enum.Validate[types.ObjectCannedACL](),
+					ConflictsWith:    []string{"grant"},
+				},
+				names.AttrARN: {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				names.AttrBucket: {
+					Type:         schema.TypeString,
+					Required:     true,
+					ForceNew:     true,
+					ValidateFunc: validation.NoZeroValues,
+				},
+				"bucket_key_enabled": {
+					Type:     schema.TypeBool,
+					Optional: true,
+					Computed: true,
+				},
+				"cache_control": {
+					Type:     schema.TypeString,
+					Optional: true,
+					Computed: true,
+				},
+				"checksum_algorithm": {
+					Type:             schema.TypeString,
+					Optional:         true,
+					ValidateDiagFunc: enum.Validate[types.ChecksumAlgorithm](),
+				},
+				"checksum_crc32": {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				"checksum_crc32c": {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				"checksum_crc64nvme": {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				"checksum_sha1": {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				"checksum_sha256": {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				"content_disposition": {
+					Type:     schema.TypeString,
+					Optional: true,
+					Computed: true,
+				},
+				"content_encoding": {
+					Type:     schema.TypeString,
+					Optional: true,
+					Computed: true,
+				},
+				"content_language": {
+					Type:     schema.TypeString,
+					Optional: true,
+					Computed: true,
+				},
+				names.AttrContentType: {
+					Type:     schema.TypeString,
+					Optional: true,
+					Computed: true,
+				},
+				"copy_if_match": {
+					Type:     schema.TypeString,
+					Optional: true,
+				},
+				"copy_if_modified_since": {
+					Type:         schema.TypeString,
+					Optional:     true,
+					ValidateFunc: validation.IsRFC3339Time,
+				},
+				"copy_if_none_match": {
+					Type:     schema.TypeString,
+					Optional: true,
+				},
+				"copy_if_unmodified_since": {
+					Type:         schema.TypeString,
+					Optional:     true,
+					ValidateFunc: validation.IsRFC3339Time,
+				},
+				"customer_algorithm": {
+					Type:     schema.TypeString,
+					Optional: true,
+					Computed: true,
+				},
+				"customer_key": {
+					Type:      schema.TypeString,
+					Optional:  true,
+					Sensitive: true,
+				},
+				"customer_key_md5": {
+					Type:     schema.TypeString,
+					Optional: true,
+					Computed: true,
+				},
+				"etag": {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				names.AttrExpectedBucketOwner: {
+					Type:     schema.TypeString,
+					Optional: true,
+				},
+				"expected_source_bucket_owner": {
+					Type:     schema.TypeString,
+					Optional: true,
+				},
+				"expiration": {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				"expires": {
+					Type:         schema.TypeString,
+					Optional:     true,
+					ValidateFunc: validation.IsRFC3339Time,
+				},
+				names.AttrForceDestroy: {
+					Type:     schema.TypeBool,
+					Optional: true,
+					Default:  false,
+				},
+				"grant": {
+					Type:          schema.TypeSet,
+					Optional:      true,
+					Set:           grantHash,
+					ConflictsWith: []string{"acl"},
+					Elem: &schema.Resource{
+						Schema: map[string]*schema.Schema{
+							names.AttrEmail: {
+								Type:     schema.TypeString,
+								Optional: true,
 							},
-						},
-						names.AttrType: {
-							Type:             schema.TypeString,
-							Required:         true,
-							ValidateDiagFunc: enum.Validate[types.Type](),
-						},
-						names.AttrURI: {
-							Type:     schema.TypeString,
-							Optional: true,
+							names.AttrID: {
+								Type:     schema.TypeString,
+								Optional: true,
+							},
+							names.AttrPermissions: {
+								Type:     schema.TypeSet,
+								Required: true,
+								Elem: &schema.Schema{
+									Type: schema.TypeString,
+									ValidateDiagFunc: validation.ToDiagFunc(validation.StringInSlice(enum.Slice(
+										//write permission not valid here
+										types.PermissionFullControl,
+										types.PermissionRead,
+										types.PermissionReadAcp,
+										types.PermissionWriteAcp,
+									), false)),
+								},
+							},
+							names.AttrType: {
+								Type:             schema.TypeString,
+								Required:         true,
+								ValidateDiagFunc: enum.Validate[types.Type](),
+							},
+							names.AttrURI: {
+								Type:     schema.TypeString,
+								Optional: true,
+							},
 						},
 					},
 				},
-			},
-			names.AttrKey: {
-				Type:         schema.TypeString,
-				Required:     true,
-				ForceNew:     true,
-				ValidateFunc: validation.NoZeroValues,
-			},
-			"kms_encryption_context": {
-				Type:         schema.TypeString,
-				Optional:     true,
-				Computed:     true,
-				ValidateFunc: verify.ValidARN,
-				Sensitive:    true,
-			},
-			names.AttrKMSKeyID: {
-				Type:         schema.TypeString,
-				Optional:     true,
-				Computed:     true,
-				ValidateFunc: verify.ValidARN,
-				Sensitive:    true,
-			},
-			"last_modified": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"metadata": {
-				Type:         schema.TypeMap,
-				ValidateFunc: validateMetadataIsLowerCase,
-				Optional:     true,
-				Computed:     true,
-				Elem:         &schema.Schema{Type: schema.TypeString},
-			},
-			"metadata_directive": {
-				Type:             schema.TypeString,
-				Optional:         true,
-				ValidateDiagFunc: enum.Validate[types.MetadataDirective](),
-			},
-			"object_lock_legal_hold_status": {
-				Type:             schema.TypeString,
-				Optional:         true,
-				Computed:         true,
-				ValidateDiagFunc: enum.Validate[types.ObjectLockLegalHoldStatus](),
-			},
-			"object_lock_mode": {
-				Type:             schema.TypeString,
-				Optional:         true,
-				Computed:         true,
-				ValidateDiagFunc: enum.Validate[types.ObjectLockMode](),
-			},
-			"object_lock_retain_until_date": {
-				Type:         schema.TypeString,
-				Optional:     true,
-				Computed:     true,
-				ValidateFunc: validation.IsRFC3339Time,
-			},
-			"override_provider": {
-				Type:     schema.TypeList,
-				Optional: true,
-				MaxItems: 1,
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						"default_tags": {
-							Type:     schema.TypeList,
-							Optional: true,
-							MaxItems: 1,
-							Elem: &schema.Resource{
-								Schema: map[string]*schema.Schema{
-									names.AttrTags: {
-										Type:             schema.TypeMap,
-										Optional:         true,
-										Elem:             &schema.Schema{Type: schema.TypeString},
-										ValidateDiagFunc: verify.MapSizeBetween(0, 0),
+				names.AttrKey: {
+					Type:         schema.TypeString,
+					Required:     true,
+					ForceNew:     true,
+					ValidateFunc: validation.NoZeroValues,
+				},
+				"kms_encryption_context": {
+					Type:         schema.TypeString,
+					Optional:     true,
+					Computed:     true,
+					ValidateFunc: verify.ValidARN,
+					Sensitive:    true,
+				},
+				names.AttrKMSKeyID: {
+					Type:         schema.TypeString,
+					Optional:     true,
+					Computed:     true,
+					ValidateFunc: verify.ValidARN,
+					Sensitive:    true,
+				},
+				"last_modified": {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				"metadata": {
+					Type:         schema.TypeMap,
+					ValidateFunc: validateMetadataIsLowerCase,
+					Optional:     true,
+					Computed:     true,
+					Elem:         &schema.Schema{Type: schema.TypeString},
+				},
+				"metadata_directive": {
+					Type:             schema.TypeString,
+					Optional:         true,
+					ValidateDiagFunc: enum.Validate[types.MetadataDirective](),
+				},
+				"object_lock_legal_hold_status": {
+					Type:             schema.TypeString,
+					Optional:         true,
+					Computed:         true,
+					ValidateDiagFunc: enum.Validate[types.ObjectLockLegalHoldStatus](),
+				},
+				"object_lock_mode": {
+					Type:             schema.TypeString,
+					Optional:         true,
+					Computed:         true,
+					ValidateDiagFunc: enum.Validate[types.ObjectLockMode](),
+				},
+				"object_lock_retain_until_date": {
+					Type:         schema.TypeString,
+					Optional:     true,
+					Computed:     true,
+					ValidateFunc: validation.IsRFC3339Time,
+				},
+				"override_provider": {
+					Type:     schema.TypeList,
+					Optional: true,
+					MaxItems: 1,
+					Elem: &schema.Resource{
+						Schema: map[string]*schema.Schema{
+							"default_tags": {
+								Type:     schema.TypeList,
+								Optional: true,
+								MaxItems: 1,
+								Elem: &schema.Resource{
+									Schema: map[string]*schema.Schema{
+										names.AttrTags: {
+											Type:             schema.TypeMap,
+											Optional:         true,
+											Elem:             &schema.Schema{Type: schema.TypeString},
+											ValidateDiagFunc: verify.MapSizeBetween(0, 0),
+										},
 									},
 								},
 							},
 						},
 					},
 				},
-			},
-			"request_charged": {
-				Type:     schema.TypeBool,
-				Computed: true,
-			},
-			"request_payer": {
-				Type:             schema.TypeString,
-				Optional:         true,
-				ValidateDiagFunc: enum.Validate[types.RequestPayer](),
-			},
-			"server_side_encryption": {
-				Type:             schema.TypeString,
-				Optional:         true,
-				Computed:         true,
-				ValidateDiagFunc: enum.Validate[types.ServerSideEncryption](),
-			},
-			names.AttrSource: {
-				Type:         schema.TypeString,
-				Required:     true,
-				ForceNew:     true,
-				ValidateFunc: validation.NoZeroValues,
-			},
-			"source_customer_algorithm": {
-				Type:     schema.TypeString,
-				Optional: true,
-			},
-			"source_customer_key": {
-				Type:      schema.TypeString,
-				Optional:  true,
-				Sensitive: true,
-			},
-			"source_customer_key_md5": {
-				Type:     schema.TypeString,
-				Optional: true,
-			},
-			"source_version_id": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			names.AttrStorageClass: {
-				Type:             schema.TypeString,
-				Optional:         true,
-				Computed:         true,
-				ValidateDiagFunc: enum.Validate[types.ObjectStorageClass](),
-			},
-			"tagging_directive": {
-				Type:             schema.TypeString,
-				Optional:         true,
-				ValidateDiagFunc: enum.Validate[types.TaggingDirective](),
-			},
-			names.AttrTags:    tftags.TagsSchema(),
-			names.AttrTagsAll: tftags.TagsSchemaComputed(),
-			"version_id": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"website_redirect": {
-				Type:     schema.TypeString,
-				Optional: true,
-				Computed: true,
-			},
+				"request_charged": {
+					Type:     schema.TypeBool,
+					Computed: true,
+				},
+				"request_payer": {
+					Type:             schema.TypeString,
+					Optional:         true,
+					ValidateDiagFunc: enum.Validate[types.RequestPayer](),
+				},
+				"server_side_encryption": {
+					Type:             schema.TypeString,
+					Optional:         true,
+					Computed:         true,
+					ValidateDiagFunc: enum.Validate[types.ServerSideEncryption](),
+				},
+				names.AttrSource: {
+					Type:         schema.TypeString,
+					Required:     true,
+					ForceNew:     true,
+					ValidateFunc: validation.NoZeroValues,
+				},
+				"source_customer_algorithm": {
+					Type:     schema.TypeString,
+					Optional: true,
+				},
+				"source_customer_key": {
+					Type:      schema.TypeString,
+					Optional:  true,
+					Sensitive: true,
+				},
+				"source_customer_key_md5": {
+					Type:     schema.TypeString,
+					Optional: true,
+				},
+				"source_version_id": {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				names.AttrStorageClass: {
+					Type:             schema.TypeString,
+					Optional:         true,
+					Computed:         true,
+					ValidateDiagFunc: enum.Validate[types.ObjectStorageClass](),
+				},
+				"tagging_directive": {
+					Type:             schema.TypeString,
+					Optional:         true,
+					ValidateDiagFunc: enum.Validate[types.TaggingDirective](),
+				},
+				names.AttrTags:    tftags.TagsSchema(),
+				names.AttrTagsAll: tftags.TagsSchemaComputed(),
+				"version_id": {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				"website_redirect": {
+					Type:     schema.TypeString,
+					Optional: true,
+					Computed: true,
+				},
+			}
 		},
 	}
 }
 
-func resourceObjectCopyCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceObjectCopyCreate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	return append(diags, resourceObjectCopyDoCopy(ctx, d, meta)...)
 }
 
-func resourceObjectCopyRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceObjectCopyRead(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).S3Client(ctx)
 
@@ -385,7 +389,7 @@ func resourceObjectCopyRead(ctx context.Context, d *schema.ResourceData, meta in
 	key := sdkv1CompatibleCleanKey(d.Get(names.AttrKey).(string))
 	output, err := findObjectByBucketAndKey(ctx, conn, bucket, key, "", d.Get("checksum_algorithm").(string), optFns...)
 
-	if !d.IsNewResource() && tfresource.NotFound(err) {
+	if !d.IsNewResource() && retry.NotFound(err) {
 		log.Printf("[WARN] S3 Object (%s) not found, removing from state", d.Id())
 		d.SetId("")
 		return diags
@@ -436,7 +440,7 @@ func resourceObjectCopyRead(ctx context.Context, d *schema.ResourceData, meta in
 	return diags
 }
 
-func resourceObjectCopyUpdate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceObjectCopyUpdate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 
 	// if any of these exist, let the API decide whether to copy
@@ -493,7 +497,7 @@ func resourceObjectCopyUpdate(ctx context.Context, d *schema.ResourceData, meta 
 	return diags
 }
 
-func resourceObjectCopyDelete(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceObjectCopyDelete(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).S3Client(ctx)
 
@@ -523,7 +527,7 @@ func resourceObjectCopyDelete(ctx context.Context, d *schema.ResourceData, meta 
 	return diags
 }
 
-func resourceObjectCopyDoCopy(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceObjectCopyDoCopy(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).S3Client(ctx)
 
@@ -635,7 +639,7 @@ func resourceObjectCopyDoCopy(ctx context.Context, d *schema.ResourceData, meta 
 	}
 
 	if v, ok := d.GetOk("metadata"); ok {
-		input.Metadata = flex.ExpandStringValueMap(v.(map[string]interface{}))
+		input.Metadata = flex.ExpandStringValueMap(v.(map[string]any))
 	}
 
 	if v, ok := d.GetOk("metadata_directive"); ok {
@@ -683,7 +687,7 @@ func resourceObjectCopyDoCopy(ctx context.Context, d *schema.ResourceData, meta 
 	}
 
 	defaultTagsConfig := meta.(*conns.AWSClient).DefaultTagsConfig(ctx)
-	tags := tftags.New(ctx, d.Get(names.AttrTags).(map[string]interface{}))
+	tags := tftags.New(ctx, d.Get(names.AttrTags).(map[string]any))
 	if ignoreProviderDefaultTags(ctx, d) {
 		tags = tags.RemoveDefaultConfig(defaultTagsConfig)
 	} else {
@@ -724,7 +728,7 @@ type s3Grants struct {
 	WriteACP    *string
 }
 
-func expandObjectCopyGrant(tfMap map[string]interface{}) string {
+func expandObjectCopyGrant(tfMap map[string]any) string {
 	if tfMap == nil {
 		return ""
 	}
@@ -763,7 +767,7 @@ func expandObjectCopyGrant(tfMap map[string]interface{}) string {
 	return fmt.Sprintf("uri=%s", aws.ToString(apiObject.URI))
 }
 
-func expandObjectCopyGrants(tfList []interface{}) *s3Grants {
+func expandObjectCopyGrants(tfList []any) *s3Grants {
 	if len(tfList) == 0 {
 		return nil
 	}
@@ -774,7 +778,7 @@ func expandObjectCopyGrants(tfList []interface{}) *s3Grants {
 	grantWriteACP := make([]string, 0)
 
 	for _, tfMapRaw := range tfList {
-		tfMap, ok := tfMapRaw.(map[string]interface{})
+		tfMap, ok := tfMapRaw.(map[string]any)
 
 		if !ok {
 			continue
@@ -817,25 +821,25 @@ func expandObjectCopyGrants(tfList []interface{}) *s3Grants {
 	return apiObjects
 }
 
-func grantHash(v interface{}) int {
+func grantHash(v any) int {
 	var buf bytes.Buffer
-	m, ok := v.(map[string]interface{})
+	m, ok := v.(map[string]any)
 
 	if !ok {
 		return 0
 	}
 
 	if v, ok := m[names.AttrID]; ok {
-		buf.WriteString(fmt.Sprintf("%s-", v.(string)))
+		fmt.Fprintf(&buf, "%s-", v.(string))
 	}
 	if v, ok := m[names.AttrType]; ok {
-		buf.WriteString(fmt.Sprintf("%s-", v.(string)))
+		fmt.Fprintf(&buf, "%s-", v.(string))
 	}
 	if v, ok := m[names.AttrURI]; ok {
-		buf.WriteString(fmt.Sprintf("%s-", v.(string)))
+		fmt.Fprintf(&buf, "%s-", v.(string))
 	}
 	if p, ok := m[names.AttrPermissions]; ok {
-		buf.WriteString(fmt.Sprintf("%v-", p.(*schema.Set).List()))
+		fmt.Fprintf(&buf, "%v-", p.(*schema.Set).List())
 	}
 	return create.StringHashcode(buf.String())
 }

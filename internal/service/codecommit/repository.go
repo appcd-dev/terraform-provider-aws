@@ -1,5 +1,7 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
+
+// DONOTCOPY: Copying old resources spreads bad habits. Use skaff instead.
 
 package codecommit
 
@@ -12,12 +14,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/codecommit"
 	"github.com/aws/aws-sdk-go-v2/service/codecommit/types"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
 	"github.com/hashicorp/terraform-provider-aws/internal/conns"
 	"github.com/hashicorp/terraform-provider-aws/internal/errs"
 	"github.com/hashicorp/terraform-provider-aws/internal/errs/sdkdiag"
+	"github.com/hashicorp/terraform-provider-aws/internal/retry"
 	tftags "github.com/hashicorp/terraform-provider-aws/internal/tags"
 	"github.com/hashicorp/terraform-provider-aws/internal/tfresource"
 	"github.com/hashicorp/terraform-provider-aws/internal/verify"
@@ -37,50 +39,52 @@ func resourceRepository() *schema.Resource {
 			StateContext: schema.ImportStatePassthroughContext,
 		},
 
-		Schema: map[string]*schema.Schema{
-			names.AttrARN: {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"clone_url_http": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"clone_url_ssh": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"default_branch": {
-				Type:     schema.TypeString,
-				Optional: true,
-			},
-			names.AttrDescription: {
-				Type:         schema.TypeString,
-				Optional:     true,
-				ValidateFunc: validation.StringLenBetween(0, 1000),
-			},
-			names.AttrKMSKeyID: {
-				Type:         schema.TypeString,
-				Optional:     true,
-				Computed:     true,
-				ValidateFunc: verify.ValidARN,
-			},
-			"repository_id": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			names.AttrRepositoryName: {
-				Type:         schema.TypeString,
-				Required:     true,
-				ValidateFunc: validation.StringLenBetween(0, 100),
-			},
-			names.AttrTags:    tftags.TagsSchema(),
-			names.AttrTagsAll: tftags.TagsSchemaComputed(),
+		SchemaFunc: func() map[string]*schema.Schema {
+			return map[string]*schema.Schema{
+				names.AttrARN: {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				"clone_url_http": {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				"clone_url_ssh": {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				"default_branch": {
+					Type:     schema.TypeString,
+					Optional: true,
+				},
+				names.AttrDescription: {
+					Type:         schema.TypeString,
+					Optional:     true,
+					ValidateFunc: validation.StringLenBetween(0, 1000),
+				},
+				names.AttrKMSKeyID: {
+					Type:         schema.TypeString,
+					Optional:     true,
+					Computed:     true,
+					ValidateFunc: verify.ValidARN,
+				},
+				"repository_id": {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				names.AttrRepositoryName: {
+					Type:         schema.TypeString,
+					Required:     true,
+					ValidateFunc: validation.StringLenBetween(0, 100),
+				},
+				names.AttrTags:    tftags.TagsSchema(),
+				names.AttrTagsAll: tftags.TagsSchemaComputed(),
+			}
 		},
 	}
 }
 
-func resourceRepositoryCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceRepositoryCreate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).CodeCommitClient(ctx)
 
@@ -115,13 +119,13 @@ func resourceRepositoryCreate(ctx context.Context, d *schema.ResourceData, meta 
 	return append(diags, resourceRepositoryRead(ctx, d, meta)...)
 }
 
-func resourceRepositoryRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceRepositoryRead(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).CodeCommitClient(ctx)
 
 	repository, err := findRepositoryByName(ctx, conn, d.Id())
 
-	if !d.IsNewResource() && tfresource.NotFound(err) {
+	if !d.IsNewResource() && retry.NotFound(err) {
 		log.Printf("[WARN] CodeCommit Repository %s not found, removing from state", d.Id())
 		d.SetId("")
 		return diags
@@ -149,7 +153,7 @@ func resourceRepositoryRead(ctx context.Context, d *schema.ResourceData, meta in
 	return diags
 }
 
-func resourceRepositoryUpdate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceRepositoryUpdate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).CodeCommitClient(ctx)
 
@@ -204,7 +208,7 @@ func resourceRepositoryUpdate(ctx context.Context, d *schema.ResourceData, meta 
 	return append(diags, resourceRepositoryRead(ctx, d, meta)...)
 }
 
-func resourceRepositoryDelete(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceRepositoryDelete(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).CodeCommitClient(ctx)
 
@@ -229,7 +233,7 @@ func updateRepositoryDefaultBranch(ctx context.Context, conn *codecommit.Client,
 	output, err := conn.ListBranches(ctx, inputL)
 
 	if err != nil {
-		return fmt.Errorf("listing CodeCommit Repository (%s) branches: %s", name, err)
+		return fmt.Errorf("listing CodeCommit Repository (%s) branches: %w", name, err)
 	}
 
 	if len(output.Branches) == 0 {
@@ -259,8 +263,7 @@ func findRepositoryByName(ctx context.Context, conn *codecommit.Client, name str
 
 	if errs.IsA[*types.RepositoryDoesNotExistException](err) {
 		return nil, &retry.NotFoundError{
-			LastError:   err,
-			LastRequest: input,
+			LastError: err,
 		}
 	}
 
@@ -269,7 +272,7 @@ func findRepositoryByName(ctx context.Context, conn *codecommit.Client, name str
 	}
 
 	if output == nil || output.RepositoryMetadata == nil {
-		return nil, tfresource.NewEmptyResultError(input)
+		return nil, tfresource.NewEmptyResultError()
 	}
 
 	return output.RepositoryMetadata, nil

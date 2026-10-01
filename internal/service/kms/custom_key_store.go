@@ -1,5 +1,7 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
+
+// DONOTCOPY: Copying old resources spreads bad habits. Use skaff instead.
 
 package kms
 
@@ -12,13 +14,13 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	awstypes "github.com/aws/aws-sdk-go-v2/service/kms/types"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
 	"github.com/hashicorp/terraform-provider-aws/internal/conns"
 	"github.com/hashicorp/terraform-provider-aws/internal/enum"
 	"github.com/hashicorp/terraform-provider-aws/internal/errs"
 	"github.com/hashicorp/terraform-provider-aws/internal/errs/sdkdiag"
+	"github.com/hashicorp/terraform-provider-aws/internal/retry"
 	tfslices "github.com/hashicorp/terraform-provider-aws/internal/slices"
 	"github.com/hashicorp/terraform-provider-aws/internal/tfresource"
 )
@@ -41,72 +43,74 @@ func resourceCustomKeyStore() *schema.Resource {
 			Delete: schema.DefaultTimeout(15 * time.Minute),
 		},
 
-		Schema: map[string]*schema.Schema{
-			"cloud_hsm_cluster_id": {
-				Type:     schema.TypeString,
-				Optional: true,
-				ForceNew: true,
-			},
-			"custom_key_store_name": {
-				Type:     schema.TypeString,
-				Required: true,
-			},
-			"custom_key_store_type": {
-				Type:             schema.TypeString,
-				Optional:         true,
-				Computed:         true,
-				ForceNew:         true,
-				ValidateDiagFunc: enum.Validate[awstypes.CustomKeyStoreType](),
-			},
-			"key_store_password": {
-				Type:             schema.TypeString,
-				Optional:         true,
-				ValidateDiagFunc: validation.ToDiagFunc(validation.StringLenBetween(7, 32)),
-			},
-			"trust_anchor_certificate": {
-				Type:     schema.TypeString,
-				Optional: true,
-				ForceNew: true,
-			},
-			"xks_proxy_authentication_credential": {
-				Type:     schema.TypeList,
-				Optional: true,
-				MaxItems: 1,
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						"access_key_id": {
-							Type:     schema.TypeString,
-							Required: true,
-						},
-						"raw_secret_access_key": {
-							Type:     schema.TypeString,
-							Required: true,
+		SchemaFunc: func() map[string]*schema.Schema {
+			return map[string]*schema.Schema{
+				"cloud_hsm_cluster_id": {
+					Type:     schema.TypeString,
+					Optional: true,
+					ForceNew: true,
+				},
+				"custom_key_store_name": {
+					Type:     schema.TypeString,
+					Required: true,
+				},
+				"custom_key_store_type": {
+					Type:             schema.TypeString,
+					Optional:         true,
+					Computed:         true,
+					ForceNew:         true,
+					ValidateDiagFunc: enum.Validate[awstypes.CustomKeyStoreType](),
+				},
+				"key_store_password": {
+					Type:             schema.TypeString,
+					Optional:         true,
+					ValidateDiagFunc: validation.ToDiagFunc(validation.StringLenBetween(7, 32)),
+				},
+				"trust_anchor_certificate": {
+					Type:     schema.TypeString,
+					Optional: true,
+					ForceNew: true,
+				},
+				"xks_proxy_authentication_credential": {
+					Type:     schema.TypeList,
+					Optional: true,
+					MaxItems: 1,
+					Elem: &schema.Resource{
+						Schema: map[string]*schema.Schema{
+							"access_key_id": {
+								Type:     schema.TypeString,
+								Required: true,
+							},
+							"raw_secret_access_key": {
+								Type:     schema.TypeString,
+								Required: true,
+							},
 						},
 					},
 				},
-			},
-			"xks_proxy_connectivity": {
-				Type:             schema.TypeString,
-				Optional:         true,
-				ValidateDiagFunc: enum.Validate[awstypes.XksProxyConnectivityType](),
-			},
-			"xks_proxy_uri_endpoint": {
-				Type:     schema.TypeString,
-				Optional: true,
-			},
-			"xks_proxy_uri_path": {
-				Type:     schema.TypeString,
-				Optional: true,
-			},
-			"xks_proxy_vpc_endpoint_service_name": {
-				Type:     schema.TypeString,
-				Optional: true,
-			},
+				"xks_proxy_connectivity": {
+					Type:             schema.TypeString,
+					Optional:         true,
+					ValidateDiagFunc: enum.Validate[awstypes.XksProxyConnectivityType](),
+				},
+				"xks_proxy_uri_endpoint": {
+					Type:     schema.TypeString,
+					Optional: true,
+				},
+				"xks_proxy_uri_path": {
+					Type:     schema.TypeString,
+					Optional: true,
+				},
+				"xks_proxy_vpc_endpoint_service_name": {
+					Type:     schema.TypeString,
+					Optional: true,
+				},
+			}
 		},
 	}
 }
 
-func resourceCustomKeyStoreCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceCustomKeyStoreCreate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).KMSClient(ctx)
 
@@ -131,8 +135,8 @@ func resourceCustomKeyStoreCreate(ctx context.Context, d *schema.ResourceData, m
 		input.TrustAnchorCertificate = aws.String(v.(string))
 	}
 
-	if v, ok := d.GetOk("xks_proxy_authentication_credential"); ok && len(v.([]interface{})) > 0 && v.([]interface{})[0] != nil {
-		input.XksProxyAuthenticationCredential = expandXksProxyAuthenticationCredential(v.([]interface{}))
+	if v, ok := d.GetOk("xks_proxy_authentication_credential"); ok && len(v.([]any)) > 0 && v.([]any)[0] != nil {
+		input.XksProxyAuthenticationCredential = expandXksProxyAuthenticationCredential(v.([]any))
 	}
 
 	if v, ok := d.GetOk("xks_proxy_connectivity"); ok {
@@ -162,13 +166,13 @@ func resourceCustomKeyStoreCreate(ctx context.Context, d *schema.ResourceData, m
 	return append(diags, resourceCustomKeyStoreRead(ctx, d, meta)...)
 }
 
-func resourceCustomKeyStoreRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceCustomKeyStoreRead(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).KMSClient(ctx)
 
 	output, err := findCustomKeyStoreByID(ctx, conn, d.Id())
 
-	if !d.IsNewResource() && tfresource.NotFound(err) {
+	if !d.IsNewResource() && retry.NotFound(err) {
 		log.Printf("[WARN] KMS Custom Key Store (%s) not found, removing from state", d.Id())
 		d.SetId("")
 		return diags
@@ -184,15 +188,17 @@ func resourceCustomKeyStoreRead(ctx context.Context, d *schema.ResourceData, met
 	d.Set("key_store_password", d.Get("key_store_password"))
 	d.Set("trust_anchor_certificate", output.TrustAnchorCertificate)
 
-	d.Set("xks_proxy_connectivity", output.XksProxyConfiguration.Connectivity)
-	d.Set("xks_proxy_uri_endpoint", output.XksProxyConfiguration.UriEndpoint)
-	d.Set("xks_proxy_uri_path", output.XksProxyConfiguration.UriPath)
-	d.Set("xks_proxy_vpc_endpoint_service_name", output.XksProxyConfiguration.VpcEndpointServiceName)
+	if output.XksProxyConfiguration != nil {
+		d.Set("xks_proxy_connectivity", output.XksProxyConfiguration.Connectivity)
+		d.Set("xks_proxy_uri_endpoint", output.XksProxyConfiguration.UriEndpoint)
+		d.Set("xks_proxy_uri_path", output.XksProxyConfiguration.UriPath)
+		d.Set("xks_proxy_vpc_endpoint_service_name", output.XksProxyConfiguration.VpcEndpointServiceName)
+	}
 
 	return diags
 }
 
-func resourceCustomKeyStoreUpdate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceCustomKeyStoreUpdate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).KMSClient(ctx)
 
@@ -241,7 +247,7 @@ func resourceCustomKeyStoreUpdate(ctx context.Context, d *schema.ResourceData, m
 	return append(diags, resourceCustomKeyStoreRead(ctx, d, meta)...)
 }
 
-func resourceCustomKeyStoreDelete(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceCustomKeyStoreDelete(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).KMSClient(ctx)
 
@@ -284,8 +290,7 @@ func findCustomKeyStores(ctx context.Context, conn *kms.Client, input *kms.Descr
 
 		if errs.IsA[*awstypes.CustomKeyStoreNotFoundException](err) {
 			return nil, &retry.NotFoundError{
-				LastError:   err,
-				LastRequest: input,
+				LastError: err,
 			}
 		}
 
@@ -303,12 +308,12 @@ func findCustomKeyStores(ctx context.Context, conn *kms.Client, input *kms.Descr
 	return output, nil
 }
 
-func expandXksProxyAuthenticationCredential(tfList []interface{}) *awstypes.XksProxyAuthenticationCredentialType {
+func expandXksProxyAuthenticationCredential(tfList []any) *awstypes.XksProxyAuthenticationCredentialType {
 	if len(tfList) == 0 || tfList[0] == nil {
 		return nil
 	}
 
-	tfMap, ok := tfList[0].(map[string]interface{})
+	tfMap, ok := tfList[0].(map[string]any)
 	if !ok {
 		return nil
 	}

@@ -1,5 +1,7 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
+
+// DONOTCOPY: Copying old resources spreads bad habits. Use skaff instead.
 
 package ec2
 
@@ -25,419 +27,421 @@ func dataSourceInstanceType() *schema.Resource {
 			Read: schema.DefaultTimeout(20 * time.Minute),
 		},
 
-		Schema: map[string]*schema.Schema{
-			"auto_recovery_supported": {
-				Type:     schema.TypeBool,
-				Computed: true,
-			},
-			"bandwidth_weightings": {
-				Type:     schema.TypeSet,
-				Computed: true,
-				Elem:     &schema.Schema{Type: schema.TypeString},
-			},
-			"bare_metal": {
-				Type:     schema.TypeBool,
-				Computed: true,
-			},
-			"boot_modes": {
-				Type:     schema.TypeSet,
-				Computed: true,
-				Elem:     &schema.Schema{Type: schema.TypeString},
-			},
-			"burstable_performance_supported": {
-				Type:     schema.TypeBool,
-				Computed: true,
-			},
-			"current_generation": {
-				Type:     schema.TypeBool,
-				Computed: true,
-			},
-			"dedicated_hosts_supported": {
-				Type:     schema.TypeBool,
-				Computed: true,
-			},
-			"default_cores": {
-				Type:     schema.TypeInt,
-				Computed: true,
-			},
-			"default_network_card_index": {
-				Type:     schema.TypeInt,
-				Computed: true,
-			},
-			"default_threads_per_core": {
-				Type:     schema.TypeInt,
-				Computed: true,
-			},
-			"default_vcpus": {
-				Type:     schema.TypeInt,
-				Computed: true,
-			},
-			"ebs_encryption_support": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"ebs_nvme_support": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"ebs_optimized_support": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"ebs_performance_baseline_bandwidth": {
-				Type:     schema.TypeInt,
-				Computed: true,
-			},
-			"ebs_performance_baseline_throughput": {
-				Type:     schema.TypeFloat,
-				Computed: true,
-			},
-			"ebs_performance_baseline_iops": {
-				Type:     schema.TypeInt,
-				Computed: true,
-			},
-			"ebs_performance_maximum_bandwidth": {
-				Type:     schema.TypeInt,
-				Computed: true,
-			},
-			"ebs_performance_maximum_throughput": {
-				Type:     schema.TypeFloat,
-				Computed: true,
-			},
-			"ebs_performance_maximum_iops": {
-				Type:     schema.TypeInt,
-				Computed: true,
-			},
-			"efa_supported": {
-				Type:     schema.TypeBool,
-				Computed: true,
-			},
-			"efa_maximum_interfaces": {
-				Type:     schema.TypeInt,
-				Computed: true,
-			},
-			"ena_srd_supported": {
-				Type:     schema.TypeBool,
-				Computed: true,
-			},
-			"ena_support": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"encryption_in_transit_supported": {
-				Type:     schema.TypeBool,
-				Computed: true,
-			},
-			"fpgas": {
-				Type:     schema.TypeSet,
-				Computed: true,
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						"count": {
-							Type:     schema.TypeInt,
-							Computed: true,
-						},
-						"manufacturer": {
-							Type:     schema.TypeString,
-							Computed: true,
-						},
-						"memory_size": {
-							Type:     schema.TypeInt,
-							Computed: true,
-						},
-						names.AttrName: {
-							Type:     schema.TypeString,
-							Computed: true,
+		SchemaFunc: func() map[string]*schema.Schema {
+			return map[string]*schema.Schema{
+				"auto_recovery_supported": {
+					Type:     schema.TypeBool,
+					Computed: true,
+				},
+				"bandwidth_weightings": {
+					Type:     schema.TypeSet,
+					Computed: true,
+					Elem:     &schema.Schema{Type: schema.TypeString},
+				},
+				"bare_metal": {
+					Type:     schema.TypeBool,
+					Computed: true,
+				},
+				"boot_modes": {
+					Type:     schema.TypeSet,
+					Computed: true,
+					Elem:     &schema.Schema{Type: schema.TypeString},
+				},
+				"burstable_performance_supported": {
+					Type:     schema.TypeBool,
+					Computed: true,
+				},
+				"current_generation": {
+					Type:     schema.TypeBool,
+					Computed: true,
+				},
+				"dedicated_hosts_supported": {
+					Type:     schema.TypeBool,
+					Computed: true,
+				},
+				"default_cores": {
+					Type:     schema.TypeInt,
+					Computed: true,
+				},
+				"default_network_card_index": {
+					Type:     schema.TypeInt,
+					Computed: true,
+				},
+				"default_threads_per_core": {
+					Type:     schema.TypeInt,
+					Computed: true,
+				},
+				"default_vcpus": {
+					Type:     schema.TypeInt,
+					Computed: true,
+				},
+				"ebs_encryption_support": {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				"ebs_nvme_support": {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				"ebs_optimized_support": {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				"ebs_performance_baseline_bandwidth": {
+					Type:     schema.TypeInt,
+					Computed: true,
+				},
+				"ebs_performance_baseline_throughput": {
+					Type:     schema.TypeFloat,
+					Computed: true,
+				},
+				"ebs_performance_baseline_iops": {
+					Type:     schema.TypeInt,
+					Computed: true,
+				},
+				"ebs_performance_maximum_bandwidth": {
+					Type:     schema.TypeInt,
+					Computed: true,
+				},
+				"ebs_performance_maximum_throughput": {
+					Type:     schema.TypeFloat,
+					Computed: true,
+				},
+				"ebs_performance_maximum_iops": {
+					Type:     schema.TypeInt,
+					Computed: true,
+				},
+				"efa_supported": {
+					Type:     schema.TypeBool,
+					Computed: true,
+				},
+				"efa_maximum_interfaces": {
+					Type:     schema.TypeInt,
+					Computed: true,
+				},
+				"ena_srd_supported": {
+					Type:     schema.TypeBool,
+					Computed: true,
+				},
+				"ena_support": {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				"encryption_in_transit_supported": {
+					Type:     schema.TypeBool,
+					Computed: true,
+				},
+				"fpgas": {
+					Type:     schema.TypeSet,
+					Computed: true,
+					Elem: &schema.Resource{
+						Schema: map[string]*schema.Schema{
+							"count": {
+								Type:     schema.TypeInt,
+								Computed: true,
+							},
+							"manufacturer": {
+								Type:     schema.TypeString,
+								Computed: true,
+							},
+							"memory_size": {
+								Type:     schema.TypeInt,
+								Computed: true,
+							},
+							names.AttrName: {
+								Type:     schema.TypeString,
+								Computed: true,
+							},
 						},
 					},
 				},
-			},
-			"free_tier_eligible": {
-				Type:     schema.TypeBool,
-				Computed: true,
-			},
-			"gpus": {
-				Type:     schema.TypeSet,
-				Computed: true,
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						"count": {
-							Type:     schema.TypeInt,
-							Computed: true,
-						},
-						"manufacturer": {
-							Type:     schema.TypeString,
-							Computed: true,
-						},
-						"memory_size": {
-							Type:     schema.TypeInt,
-							Computed: true,
-						},
-						names.AttrName: {
-							Type:     schema.TypeString,
-							Computed: true,
+				"free_tier_eligible": {
+					Type:     schema.TypeBool,
+					Computed: true,
+				},
+				"gpus": {
+					Type:     schema.TypeSet,
+					Computed: true,
+					Elem: &schema.Resource{
+						Schema: map[string]*schema.Schema{
+							"count": {
+								Type:     schema.TypeInt,
+								Computed: true,
+							},
+							"manufacturer": {
+								Type:     schema.TypeString,
+								Computed: true,
+							},
+							"memory_size": {
+								Type:     schema.TypeInt,
+								Computed: true,
+							},
+							names.AttrName: {
+								Type:     schema.TypeString,
+								Computed: true,
+							},
 						},
 					},
 				},
-			},
-			"hibernation_supported": {
-				Type:     schema.TypeBool,
-				Computed: true,
-			},
-			"hypervisor": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"inference_accelerators": {
-				Type:     schema.TypeSet,
-				Computed: true,
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						"count": {
-							Type:     schema.TypeInt,
-							Computed: true,
-						},
-						"manufacturer": {
-							Type:     schema.TypeString,
-							Computed: true,
-						},
-						"memory_size": {
-							Type:     schema.TypeInt,
-							Computed: true,
-						},
-						names.AttrName: {
-							Type:     schema.TypeString,
-							Computed: true,
+				"hibernation_supported": {
+					Type:     schema.TypeBool,
+					Computed: true,
+				},
+				"hypervisor": {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				"inference_accelerators": {
+					Type:     schema.TypeSet,
+					Computed: true,
+					Elem: &schema.Resource{
+						Schema: map[string]*schema.Schema{
+							"count": {
+								Type:     schema.TypeInt,
+								Computed: true,
+							},
+							"manufacturer": {
+								Type:     schema.TypeString,
+								Computed: true,
+							},
+							"memory_size": {
+								Type:     schema.TypeInt,
+								Computed: true,
+							},
+							names.AttrName: {
+								Type:     schema.TypeString,
+								Computed: true,
+							},
 						},
 					},
 				},
-			},
-			"instance_disks": {
-				Type:     schema.TypeSet,
-				Computed: true,
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						"count": {
-							Type:     schema.TypeInt,
-							Computed: true,
-						},
-						names.AttrSize: {
-							Type:     schema.TypeInt,
-							Computed: true,
-						},
-						names.AttrType: {
-							Type:     schema.TypeString,
-							Computed: true,
-						},
-					},
-				},
-			},
-			"instance_storage_supported": {
-				Type:     schema.TypeBool,
-				Computed: true,
-			},
-			names.AttrInstanceType: {
-				Type:     schema.TypeString,
-				Required: true,
-			},
-			"ipv6_supported": {
-				Type:     schema.TypeBool,
-				Computed: true,
-			},
-			"maximum_ipv4_addresses_per_interface": {
-				Type:     schema.TypeInt,
-				Computed: true,
-			},
-			"maximum_ipv6_addresses_per_interface": {
-				Type:     schema.TypeInt,
-				Computed: true,
-			},
-			"maximum_network_cards": {
-				Type:     schema.TypeInt,
-				Computed: true,
-			},
-			"maximum_network_interfaces": {
-				Type:     schema.TypeInt,
-				Computed: true,
-			},
-			"media_accelerators": {
-				Type:     schema.TypeSet,
-				Computed: true,
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						"count": {
-							Type:     schema.TypeInt,
-							Computed: true,
-						},
-						"manufacturer": {
-							Type:     schema.TypeString,
-							Computed: true,
-						},
-						"memory_size": {
-							Type:     schema.TypeInt,
-							Computed: true,
-						},
-						names.AttrName: {
-							Type:     schema.TypeString,
-							Computed: true,
+				"instance_disks": {
+					Type:     schema.TypeSet,
+					Computed: true,
+					Elem: &schema.Resource{
+						Schema: map[string]*schema.Schema{
+							"count": {
+								Type:     schema.TypeInt,
+								Computed: true,
+							},
+							names.AttrSize: {
+								Type:     schema.TypeInt,
+								Computed: true,
+							},
+							names.AttrType: {
+								Type:     schema.TypeString,
+								Computed: true,
+							},
 						},
 					},
 				},
-			},
-			"memory_size": {
-				Type:     schema.TypeInt,
-				Computed: true,
-			},
-			"network_cards": {
-				Type:     schema.TypeSet,
-				Computed: true,
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						"baseline_bandwidth": {
-							Type:     schema.TypeFloat,
-							Computed: true,
-						},
-						"index": {
-							Type:     schema.TypeInt,
-							Computed: true,
-						},
-						"maximum_interfaces": {
-							Type:     schema.TypeInt,
-							Computed: true,
-						},
-						"performance": {
-							Type:     schema.TypeString,
-							Computed: true,
-						},
-						"peak_bandwidth": {
-							Type:     schema.TypeFloat,
-							Computed: true,
+				"instance_storage_supported": {
+					Type:     schema.TypeBool,
+					Computed: true,
+				},
+				names.AttrInstanceType: {
+					Type:     schema.TypeString,
+					Required: true,
+				},
+				"ipv6_supported": {
+					Type:     schema.TypeBool,
+					Computed: true,
+				},
+				"maximum_ipv4_addresses_per_interface": {
+					Type:     schema.TypeInt,
+					Computed: true,
+				},
+				"maximum_ipv6_addresses_per_interface": {
+					Type:     schema.TypeInt,
+					Computed: true,
+				},
+				"maximum_network_cards": {
+					Type:     schema.TypeInt,
+					Computed: true,
+				},
+				"maximum_network_interfaces": {
+					Type:     schema.TypeInt,
+					Computed: true,
+				},
+				"media_accelerators": {
+					Type:     schema.TypeSet,
+					Computed: true,
+					Elem: &schema.Resource{
+						Schema: map[string]*schema.Schema{
+							"count": {
+								Type:     schema.TypeInt,
+								Computed: true,
+							},
+							"manufacturer": {
+								Type:     schema.TypeString,
+								Computed: true,
+							},
+							"memory_size": {
+								Type:     schema.TypeInt,
+								Computed: true,
+							},
+							names.AttrName: {
+								Type:     schema.TypeString,
+								Computed: true,
+							},
 						},
 					},
 				},
-			},
-			"network_performance": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"neuron_devices": {
-				Type:     schema.TypeSet,
-				Computed: true,
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						"core_count": {
-							Type:     schema.TypeInt,
-							Computed: true,
-						},
-						"core_version": {
-							Type:     schema.TypeInt,
-							Computed: true,
-						},
-						"count": {
-							Type:     schema.TypeInt,
-							Computed: true,
-						},
-						"memory_size": {
-							Type:     schema.TypeInt,
-							Computed: true,
-						},
-						names.AttrName: {
-							Type:     schema.TypeString,
-							Computed: true,
+				"memory_size": {
+					Type:     schema.TypeInt,
+					Computed: true,
+				},
+				"network_cards": {
+					Type:     schema.TypeSet,
+					Computed: true,
+					Elem: &schema.Resource{
+						Schema: map[string]*schema.Schema{
+							"baseline_bandwidth": {
+								Type:     schema.TypeFloat,
+								Computed: true,
+							},
+							"index": {
+								Type:     schema.TypeInt,
+								Computed: true,
+							},
+							"maximum_interfaces": {
+								Type:     schema.TypeInt,
+								Computed: true,
+							},
+							"performance": {
+								Type:     schema.TypeString,
+								Computed: true,
+							},
+							"peak_bandwidth": {
+								Type:     schema.TypeFloat,
+								Computed: true,
+							},
 						},
 					},
 				},
-			},
-			"nitro_enclaves_support": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"nitro_tpm_support": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"nitro_tpm_supported_versions": {
-				Type:     schema.TypeSet,
-				Computed: true,
-				Elem:     &schema.Schema{Type: schema.TypeString},
-			},
-			"phc_support": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"supported_architectures": {
-				Type:     schema.TypeList,
-				Computed: true,
-				Elem:     &schema.Schema{Type: schema.TypeString},
-			},
-			"supported_cpu_features": {
-				Type:     schema.TypeSet,
-				Computed: true,
-				Elem:     &schema.Schema{Type: schema.TypeString},
-			},
-			"supported_placement_strategies": {
-				Type:     schema.TypeList,
-				Computed: true,
-				Elem:     &schema.Schema{Type: schema.TypeString},
-			},
-			"supported_root_device_types": {
-				Type:     schema.TypeList,
-				Computed: true,
-				Elem:     &schema.Schema{Type: schema.TypeString},
-			},
-			"supported_usages_classes": {
-				Type:     schema.TypeList,
-				Computed: true,
-				Elem:     &schema.Schema{Type: schema.TypeString},
-			},
-			"supported_virtualization_types": {
-				Type:     schema.TypeList,
-				Computed: true,
-				Elem:     &schema.Schema{Type: schema.TypeString},
-			},
-			"sustained_clock_speed": {
-				Type:     schema.TypeFloat,
-				Computed: true,
-			},
-			"total_fpga_memory": {
-				Type:     schema.TypeInt,
-				Computed: true,
-			},
-			"total_gpu_memory": {
-				Type:     schema.TypeInt,
-				Computed: true,
-			},
-			"total_inference_memory": {
-				Type:     schema.TypeInt,
-				Computed: true,
-			},
-			"total_instance_storage": {
-				Type:     schema.TypeInt,
-				Computed: true,
-			},
-			"total_media_memory": {
-				Type:     schema.TypeInt,
-				Computed: true,
-			},
-			"total_neuron_device_memory": {
-				Type:     schema.TypeInt,
-				Computed: true,
-			},
-			"valid_cores": {
-				Type:     schema.TypeList,
-				Computed: true,
-				Elem:     &schema.Schema{Type: schema.TypeInt},
-			},
-			"valid_threads_per_core": {
-				Type:     schema.TypeList,
-				Computed: true,
-				Elem:     &schema.Schema{Type: schema.TypeInt},
-			},
+				"network_performance": {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				"neuron_devices": {
+					Type:     schema.TypeSet,
+					Computed: true,
+					Elem: &schema.Resource{
+						Schema: map[string]*schema.Schema{
+							"core_count": {
+								Type:     schema.TypeInt,
+								Computed: true,
+							},
+							"core_version": {
+								Type:     schema.TypeInt,
+								Computed: true,
+							},
+							"count": {
+								Type:     schema.TypeInt,
+								Computed: true,
+							},
+							"memory_size": {
+								Type:     schema.TypeInt,
+								Computed: true,
+							},
+							names.AttrName: {
+								Type:     schema.TypeString,
+								Computed: true,
+							},
+						},
+					},
+				},
+				"nitro_enclaves_support": {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				"nitro_tpm_support": {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				"nitro_tpm_supported_versions": {
+					Type:     schema.TypeSet,
+					Computed: true,
+					Elem:     &schema.Schema{Type: schema.TypeString},
+				},
+				"phc_support": {
+					Type:     schema.TypeString,
+					Computed: true,
+				},
+				"supported_architectures": {
+					Type:     schema.TypeList,
+					Computed: true,
+					Elem:     &schema.Schema{Type: schema.TypeString},
+				},
+				"supported_cpu_features": {
+					Type:     schema.TypeSet,
+					Computed: true,
+					Elem:     &schema.Schema{Type: schema.TypeString},
+				},
+				"supported_placement_strategies": {
+					Type:     schema.TypeList,
+					Computed: true,
+					Elem:     &schema.Schema{Type: schema.TypeString},
+				},
+				"supported_root_device_types": {
+					Type:     schema.TypeList,
+					Computed: true,
+					Elem:     &schema.Schema{Type: schema.TypeString},
+				},
+				"supported_usages_classes": {
+					Type:     schema.TypeList,
+					Computed: true,
+					Elem:     &schema.Schema{Type: schema.TypeString},
+				},
+				"supported_virtualization_types": {
+					Type:     schema.TypeList,
+					Computed: true,
+					Elem:     &schema.Schema{Type: schema.TypeString},
+				},
+				"sustained_clock_speed": {
+					Type:     schema.TypeFloat,
+					Computed: true,
+				},
+				"total_fpga_memory": {
+					Type:     schema.TypeInt,
+					Computed: true,
+				},
+				"total_gpu_memory": {
+					Type:     schema.TypeInt,
+					Computed: true,
+				},
+				"total_inference_memory": {
+					Type:     schema.TypeInt,
+					Computed: true,
+				},
+				"total_instance_storage": {
+					Type:     schema.TypeInt,
+					Computed: true,
+				},
+				"total_media_memory": {
+					Type:     schema.TypeInt,
+					Computed: true,
+				},
+				"total_neuron_device_memory": {
+					Type:     schema.TypeInt,
+					Computed: true,
+				},
+				"valid_cores": {
+					Type:     schema.TypeList,
+					Computed: true,
+					Elem:     &schema.Schema{Type: schema.TypeInt},
+				},
+				"valid_threads_per_core": {
+					Type:     schema.TypeList,
+					Computed: true,
+					Elem:     &schema.Schema{Type: schema.TypeInt},
+				},
+			}
 		},
 	}
 }
 
-func dataSourceInstanceTypeRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func dataSourceInstanceTypeRead(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).EC2Client(ctx)
 
@@ -445,7 +449,7 @@ func dataSourceInstanceTypeRead(ctx context.Context, d *schema.ResourceData, met
 	v, err := findInstanceTypeByName(ctx, conn, name)
 
 	if err == nil && (v.EbsInfo == nil || v.NetworkInfo == nil || v.PlacementGroupInfo == nil || v.ProcessorInfo == nil || v.VCpuInfo == nil) {
-		err = tfresource.NewEmptyResultError(name)
+		err = tfresource.NewEmptyResultError()
 	}
 
 	if err != nil {
@@ -483,9 +487,9 @@ func dataSourceInstanceTypeRead(ctx context.Context, d *schema.ResourceData, met
 	d.Set("ena_support", v.NetworkInfo.EnaSupport)
 	d.Set("encryption_in_transit_supported", v.NetworkInfo.EncryptionInTransitSupported)
 	if v := v.FpgaInfo; v != nil {
-		tfList := make([]interface{}, len(v.Fpgas))
+		tfList := make([]any, len(v.Fpgas))
 		for i, v := range v.Fpgas {
-			tfMap := map[string]interface{}{
+			tfMap := map[string]any{
 				"count":        aws.ToInt32(v.Count),
 				"manufacturer": aws.ToString(v.Manufacturer),
 				"memory_size":  aws.ToInt32(v.MemoryInfo.SizeInMiB),
@@ -498,9 +502,9 @@ func dataSourceInstanceTypeRead(ctx context.Context, d *schema.ResourceData, met
 	}
 	d.Set("free_tier_eligible", v.FreeTierEligible)
 	if v := v.GpuInfo; v != nil {
-		tfList := make([]interface{}, len(v.Gpus))
+		tfList := make([]any, len(v.Gpus))
 		for i, v := range v.Gpus {
-			tfMap := map[string]interface{}{
+			tfMap := map[string]any{
 				"count":        aws.ToInt32(v.Count),
 				"manufacturer": aws.ToString(v.Manufacturer),
 				"memory_size":  aws.ToInt32(v.MemoryInfo.SizeInMiB),
@@ -514,9 +518,9 @@ func dataSourceInstanceTypeRead(ctx context.Context, d *schema.ResourceData, met
 	d.Set("hibernation_supported", v.HibernationSupported)
 	d.Set("hypervisor", v.Hypervisor)
 	if v := v.InferenceAcceleratorInfo; v != nil {
-		tfList := make([]interface{}, len(v.Accelerators))
+		tfList := make([]any, len(v.Accelerators))
 		for i, v := range v.Accelerators {
-			tfMap := map[string]interface{}{
+			tfMap := map[string]any{
 				"count":        aws.ToInt32(v.Count),
 				"manufacturer": aws.ToString(v.Manufacturer),
 				"memory_size":  aws.ToInt32(v.MemoryInfo.SizeInMiB),
@@ -529,9 +533,9 @@ func dataSourceInstanceTypeRead(ctx context.Context, d *schema.ResourceData, met
 	}
 	if v := v.InstanceStorageInfo; v != nil {
 		if v := v.Disks; v != nil {
-			tfList := make([]interface{}, len(v))
+			tfList := make([]any, len(v))
 			for i, v := range v {
-				tfMap := map[string]interface{}{
+				tfMap := map[string]any{
 					"count":        aws.ToInt32(v.Count),
 					names.AttrSize: aws.ToInt64(v.SizeInGB),
 					names.AttrType: v.Type,
@@ -550,9 +554,9 @@ func dataSourceInstanceTypeRead(ctx context.Context, d *schema.ResourceData, met
 	d.Set("maximum_network_cards", v.NetworkInfo.MaximumNetworkCards)
 	d.Set("maximum_network_interfaces", v.NetworkInfo.MaximumNetworkInterfaces)
 	if v := v.MediaAcceleratorInfo; v != nil {
-		tfList := make([]interface{}, len(v.Accelerators))
+		tfList := make([]any, len(v.Accelerators))
 		for i, v := range v.Accelerators {
-			tfMap := map[string]interface{}{
+			tfMap := map[string]any{
 				"count":        aws.ToInt32(v.Count),
 				"manufacturer": aws.ToString(v.Manufacturer),
 				"memory_size":  aws.ToInt32(v.MemoryInfo.SizeInMiB),
@@ -565,9 +569,9 @@ func dataSourceInstanceTypeRead(ctx context.Context, d *schema.ResourceData, met
 	}
 	d.Set("memory_size", v.MemoryInfo.SizeInMiB)
 	if v := v.NeuronInfo; v != nil {
-		tfList := make([]interface{}, len(v.NeuronDevices))
+		tfList := make([]any, len(v.NeuronDevices))
 		for i, v := range v.NeuronDevices {
-			tfMap := map[string]interface{}{
+			tfMap := map[string]any{
 				"count":        aws.ToInt32(v.Count),
 				"core_count":   aws.ToInt32(v.CoreInfo.Count),
 				"core_version": aws.ToInt32(v.CoreInfo.Version),
@@ -588,9 +592,9 @@ func dataSourceInstanceTypeRead(ctx context.Context, d *schema.ResourceData, met
 	d.Set("nitro_tpm_supported_versions", nitroTPMSupportedVersions)
 	d.Set("network_performance", v.NetworkInfo.NetworkPerformance)
 	if v := v.NetworkInfo; v != nil {
-		tfList := make([]interface{}, len(v.NetworkCards))
+		tfList := make([]any, len(v.NetworkCards))
 		for i, v := range v.NetworkCards {
-			tfMap := map[string]interface{}{
+			tfMap := map[string]any{
 				"baseline_bandwidth": aws.ToFloat64(v.BaselineBandwidthInGbps),
 				"index":              aws.ToInt32(v.NetworkCardIndex),
 				"maximum_interfaces": aws.ToInt32(v.MaximumNetworkInterfaces),

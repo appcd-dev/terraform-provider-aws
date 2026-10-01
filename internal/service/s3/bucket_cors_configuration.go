@@ -1,5 +1,7 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2014, 2026
 // SPDX-License-Identifier: MPL-2.0
+
+// DONOTCOPY: Copying old resources spreads bad habits. Use skaff instead.
 
 package s3
 
@@ -12,18 +14,25 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/hashicorp/aws-sdk-go-base/v2/tfawserr"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
 	"github.com/hashicorp/terraform-provider-aws/internal/conns"
 	"github.com/hashicorp/terraform-provider-aws/internal/errs/sdkdiag"
 	"github.com/hashicorp/terraform-provider-aws/internal/flex"
+	"github.com/hashicorp/terraform-provider-aws/internal/retry"
 	"github.com/hashicorp/terraform-provider-aws/internal/tfresource"
 	"github.com/hashicorp/terraform-provider-aws/internal/verify"
 	"github.com/hashicorp/terraform-provider-aws/names"
 )
 
 // @SDKResource("aws_s3_bucket_cors_configuration", name="Bucket CORS Configuration")
+// @IdentityAttribute("bucket")
+// @IdentityVersion(1)
+// @Testing(preIdentityVersion="v6.9.0")
+// @Testing(identityVersion="0;v6.10.0")
+// @Testing(identityVersion="1;v6.31.0")
+// @Testing(importIgnore="cors_rule.0.max_age_seconds")
+// @Testing(plannableImportAction="NoOp")
 func resourceBucketCorsConfiguration() *schema.Resource {
 	return &schema.Resource{
 		CreateWithoutTimeout: resourceBucketCorsConfigurationCreate,
@@ -31,66 +40,82 @@ func resourceBucketCorsConfiguration() *schema.Resource {
 		UpdateWithoutTimeout: resourceBucketCorsConfigurationUpdate,
 		DeleteWithoutTimeout: resourceBucketCorsConfigurationDelete,
 
-		Importer: &schema.ResourceImporter{
-			StateContext: schema.ImportStatePassthroughContext,
-		},
-
-		Schema: map[string]*schema.Schema{
-			names.AttrBucket: {
-				Type:         schema.TypeString,
-				Required:     true,
-				ForceNew:     true,
-				ValidateFunc: validation.StringLenBetween(1, 63),
-			},
-			names.AttrExpectedBucketOwner: {
-				Type:         schema.TypeString,
-				Optional:     true,
-				ForceNew:     true,
-				ValidateFunc: verify.ValidAccountID,
-			},
-			"cors_rule": {
-				Type:     schema.TypeSet,
-				Required: true,
-				MaxItems: 100,
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						"allowed_headers": {
-							Type:     schema.TypeSet,
-							Optional: true,
-							Elem:     &schema.Schema{Type: schema.TypeString},
-						},
-						"allowed_methods": {
-							Type:     schema.TypeSet,
-							Required: true,
-							Elem:     &schema.Schema{Type: schema.TypeString},
-						},
-						"allowed_origins": {
-							Type:     schema.TypeSet,
-							Required: true,
-							Elem:     &schema.Schema{Type: schema.TypeString},
-						},
-						"expose_headers": {
-							Type:     schema.TypeSet,
-							Optional: true,
-							Elem:     &schema.Schema{Type: schema.TypeString},
-						},
-						names.AttrID: {
-							Type:         schema.TypeString,
-							Optional:     true,
-							ValidateFunc: validation.StringLenBetween(0, 255),
-						},
-						"max_age_seconds": {
-							Type:     schema.TypeInt,
-							Optional: true,
+		SchemaFunc: func() map[string]*schema.Schema {
+			return map[string]*schema.Schema{
+				names.AttrBucket: {
+					Type:         schema.TypeString,
+					Required:     true,
+					ForceNew:     true,
+					ValidateFunc: validation.StringLenBetween(1, 63),
+				},
+				names.AttrExpectedBucketOwner: {
+					Type:         schema.TypeString,
+					Optional:     true,
+					ValidateFunc: verify.ValidAccountID,
+					Deprecated:   "expected_bucket_owner is deprecated. It will be removed in a future verion of the provider.",
+				},
+				"cors_rule": {
+					Type:     schema.TypeSet,
+					Required: true,
+					MaxItems: 100,
+					Elem: &schema.Resource{
+						Schema: map[string]*schema.Schema{
+							"allowed_headers": {
+								Type:     schema.TypeSet,
+								Optional: true,
+								Elem:     &schema.Schema{Type: schema.TypeString},
+							},
+							"allowed_methods": {
+								Type:     schema.TypeSet,
+								Required: true,
+								Elem:     &schema.Schema{Type: schema.TypeString},
+							},
+							"allowed_origins": {
+								Type:     schema.TypeSet,
+								Required: true,
+								Elem:     &schema.Schema{Type: schema.TypeString},
+							},
+							"expose_headers": {
+								Type:     schema.TypeSet,
+								Optional: true,
+								Elem:     &schema.Schema{Type: schema.TypeString},
+							},
+							names.AttrID: {
+								Type:         schema.TypeString,
+								Optional:     true,
+								ValidateFunc: validation.StringLenBetween(0, 255),
+							},
+							"max_age_seconds": {
+								Type:     schema.TypeInt,
+								Optional: true,
+							},
 						},
 					},
 				},
-			},
+			}
+		},
+
+		CustomizeDiff: func(ctx context.Context, d *schema.ResourceDiff, meta any) error {
+			if d.Id() == "" {
+				return nil
+			}
+			if d.HasChange(names.AttrExpectedBucketOwner) {
+				o, n := d.GetChange(names.AttrExpectedBucketOwner)
+				os, ns := o.(string), n.(string)
+				if os == ns {
+					return nil
+				}
+				if os == "" && ns == meta.(*conns.AWSClient).AccountID(ctx) {
+					return nil
+				}
+				return d.ForceNew(names.AttrExpectedBucketOwner)
+			}
+			return nil
 		},
 	}
 }
 
-func resourceBucketCorsConfigurationCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceBucketCorsConfigurationCreate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).S3Client(ctx)
 
@@ -99,7 +124,7 @@ func resourceBucketCorsConfigurationCreate(ctx context.Context, d *schema.Resour
 		conn = meta.(*conns.AWSClient).S3ExpressClient(ctx)
 	}
 	expectedBucketOwner := d.Get(names.AttrExpectedBucketOwner).(string)
-	input := &s3.PutBucketCorsInput{
+	input := s3.PutBucketCorsInput{
 		Bucket: aws.String(bucket),
 		CORSConfiguration: &types.CORSConfiguration{
 			CORSRules: expandCORSRules(d.Get("cors_rule").(*schema.Set).List()),
@@ -109,8 +134,8 @@ func resourceBucketCorsConfigurationCreate(ctx context.Context, d *schema.Resour
 		input.ExpectedBucketOwner = aws.String(expectedBucketOwner)
 	}
 
-	_, err := tfresource.RetryWhenAWSErrCodeEquals(ctx, bucketPropagationTimeout, func() (interface{}, error) {
-		return conn.PutBucketCors(ctx, input)
+	_, err := tfresource.RetryWhenAWSErrCodeEquals(ctx, bucketPropagationTimeout, func(ctx context.Context) (any, error) {
+		return conn.PutBucketCors(ctx, &input)
 	}, errCodeNoSuchBucket)
 
 	if tfawserr.ErrMessageContains(err, errCodeInvalidArgument, "CORSConfiguration is not valid, expected CreateBucketConfiguration") {
@@ -123,7 +148,7 @@ func resourceBucketCorsConfigurationCreate(ctx context.Context, d *schema.Resour
 
 	d.SetId(createResourceID(bucket, expectedBucketOwner))
 
-	_, err = tfresource.RetryWhenNotFound(ctx, bucketPropagationTimeout, func() (interface{}, error) {
+	_, err = tfresource.RetryWhenNotFound(ctx, bucketPropagationTimeout, func(ctx context.Context) (any, error) {
 		return findCORSRules(ctx, conn, bucket, expectedBucketOwner)
 	})
 
@@ -134,7 +159,7 @@ func resourceBucketCorsConfigurationCreate(ctx context.Context, d *schema.Resour
 	return append(diags, resourceBucketCorsConfigurationRead(ctx, d, meta)...)
 }
 
-func resourceBucketCorsConfigurationRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceBucketCorsConfigurationRead(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).S3Client(ctx)
 
@@ -149,7 +174,7 @@ func resourceBucketCorsConfigurationRead(ctx context.Context, d *schema.Resource
 
 	corsRules, err := findCORSRules(ctx, conn, bucket, expectedBucketOwner)
 
-	if !d.IsNewResource() && tfresource.NotFound(err) {
+	if !d.IsNewResource() && retry.NotFound(err) {
 		log.Printf("[WARN] S3 Bucket CORS Configuration (%s) not found, removing from state", d.Id())
 		d.SetId("")
 		return diags
@@ -168,7 +193,7 @@ func resourceBucketCorsConfigurationRead(ctx context.Context, d *schema.Resource
 	return diags
 }
 
-func resourceBucketCorsConfigurationUpdate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceBucketCorsConfigurationUpdate(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).S3Client(ctx)
 
@@ -181,7 +206,7 @@ func resourceBucketCorsConfigurationUpdate(ctx context.Context, d *schema.Resour
 		conn = meta.(*conns.AWSClient).S3ExpressClient(ctx)
 	}
 
-	input := &s3.PutBucketCorsInput{
+	input := s3.PutBucketCorsInput{
 		Bucket: aws.String(bucket),
 		CORSConfiguration: &types.CORSConfiguration{
 			CORSRules: expandCORSRules(d.Get("cors_rule").(*schema.Set).List()),
@@ -191,7 +216,7 @@ func resourceBucketCorsConfigurationUpdate(ctx context.Context, d *schema.Resour
 		input.ExpectedBucketOwner = aws.String(expectedBucketOwner)
 	}
 
-	_, err = conn.PutBucketCors(ctx, input)
+	_, err = conn.PutBucketCors(ctx, &input)
 
 	if err != nil {
 		return sdkdiag.AppendErrorf(diags, "updating S3 Bucket CORS Configuration (%s): %s", d.Id(), err)
@@ -200,7 +225,7 @@ func resourceBucketCorsConfigurationUpdate(ctx context.Context, d *schema.Resour
 	return append(diags, resourceBucketCorsConfigurationRead(ctx, d, meta)...)
 }
 
-func resourceBucketCorsConfigurationDelete(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func resourceBucketCorsConfigurationDelete(ctx context.Context, d *schema.ResourceData, meta any) diag.Diagnostics {
 	var diags diag.Diagnostics
 	conn := meta.(*conns.AWSClient).S3Client(ctx)
 
@@ -213,14 +238,14 @@ func resourceBucketCorsConfigurationDelete(ctx context.Context, d *schema.Resour
 		conn = meta.(*conns.AWSClient).S3ExpressClient(ctx)
 	}
 
-	input := &s3.DeleteBucketCorsInput{
+	input := s3.DeleteBucketCorsInput{
 		Bucket: aws.String(bucket),
 	}
 	if expectedBucketOwner != "" {
 		input.ExpectedBucketOwner = aws.String(expectedBucketOwner)
 	}
 
-	_, err = conn.DeleteBucketCors(ctx, input)
+	_, err = conn.DeleteBucketCors(ctx, &input)
 
 	if tfawserr.ErrCodeEquals(err, errCodeNoSuchBucket, errCodeNoSuchCORSConfiguration) {
 		return diags
@@ -230,7 +255,7 @@ func resourceBucketCorsConfigurationDelete(ctx context.Context, d *schema.Resour
 		return sdkdiag.AppendErrorf(diags, "deleting S3 Bucket CORS Configuration (%s): %s", d.Id(), err)
 	}
 
-	_, err = tfresource.RetryUntilNotFound(ctx, bucketPropagationTimeout, func() (interface{}, error) {
+	_, err = tfresource.RetryUntilNotFound(ctx, bucketPropagationTimeout, func(ctx context.Context) (any, error) {
 		return findCORSRules(ctx, conn, bucket, expectedBucketOwner)
 	})
 
@@ -242,19 +267,18 @@ func resourceBucketCorsConfigurationDelete(ctx context.Context, d *schema.Resour
 }
 
 func findCORSRules(ctx context.Context, conn *s3.Client, bucket, expectedBucketOwner string) ([]types.CORSRule, error) {
-	input := &s3.GetBucketCorsInput{
+	input := s3.GetBucketCorsInput{
 		Bucket: aws.String(bucket),
 	}
 	if expectedBucketOwner != "" {
 		input.ExpectedBucketOwner = aws.String(expectedBucketOwner)
 	}
 
-	output, err := conn.GetBucketCors(ctx, input)
+	output, err := conn.GetBucketCors(ctx, &input)
 
 	if tfawserr.ErrCodeEquals(err, errCodeNoSuchBucket, errCodeNoSuchCORSConfiguration) {
 		return nil, &retry.NotFoundError{
-			LastError:   err,
-			LastRequest: input,
+			LastError: err,
 		}
 	}
 
@@ -263,13 +287,13 @@ func findCORSRules(ctx context.Context, conn *s3.Client, bucket, expectedBucketO
 	}
 
 	if output == nil || len(output.CORSRules) == 0 {
-		return nil, tfresource.NewEmptyResultError(input)
+		return nil, tfresource.NewEmptyResultError()
 	}
 
 	return output.CORSRules, nil
 }
 
-func expandCORSRules(l []interface{}) []types.CORSRule {
+func expandCORSRules(l []any) []types.CORSRule {
 	if len(l) == 0 {
 		return nil
 	}
@@ -277,7 +301,7 @@ func expandCORSRules(l []interface{}) []types.CORSRule {
 	var rules []types.CORSRule
 
 	for _, tfMapRaw := range l {
-		tfMap, ok := tfMapRaw.(map[string]interface{})
+		tfMap, ok := tfMapRaw.(map[string]any)
 		if !ok {
 			continue
 		}
@@ -314,11 +338,11 @@ func expandCORSRules(l []interface{}) []types.CORSRule {
 	return rules
 }
 
-func flattenCORSRules(rules []types.CORSRule) []interface{} {
-	var results []interface{}
+func flattenCORSRules(rules []types.CORSRule) []any {
+	var results []any
 
 	for _, rule := range rules {
-		m := map[string]interface{}{
+		m := map[string]any{
 			"max_age_seconds": rule.MaxAgeSeconds,
 		}
 
