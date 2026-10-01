@@ -185,13 +185,14 @@ def main() -> None:
     ingest_template = (MODULE / "templates" / "ingest-execute-series-embedded.sh.tftpl").read_text()
     assert '.cloud2code_scan_ok == "true"' in ingest_template
     assert "blocked:cloud2code_scan_incomplete" in ingest_template
-    assert "permission-denied reads" in scan
-    assert "continue ingest/split" in scan
-    assert "GetRolePolicy" in scan
+    assert "non-throttling" in scan
+    assert "partial inventories" in scan
+    assert "Continue ingest/split" in scan
+    assert "failure counters" in scan
     assert "cloud2code_allow_partial=false" in scan
-    assert "cloud2code_min_coverage_percent" in scan
-    assert "read_failed>0" in scan
-    assert "throttled types" in scan
+    assert "No minimum coverage floor" in scan
+    assert "read_failed" in scan
+    assert "throttling" in scan
 
     # Ingest: skills empty, one bootstrap body, concrete false on blocked gate.
     ingest = _binding(workflow, "ingest-and-split")

@@ -128,16 +128,11 @@ if [ -n "$CLOUD2CODE_EXCLUDE" ] && command -v cloud2code >/dev/null 2>&1; then
 fi
 CLOUD2CODE_TAGS="$(coalesce_value cloud2code_tags CLOUD2CODE_TAGS)"
 CLOUD2CODE_ALLOW_PARTIAL="$(coalesce_value cloud2code_allow_partial CLOUD2CODE_ALLOW_PARTIAL)"
-CLOUD2CODE_MIN_COVERAGE_PERCENT="$(coalesce_value cloud2code_min_coverage_percent CLOUD2CODE_MIN_COVERAGE_PERCENT)"
-CLOUD2CODE_MIN_COVERAGE_PERCENT="${CLOUD2CODE_MIN_COVERAGE_PERCENT:-90}"
-if ! [[ "$CLOUD2CODE_MIN_COVERAGE_PERCENT" =~ ^[0-9]+$ ]] || [ "$CLOUD2CODE_MIN_COVERAGE_PERCENT" -lt 1 ] || [ "$CLOUD2CODE_MIN_COVERAGE_PERCENT" -gt 100 ]; then
-  echo "blocked:cloud2code_min_coverage_percent_invalid value=${CLOUD2CODE_MIN_COVERAGE_PERCENT}"
-  exit 1
-fi
 # Discovery should preserve accessible resources when individual reads are
 # denied. Cloud2Code marks these inventories partial; downstream stages must
 # retain that caveat rather than treating skipped reads as complete coverage.
-# An explicit false remains available for operators who require a complete scan.
+# Any non-empty valid state with isolated non-throttling Read errors is useful
+# for review; strict mode remains available as an explicit operator choice.
 case "$CLOUD2CODE_ALLOW_PARTIAL" in
   "" ) CLOUD2CODE_ALLOW_PARTIAL=true ;;
   false|0|no) CLOUD2CODE_ALLOW_PARTIAL=false ;;
@@ -278,9 +273,11 @@ mirror_note "cloud2code_throttle_skipped" ""
 THROTTLE_SKIPPED=""
 run_cloud2code_import && CMD_OK=1 || CMD_OK=0
 if [ "$CMD_OK" -ne 1 ]; then
-  # Cloud2Code can exit nonzero after writing a valid partial state for read
-  # failures. Only accept that artifact when its explicit counters satisfy the
-  # configured coverage floor; never infer partial success from a log alone.
+  # Cloud2Code can exit nonzero after writing a valid partial state for
+  # non-throttling per-resource read failures. Preserve any useful inventory
+  # instead of discarding it at an arbitrary coverage percentage; explicit
+  # strict mode, throttles, missing/invalid/empty state, and zero imports still
+  # block below.
   if scan_has_nonretryable_read_failures; then
     echo "cloud2code_nonzero_with_read_failures=true"
   else
@@ -323,7 +320,6 @@ mirror_note "cloud2code_command_path" "$WORK_ROOT/.work/cloud2code-command.txt"
 mirror_note "aws_region" "$AWS_REGION"
 mirror_note "cloud2code_auto_import" "$CLOUD2CODE_AUTO_IMPORT"
 mirror_note "cloud2code_output_dir" "$CLOUD2CODE_OUTPUT_DIR"
-mirror_note "cloud2code_min_coverage_percent" "$CLOUD2CODE_MIN_COVERAGE_PERCENT"
 mirror_note "cloud2code_partial_failure_accepted" "false"
 mirror_note "cloud2code_partial_coverage_percent" ""
 if [ -n "$CLOUD2CODE_INCLUDE" ]; then mirror_note "cloud2code_include" "$CLOUD2CODE_INCLUDE"; fi
@@ -348,14 +344,14 @@ if [ "$CMD_OK" -ne 1 ] && [ "$CLOUD2CODE_ALLOW_PARTIAL" = true ] && scan_has_non
   if [ -n "$_integrity" ]; then
     read -r _listed _imported _state_skipped _read_skipped _read_failed _throttled <<<"$(printf '%s\n' "$_integrity" | sed -E 's/^scan integrity: listed=([0-9]+) imported=([0-9]+) import_state_skipped=([0-9]+) read_skipped=([0-9]+) read_failed=([0-9]+) throttled_types=([0-9]+)$/\1 \2 \3 \4 \5 \6/')"
     STATE_PATH="$(find "$CLOUD2CODE_OUTPUT_DIR" -maxdepth 5 -type f \( -name 'terraform.tfstate' -o -name '*.tfstate' \) | sort | head -1)"
-    if [ "$_listed" -gt 0 ] && [ "$((_imported * 100 / _listed))" -ge "$CLOUD2CODE_MIN_COVERAGE_PERCENT" ] \
+    if [ "$_listed" -gt 0 ] && [ "$_imported" -gt 0 ] \
       && [ "$_throttled" -eq 0 ] && [ -n "$STATE_PATH" ] && [ -s "$STATE_PATH" ] \
       && jq -e '.resources' "$STATE_PATH" >/dev/null 2>&1; then
       _state_count="$(jq '[.resources[]? | select(.mode=="managed") | .instances[]?] | length' "$STATE_PATH" 2>/dev/null || echo 0)"
       if [ "$_state_count" -eq "$_imported" ] && [ "$_state_count" -gt 0 ]; then
         CMD_OK=1
         PARTIAL_FAILURE_ACCEPTED=true
-        echo "cloud2code_partial_failure_accepted=true coverage_percent=$((_imported * 100 / _listed)) minimum_percent=$CLOUD2CODE_MIN_COVERAGE_PERCENT"
+        echo "cloud2code_partial_failure_accepted=true coverage_percent=$((_imported * 100 / _listed))"
         mirror_note "cloud2code_partial_failure_accepted" "true"
         mirror_note "cloud2code_partial_coverage_percent" "$((_imported * 100 / _listed))"
       fi
@@ -439,7 +435,6 @@ if [ "$SCAN_PARTIAL" = true ]; then
   if [ "$PARTIAL_FAILURE_ACCEPTED" = true ]; then
     echo "cloud2code_partial_failure_accepted: \"true\""
     echo "cloud2code_partial_coverage_percent=$((_imported * 100 / _listed))"
-    echo "cloud2code_min_coverage_percent=$CLOUD2CODE_MIN_COVERAGE_PERCENT"
     mirror_note "cloud2code_partial_failure_accepted" "true"
     mirror_note "cloud2code_partial_coverage_percent" "$((_imported * 100 / _listed))"
   fi

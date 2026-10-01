@@ -119,9 +119,9 @@ if ! grep -q -- '--exclude aws_glue_catalog_table' "$MOCK_CLOUD2CODE_ARGS"; then
 fi
 unset CLOUD2CODE_EXCLUDE_OVERRIDE
 
-# A Cloud2Code nonzero exit caused only by non-throttled read failures may
-# continue when a validated state meets the default 90% imported/listed floor.
-export MOCK_STATE_COUNT=9
+# A non-throttling per-resource Read failure should continue with any valid,
+# non-empty partial state, even below the former coverage floor.
+export MOCK_STATE_COUNT=2
 cat > "$TEST_ROOT/bin/cloud2code" << 'MOCK'
 #!/usr/bin/env bash
 if [[ "$1" == "version" ]]; then echo "0.5.6"; exit 0; fi
@@ -138,11 +138,17 @@ if [[ "$*" != *"--log-type=json"* ]]; then
   exit 2
 fi
 mkdir -p "$CLOUD2CODE_OUTPUT_DIR"
-mkdir -p "$CLOUD2CODE_OUTPUT_DIR"
-printf '{"resources":[{"mode":"managed","type":"aws_vpc","instances":[{},{},{},{},{},{},{},{},{}]}]}\n' > "$CLOUD2CODE_OUTPUT_DIR/terraform.tfstate"
+count="${MOCK_STATE_COUNT:-2}"
+if [ "$count" -gt 0 ]; then
+  instances=""
+  for ((i=0; i<count; i++)); do instances+="${instances:+,}{}"; done
+  printf '{"resources":[{"mode":"managed","type":"aws_vpc","instances":[%s]}]}\n' "$instances" > "$CLOUD2CODE_OUTPUT_DIR/terraform.tfstate"
+else
+  printf '{"resources":[]}\n' > "$CLOUD2CODE_OUTPUT_DIR/terraform.tfstate"
+fi
 echo 'Error: could not import from aws: scan incomplete' >&2
-echo 'type aws_cloudwatch_log_group listed=10 imported=9 skipped=1 permission_skipped=0 filtered=0 nil_state=0 read_failed=1' >&2
-echo 'scan integrity: listed=10 imported=9 import_state_skipped=0 read_skipped=0 read_failed=1 throttled_types=0' >&2
+echo "type aws_cloudwatch_log_group listed=10 imported=$count skipped=$((10-count)) permission_skipped=0 filtered=0 nil_state=0 read_failed=$((10-count))" >&2
+echo "scan integrity: listed=10 imported=$count import_state_skipped=0 read_skipped=0 read_failed=$((10-count)) throttled_types=0" >&2
 exit 1
 MOCK
 chmod +x "$TEST_ROOT/bin/cloud2code"
@@ -153,13 +159,13 @@ if ! bash "$SCAN_SCRIPT" "wf-test" "us-east-1" > "$TEST_ROOT/partial.out" 2>&1; 
 fi
 if ! grep -q 'cloud2code_scan_ok: "true"' "$TEST_ROOT/partial.out"; then
   cat "$TEST_ROOT/partial.out"
-  fail "partial scan should be marked usable when provider succeeds"
+  fail "partial scan should be marked usable when one type has read_failed"
 fi
 if ! grep -q 'cloud2code_partial_scan: "true"' "$TEST_ROOT/partial.out"; then
   cat "$TEST_ROOT/partial.out"
   fail "partial scan must be clearly identified"
 fi
-if ! grep -q 'read_failed=1' "$TEST_ROOT/partial.out"; then
+if ! grep -q 'read_failed=8' "$TEST_ROOT/partial.out"; then
   cat "$TEST_ROOT/partial.out"
   fail "partial scan integrity counters were not emitted"
 fi
@@ -167,19 +173,19 @@ if ! grep -q -- '--allow-partial' "$TEST_ROOT/work/.wf-test/.work/cloud2code-com
   fail "allow-partial was not enabled by default"
 fi
 
-# Below-floor read failure must still block with the real Cloud2Code error.
-export MOCK_STATE_COUNT=8
-if bash "$SCAN_SCRIPT" "wf-test" "us-east-1" > "$TEST_ROOT/low-coverage.out" 2>&1; then
-  fail "scan below the 90% floor should block"
+# A read-failure-only scan with no successfully imported resources remains unusable.
+export MOCK_STATE_COUNT=0
+if bash "$SCAN_SCRIPT" "wf-test" "us-east-1" > "$TEST_ROOT/zero-import.out" 2>&1; then
+  fail "partial scan with zero imported resources must block"
 fi
-if ! grep -q 'blocked:cloud2code_scan_failed: "true"' "$TEST_ROOT/low-coverage.out"; then
-  cat "$TEST_ROOT/low-coverage.out"
-  fail "low-coverage scan did not block"
+if ! grep -q 'blocked:cloud2code_scan_failed: "true"' "$TEST_ROOT/zero-import.out"; then
+  cat "$TEST_ROOT/zero-import.out"
+  fail "zero-import partial scan did not block"
 fi
 
-# Explicit strict mode blocks even a valid 90% partial state.
+# Explicit strict mode blocks even a usable non-empty partial state.
 printf '{"cloud2code_allow_partial":"false"}\n' > "$TEST_ROOT/work/.wf-test/.work/cloud2code-inputs.json"
-export MOCK_STATE_COUNT=9
+export MOCK_STATE_COUNT=2
 if bash "$SCAN_SCRIPT" "wf-test" "us-east-1" > "$TEST_ROOT/strict.out" 2>&1; then
   fail "explicit strict scan should block read failures"
 fi

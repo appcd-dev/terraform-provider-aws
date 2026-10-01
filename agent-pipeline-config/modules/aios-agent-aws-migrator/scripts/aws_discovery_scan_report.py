@@ -350,7 +350,7 @@ def build_report(region: str, identity_path: str | None, state_path: str | None,
         "scan_partial": scan_partial,
         "coverage_percent": coverage_percent,
         "partial_scan_failure_accepted": bool(_read_json(str(Path(log_path).parent.parent / "notes.json")).get("cloud2code_partial_failure_accepted") == "true") if log_path else False,
-        "partial_scan_min_coverage_percent": _read_json(str(Path(log_path).parent.parent / "notes.json")).get("cloud2code_min_coverage_percent", "90") if log_path else "90",
+        "partial_scan_min_coverage_percent": "not enforced",
         "aggregate_permission_skips": aggregate_permission_skips,
         "per_type_totals": type_totals,
         "verification_checks": checks,
@@ -381,6 +381,7 @@ def build_report(region: str, identity_path: str | None, state_path: str | None,
             "scan_integrity": "Cloud2Code aggregate log counter",
             "resource_types_scanned": "Cloud2Code per-type progress summaries",
             "permission_warning_events": "individual structured permission_skipped log records",
+            "read_failure_events": "individual structured read_failed log records; raw IDs and error text are omitted from report output",
         },
     }
 
@@ -396,7 +397,7 @@ def render_markdown(report: dict[str, Any]) -> str:
         "### Scan totals (Cloud2Code aggregate log counters)", "",
         f"- **Coverage:** {report.get('coverage_percent', 'unknown')}% imported/listed",
         f"- **Partial scan:** {'yes' if report.get('scan_partial') else 'no/unknown'}",
-        f"- **Partial failure accepted for continuation:** {'yes' if report.get('partial_scan_failure_accepted') else 'no'} (minimum coverage: {report.get('partial_scan_min_coverage_percent', 'unknown')}%)",
+        f"- **Partial read-failure inventory accepted for continuation:** {'yes' if report.get('partial_scan_failure_accepted') else 'no'} (minimum coverage: {report.get('partial_scan_min_coverage_percent', 'unknown')})",
         "",
         "| Listed | Imported | Import-state skipped | Read skipped | Read failed | Throttled types |",
         "| ---: | ---: | ---: | ---: | ---: | ---: |",
@@ -439,7 +440,7 @@ def render_markdown(report: dict[str, Any]) -> str:
     else:
         lines.append("No per-type permission warning records were parsed from the retained log.")
     if report.get("partial_scan_failure_accepted"):
-        lines.extend(["", "> **Partial scan:** Cloud2Code exited nonzero due to read failures, but a validated state met the configured coverage floor. Review missing resources before using this state as complete inventory."])
+        lines.extend(["", "> **Partial scan:** Cloud2Code exited nonzero due to non-throttling per-resource read failures, but the non-empty Terraform state was validated and retained. Review listed/imported counters and failed-resource details before treating this as a complete inventory."])
     if report.get("evidence_gaps"):
         lines.extend(["", "### Evidence gaps / counter differences", "", "```json", json.dumps(report["evidence_gaps"], indent=2, sort_keys=True), "```"])
     if report.get("unattributed_skipped_events"):

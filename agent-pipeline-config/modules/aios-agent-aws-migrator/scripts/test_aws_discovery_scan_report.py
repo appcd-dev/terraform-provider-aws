@@ -43,7 +43,7 @@ Scanning aws_s3_bucket [2/3] Done! (imported=2 skipped=1 permission_skipped=1 fi
         assert report["scan_partial"] is True
         assert report["coverage_percent"] == 60.0
         assert report["partial_scan_failure_accepted"] is True
-        assert report["partial_scan_min_coverage_percent"] == "90"
+        assert report["partial_scan_min_coverage_percent"] == "not enforced"
         assert "completeness" not in report
         assert report["verification_checks"]["state_imported_count_matches_aggregate"] == "pass"
         assert report["permission_warning_detail_coverage_percent"] == 100.0
