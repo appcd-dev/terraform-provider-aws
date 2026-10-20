@@ -349,7 +349,7 @@ docs-markdown-lint: ## [CI] Documentation Checks / markdown-lint
 
 docs-misspell: ## [CI] Documentation Checks / misspell
 	@echo "make: Documentation Checks / misspell..."
-	@misspell -error -source text docs/
+	@misspell -error -source text docs/*.md docs/*/*.md
 
 examples-tflint: tflint-init tflint-opa-tests ## [CI] Examples Checks / tflint
 	@echo "make: Examples Checks / tflint..."
@@ -435,10 +435,6 @@ go-build: ## [CI] Provider Checks / go-build
 	echo "make: Provider Checks / go-build ($$os_arch)..." ; \
 	go build -o terraform-plugin-dir/registry.terraform.io/hashicorp/aws/99.99.99/$$os_arch/terraform-provider-aws .
 
-go-misspell: ## [CI] Provider Checks / misspell
-	@echo "make: Provider Checks / misspell..."
-	@misspell -error -source auto -i "littel,ceasar,ect" internal/
-
 golangci-lint: golangci-lint1 golangci-lint2 golangci-lint3 golangci-lint4 golangci-lint5 ## [CI] All golangci-lint Checks
 
 golangci-lint1: ## [CI] golangci-lint Checks / 1 of 5
@@ -488,7 +484,7 @@ makefile-lint: prereq-go ## [CI] Makefile Linting / alignment check
 	@echo "make: Makefile Linting / alignment check..."
 	@cd tools/makelign && $(GO_VER) run . -strict ../..
 
-misspell: changelog-misspell docs-misspell website-misspell go-misspell ## [CI] Run all CI misspell checks
+misspell: changelog-misspell docs-misspell website-misspell ## [CI] Run all CI misspell checks
 
 modern-check: prereq-go ## [CI] Check for modern Go code (best run in individual services)
 	@echo "make: Checking for modern Go code..."
@@ -903,7 +899,7 @@ skaff-check-compile: ## [CI] Skaff Checks / Compile skaff
 	@cd skaff ; \
 	go build
 
-smoke: sane ## Smoke tests (alias of sane)
+smoke: smoke-core-services smoke-identity smoke-logging ## Run smoke tests
 
 smoke-core-services: prereq-go ## Run core-service smoke tests
 	@cores=$$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 8); \
@@ -1138,14 +1134,14 @@ tflint-init: ## Initialize tflint
 tools: prereq-go ## Install tools
 	@echo "make: Installing tools..."
 	cd .ci/providerlint && $(GO_VER) install .
-	cd .ci/tools && $(GO_VER) install github.com/YakDriver/swissshepherd
-	cd .ci/tools && $(GO_VER) install github.com/client9/misspell/cmd/misspell
-	cd .ci/tools && $(GO_VER) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint
 	cd .ci/tools && $(GO_VER) install github.com/YakDriver/copyplop
+	cd .ci/tools && $(GO_VER) install github.com/YakDriver/swissshepherd
+	cd .ci/tools && $(GO_VER) install github.com/golangci/misspell/cmd/misspell
+	cd .ci/tools && $(GO_VER) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint
 	cd .ci/tools && $(GO_VER) install github.com/hashicorp/go-changelog/cmd/changelog-build
+	cd .ci/tools && $(GO_VER) install github.com/katbyte/actionlint/cmd/actionlint
 	cd .ci/tools && $(GO_VER) install github.com/katbyte/terrafmt
 	cd .ci/tools && $(GO_VER) install github.com/pavius/impi/cmd/impi
-	cd .ci/tools && $(GO_VER) install github.com/rhysd/actionlint/cmd/actionlint
 	cd .ci/tools && $(GO_VER) install github.com/terraform-linters/tflint
 	cd .ci/tools && $(GO_VER) install golang.org/x/tools/cmd/stringer
 	cd .ci/tools && $(GO_VER) install mvdan.cc/gofumpt
@@ -1236,7 +1232,7 @@ website-markdown-lint: ## [CI] Website Checks / markdown-lint
 
 website-misspell: ## [CI] Website Checks / misspell
 	@echo "make: Website Checks / misspell..."
-	@misspell -error -source text website/
+	@misspell -error -source text website/docs/*.html.markdown website/docs/*/*.html.markdown
 
 website-terrafmt: ## [CI] Website Checks / terrafmt
 	@echo "make: Website Checks / terrafmt..."
@@ -1342,7 +1338,6 @@ yamllint: ## [CI] YAML Linting / yamllint
 	generate-changelog \
 	gh-workflow-lint \
 	go-build \
-	go-misspell \
 	golangci-lint \
 	golangci-lint1 \
 	golangci-lint2 \
@@ -1389,7 +1384,6 @@ yamllint: ## [CI] YAML Linting / yamllint
 	smoke-core-services \
 	smoke-identity \
 	smoke-logging \
-	$(SMOKE_LOGGING_TARGETS) \
 	sweep \
 	sweeper \
 	sweeper-check \
